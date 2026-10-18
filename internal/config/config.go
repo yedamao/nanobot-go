@@ -36,8 +36,12 @@ const (
 	// DefaultContextWindowTokens matches nanobot's context_window_tokens.
 	DefaultContextWindowTokens = 200_000
 	DefaultSummaryMaxTokens    = 2048
-	DefaultExecTimeout         = 60
-	DefaultFetchMaxBytes       = 2 << 20
+	// DefaultDreamBatchEntries and DefaultMaxHistoryEntries match
+	// nanobot's Dream batch and history.jsonl limits.
+	DefaultDreamBatchEntries = 20
+	DefaultMaxHistoryEntries = 1000
+	DefaultExecTimeout       = 60
+	DefaultFetchMaxBytes     = 2 << 20
 )
 
 // ProviderAuto picks the provider from the model name and configured keys.
@@ -83,6 +87,9 @@ type AgentDefaults struct {
 	ContextWindowTokens int `json:"contextWindowTokens"`
 	// Consolidation configures history summaries.
 	Consolidation ConsolidationConfig `json:"consolidation"`
+	// Dream configures `nanobot dream`, which folds the history summaries
+	// into the long-term memory files.
+	Dream DreamConfig `json:"dream"`
 	// FallbackModels are tried in order when the primary provider fails
 	// with a failover-worthy error.
 	FallbackModels []FallbackModel `json:"fallbackModels"`
@@ -96,6 +103,17 @@ type ConsolidationConfig struct {
 	Enable bool `json:"enable"`
 	// SummaryMaxTokens caps each summary.
 	SummaryMaxTokens int `json:"summaryMaxTokens"`
+}
+
+// DreamConfig configures Dream: turning memory/history.jsonl entries into
+// long-term memory (SOUL.md, USER.md, memory/MEMORY.md, skills/).
+type DreamConfig struct {
+	// BatchEntries caps the history entries one run processes.
+	BatchEntries int `json:"batchEntries"`
+	// MaxHistoryEntries is the size history.jsonl is trimmed to after a
+	// run; entries Dream has not processed are always kept. 0 disables
+	// trimming.
+	MaxHistoryEntries int `json:"maxHistoryEntries"`
 }
 
 // FallbackModel names a fallback provider and model. An empty Provider
@@ -176,6 +194,7 @@ func Default() *Config {
 			MaxHistoryMessages:  DefaultMaxHistoryMessages,
 			ContextWindowTokens: DefaultContextWindowTokens,
 			Consolidation:       ConsolidationConfig{Enable: true, SummaryMaxTokens: DefaultSummaryMaxTokens},
+			Dream:               DreamConfig{BatchEntries: DefaultDreamBatchEntries, MaxHistoryEntries: DefaultMaxHistoryEntries},
 			FallbackModels:      []FallbackModel{},
 		}},
 		Tools: ToolsConfig{
@@ -347,6 +366,12 @@ func (c *Config) Validate() error {
 	}
 	if d.Consolidation.SummaryMaxTokens <= 0 {
 		bad("agents.defaults.consolidation.summaryMaxTokens must be positive, got %d", d.Consolidation.SummaryMaxTokens)
+	}
+	if d.Dream.BatchEntries <= 0 {
+		bad("agents.defaults.dream.batchEntries must be positive, got %d", d.Dream.BatchEntries)
+	}
+	if d.Dream.MaxHistoryEntries < 0 {
+		bad("agents.defaults.dream.maxHistoryEntries must not be negative, got %d", d.Dream.MaxHistoryEntries)
 	}
 	for i, fb := range d.FallbackModels {
 		if fb.Provider != "" && !validProvider(fb.Provider) {

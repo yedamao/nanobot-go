@@ -44,7 +44,7 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	data := `{
 	  "agents": {"defaults": {"model": "deepseek-chat", "maxTokens": 1024,
-	    "contextWindowTokens": 64000, "consolidation": {"enable": false},
+	    "contextWindowTokens": 64000, "consolidation": {"enable": false}, "dream": {"batchEntries": 5},
 	    "fallbackModels": [{"provider": "openai", "model": "gpt-4o"}]}},
 	  "providers": {"deepseek": {"apiKey": "sk-ds"}},
 	  "tools": {"exec": {"timeout": 5, "allowedEnvKeys": ["GOPATH"]}}
@@ -66,6 +66,9 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 	if d.ContextWindowTokens != 64000 || d.Consolidation.Enable || d.Consolidation.SummaryMaxTokens != DefaultSummaryMaxTokens {
 		t.Errorf("consolidation settings = %d %+v", d.ContextWindowTokens, d.Consolidation)
+	}
+	if d.Dream.BatchEntries != 5 || d.Dream.MaxHistoryEntries != DefaultMaxHistoryEntries {
+		t.Errorf("dream settings = %+v", d.Dream)
 	}
 	if !cfg.Tools.RestrictToWorkspace || !cfg.Tools.Exec.Enable || cfg.Tools.Exec.Timeout != 5 {
 		t.Errorf("tools = %+v", cfg.Tools)
@@ -121,6 +124,9 @@ func TestValidate(t *testing.T) {
 		{"context window", func(c *Config) { c.Agents.Defaults.ContextWindowTokens = c.Agents.Defaults.MaxTokens }, "contextWindowTokens"},
 		{"summary tokens", func(c *Config) { c.Agents.Defaults.Consolidation.SummaryMaxTokens = 0 }, "summaryMaxTokens"},
 		{"consolidation off", func(c *Config) { c.Agents.Defaults.Consolidation.Enable = false }, ""},
+		{"dream batch", func(c *Config) { c.Agents.Defaults.Dream.BatchEntries = 0 }, "dream.batchEntries"},
+		{"dream history", func(c *Config) { c.Agents.Defaults.Dream.MaxHistoryEntries = -1 }, "dream.maxHistoryEntries"},
+		{"dream no trimming", func(c *Config) { c.Agents.Defaults.Dream.MaxHistoryEntries = 0 }, ""},
 		{"fallback provider", func(c *Config) {
 			c.Agents.Defaults.FallbackModels = []FallbackModel{{Provider: "x", Model: "m"}}
 		}, "fallbackModels[0].provider"},
