@@ -149,6 +149,27 @@ func TestAnthropicToolCallRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAnthropicSkipsBlankText(t *testing.T) {
+	p := NewAnthropic(AnthropicConfig{Model: "m"})
+	req := p.buildRequest(ChatRequest{Messages: []Message{
+		{Role: RoleSystem, Content: "sys"},
+		{Role: RoleUser, Content: "hi"},
+		{Role: RoleAssistant, Content: " \n", ToolCalls: []ToolCall{{ID: "t1", Name: "x", Arguments: json.RawMessage(`{}`)}}},
+		{Role: RoleTool, ToolCallID: "t1", Content: "ok"},
+		{Role: RoleUser, Content: "\t"},
+		{Role: RoleAssistant, Content: "  "},
+		{Role: RoleUser, Content: "next"},
+	}})
+	assertJSONEqual(t, req.Messages, `[
+		{"role": "user", "content": [{"type": "text", "text": "hi"}]},
+		{"role": "assistant", "content": [{"type": "tool_use", "id": "t1", "name": "x", "input": {}}]},
+		{"role": "user", "content": [
+			{"type": "tool_result", "tool_use_id": "t1", "content": "ok"},
+			{"type": "text", "text": "next"}
+		]}
+	]`)
+}
+
 func TestAnthropicToolChoice(t *testing.T) {
 	tools := []ToolDef{{Name: "echo"}}
 	tests := []struct {

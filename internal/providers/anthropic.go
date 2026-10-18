@@ -145,7 +145,7 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 			continue
 		case RoleAssistant:
 			role = "assistant"
-			if m.Content != "" {
+			if hasText(m.Content) {
 				blocks = append(blocks, anthropicBlock{Type: "text", Text: m.Content})
 			}
 			for _, tc := range m.ToolCalls {
@@ -156,7 +156,7 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 			blocks = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content, IsError: m.IsError}}
 		default:
 			role = "user"
-			if m.Content != "" { // empty text blocks are rejected
+			if hasText(m.Content) {
 				blocks = []anthropicBlock{{Type: "text", Text: m.Content}}
 			}
 		}
@@ -185,6 +185,10 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 	}
 	return out
 }
+
+// hasText reports whether s can be sent as a text block: the API rejects
+// empty and whitespace-only text.
+func hasText(s string) bool { return strings.TrimSpace(s) != "" }
 
 // objectInput returns args if it is a JSON object, else {}: tool_use input
 // must be an object, and malformed arguments were already answered with an
