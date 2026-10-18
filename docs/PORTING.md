@@ -48,6 +48,13 @@ in which we port them.
 - `internal/memory`: Consolidator (summaries to `memory/history.jsonl`) and
   Dream (ephemeral agent run with a restricted registry, cursor advanced only
   on success).
+  - Done: `Store` (append-only `history.jsonl`), `Consolidator`, the
+    session marker (`Session.LastConsolidated`, `Session.Summary`), the
+    Loop trigger and `/compact`, config `contextWindowTokens` and
+    `consolidation`. The shell guard already denied writes to
+    `history.jsonl` and `.dream_cursor`.
+  - Next: Dream, long-term files (`memory/MEMORY.md`), history compaction
+    that keeps entries Dream has not processed.
 - SQLite session store outside the workspace, with a generation check.
 - `internal/mcp`: stdio and streamable HTTP transports, owned by the
   application rather than the loop.
@@ -105,3 +112,33 @@ in which we port them.
   are not rejected.
 - **No package-level mutable state.** Everything is wired explicitly with
   `context.Context` for cancellation.
+- **Consolidation runs before the turn, in the Loop.** nanobot's
+  `ContextGovernor` can compact inside a running request. nanobot-go keeps
+  the Runner unaware of memory: before each turn the Loop asks its
+  `memory.Consolidator` to `Plan` (more than `maxHistoryMessages`
+  unsummarized messages, or an estimated prompt over
+  `contextWindowTokens` minus `maxTokens` minus 1024) and `Consolidate`.
+  A single turn that outgrows the window mid-run is not compacted.
+- **Consolidation keeps recent turns verbatim.** nanobot's checkpoint
+  archives the whole accepted prefix. nanobot-go archives up to the start
+  of a user turn and keeps the newest turns that fit in half of each limit
+  (at least the latest turn), so consolidation does not repeat every turn
+  and the replay always starts with a user message.
+- **The summarizer sees a plain-text transcript.** nanobot replays the
+  messages (with tool definitions) and asks for a checkpoint. nanobot-go
+  renders them as text (`USER: ...`, `[tool call] ...`, each message capped
+  at 4000 characters, the middle dropped if the window is too small), so the
+  request has no tool_use/tool_result pairing constraints and no tools.
+- **No hidden marker message.** nanobot inserts a hidden user message at
+  the boundary; nanobot-go stores only the index (`last_consolidated` in
+  the session file's metadata line) and the summary (`last_summary`). A
+  marker out of range on load is reset to 0, replaying everything.
+- **No raw-archive fallback.** When summarization fails, nanobot dumps the
+  raw messages into `history.jsonl` and advances. nanobot-go leaves the
+  marker where it is, logs the error, and replays the plain
+  `maxHistoryMessages` window for that turn; the next turn retries. Nothing
+  is written to `history.jsonl` and no message is lost.
+- **`history.jsonl` cursors come from a full scan.** nanobot keeps a cursor
+  counter file; nanobot-go scans the file for the highest valid cursor on
+  each append (appends are rare). Appends are serialized within a process
+  only, and the file is opened without following symlinks.

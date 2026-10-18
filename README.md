@@ -19,10 +19,13 @@ library.
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
   `web_fetch`.
-- Persistent sessions (JSONL, atomic writes), `/new` and `/help`.
+- Persistent sessions (JSONL, atomic writes), `/new`, `/compact` and `/help`.
+- History consolidation (phase 2, part 1): when a conversation outgrows
+  `maxHistoryMessages` or the context window, its oldest turns are
+  summarized into `memory/history.jsonl` instead of being dropped.
 - CLI: `onboard`, `agent` (interactive or one-shot), `status`, `version`.
 
-Not yet: long-term memory, MCP, chat channels (Telegram, Slack, ...), cron,
+Not yet: Dream (turning history into long-term memory files), MCP, chat channels (Telegram, Slack, ...), cron,
 the gateway daemon, process sandboxing. See [docs/PORTING.md](docs/PORTING.md)
 for the roadmap.
 
@@ -42,7 +45,9 @@ bin/nanobot agent                                        # interactive
 ```
 
 In interactive mode, Ctrl-C cancels the current reply (or exits when idle),
-and `exit`, `quit` or Ctrl-D quit. `/new` starts a fresh conversation.
+and `exit`, `quit` or Ctrl-D quit. `/new` starts a fresh conversation;
+`/compact` summarizes the conversation so far and continues from the
+summary.
 Use `-s <key>` to keep several separate conversations (default `cli:direct`).
 
 API keys can also come from the environment, which overrides the file:
@@ -72,6 +77,8 @@ Missing fields keep their defaults; unknown keys are an error.
       "temperature": 0.1,
       "maxToolIterations": 200,
       "maxHistoryMessages": 100,
+      "contextWindowTokens": 200000,
+      "consolidation": {"enable": true, "summaryMaxTokens": 2048},
       "fallbackModels": [
         {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-5"}
       ]
@@ -102,6 +109,25 @@ The workspace may contain `AGENTS.md` (instructions), `SOUL.md`
 prompt. Sessions are stored in `~/.nanobot-go/sessions/`, next to the config
 file and outside the workspace.
 
+### History consolidation
+
+Sessions keep their full transcript, but only part of it is replayed to the
+model. Before each turn, if more than `maxHistoryMessages` unsummarized
+messages would be replayed, or the estimated prompt (about four bytes per
+token) plus `maxTokens` would not fit in `contextWindowTokens`, the oldest
+complete turns are summarized by the model. The newest turns that fit in
+half of each limit stay verbatim. The summary merges the previous one, is
+appended to `<workspace>/memory/history.jsonl` as one
+`{"cursor", "timestamp", "content", "session_key"}` line, and then replaces
+the archived turns in the prompt (at the end of the system prompt). The
+session file records the boundary (`last_consolidated`) and the summary.
+
+If summarization fails, the error is logged and that turn simply replays
+the last `maxHistoryMessages` messages, as with
+`"consolidation": {"enable": false}`; nothing is lost and the next turn
+tries again. The shell guard refuses commands that write to
+`memory/history.jsonl` or `memory/.dream_cursor`.
+
 ## Architecture
 
 ```
@@ -117,6 +143,8 @@ file and outside the workspace.
                         |    prompt + history + message  |
                         |  - saves the session only      |
                         |    after a successful run      |
+                        |  - memory.Consolidator:        |
+                        |    old turns -> history.jsonl  |
                         +---------------+----------------+
                                         |            \
                                         v             v
@@ -169,7 +197,9 @@ behalf. Treat it like giving someone a shell.
 - The config file and session files are written with mode `0600`.
   `nanobot status` reports which keys are set, never their values.
 - A turn whose provider call fails or is canceled is not saved, so errors
-  never poison the conversation history.
+  never poison the conversation history. A history summary is written to
+  `memory/history.jsonl` (fsynced, refusing symlinks and special files)
+  before the session's consolidation marker moves.
 
 ## Development
 
