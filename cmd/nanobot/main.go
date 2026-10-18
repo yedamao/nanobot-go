@@ -1,5 +1,6 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
-// one-shot agent, and status reporting.
+// one-shot agent, a Dream pass over archived history, and status
+// reporting.
 package main
 
 import (
@@ -28,6 +29,7 @@ Usage:
 Commands:
   onboard   write a default config file and workspace
   agent     chat with the agent (interactive, or one-shot with -m)
+  dream     fold archived history into long-term memory (run on a schedule)
   status    show the configuration (API keys are never printed)
   version   print the version
 
@@ -74,6 +76,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.onboard(args[1:])
 	case "agent":
 		err = a.agent(ctx, args[1:])
+	case "dream":
+		err = a.dream(ctx, args[1:])
 	case "status":
 		err = a.status(args[1:])
 	case "version", "-v", "--version":

@@ -58,9 +58,18 @@ func (a *app) agent(ctx context.Context, args []string) error {
 	return a.repl(ctx, loop, sessionKey)
 }
 
-// buildLoop loads the config (file, then environment, then flags) and
-// wires the provider, tools, sessions and agent loop.
-func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, error) {
+// setup is what every agent-running command needs.
+type setup struct {
+	cfg        *config.Config
+	configPath string
+	ws         *security.Workspace
+	provider   providers.Provider
+	logger     *slog.Logger
+}
+
+// load reads the config (file, then environment, then flags), creates the
+// workspace and builds the provider and logger.
+func (a *app) load(configFlag, workspaceFlag string, verbose bool) (*setup, error) {
 	path, err := config.ResolvePath(configFlag, a.getenv)
 	if err != nil {
 		return nil, err
@@ -88,6 +97,30 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 	if err != nil {
 		return nil, err
 	}
+	var provider providers.Provider
+	if a.newProvider != nil {
+		provider, err = a.newProvider(cfg)
+	} else {
+		provider, _, err = cfg.BuildProvider(config.ProviderOptions{})
+	}
+	if err != nil {
+		return nil, err
+	}
+	level := slog.LevelWarn
+	if verbose {
+		level = slog.LevelDebug
+	}
+	logger := slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
+	return &setup{cfg: cfg, configPath: path, ws: ws, provider: provider, logger: logger}, nil
+}
+
+// buildLoop wires the tools, sessions and agent loop.
+func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, error) {
+	s, err := a.load(configFlag, workspaceFlag, verbose)
+	if err != nil {
+		return nil, err
+	}
+	cfg, ws, provider, logger := s.cfg, s.ws, s.provider, s.logger
 	reg := tools.NewRegistry()
 	err = builtin.RegisterAll(reg, builtin.Config{
 		Workspace: ws,
@@ -107,21 +140,6 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 		return nil, err
 	}
 
-	var provider providers.Provider
-	if a.newProvider != nil {
-		provider, err = a.newProvider(cfg)
-	} else {
-		provider, _, err = cfg.BuildProvider(config.ProviderOptions{})
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	level := slog.LevelWarn
-	if verbose {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
 	d := cfg.Agents.Defaults
 	var consolidator *memory.Consolidator
 	if d.Consolidation.Enable {
@@ -142,7 +160,7 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 	return agent.NewLoop(agent.LoopConfig{
 		Provider:           provider,
 		Tools:              reg,
-		Sessions:           session.NewManager(config.SessionsDir(path)),
+		Sessions:           session.NewManager(config.SessionsDir(s.configPath)),
 		Context:            agent.NewContextBuilder(ws.Root),
 		MaxIterations:      d.MaxToolIterations,
 		MaxTokens:          d.MaxTokens,
