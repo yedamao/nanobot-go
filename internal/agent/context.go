@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/yedamao/nanobot-go/internal/fsutil"
 	"github.com/yedamao/nanobot-go/internal/providers"
 )
 
@@ -122,7 +123,9 @@ func (b *ContextBuilder) identity(channel string) string {
 func (b *ContextBuilder) bootstrap() string {
 	var parts []string
 	for _, name := range BootstrapFiles() {
-		data, err := os.ReadFile(filepath.Join(b.workspace, name))
+		// The agent can write these files: never block on a FIFO it left
+		// behind, and read no more than the prompt can use.
+		data, err := fsutil.ReadRegularFile(filepath.Join(b.workspace, name), 4*maxBootstrapChars+4)
 		if err != nil {
 			continue
 		}

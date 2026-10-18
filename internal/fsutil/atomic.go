@@ -1,5 +1,5 @@
 // Package fsutil holds small filesystem helpers shared by the config and
-// session stores.
+// session stores and the agent's context builder.
 package fsutil
 
 import (

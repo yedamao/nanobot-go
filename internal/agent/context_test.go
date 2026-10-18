@@ -59,6 +59,20 @@ func TestSystemPromptWithoutBootstrapFiles(t *testing.T) {
 	}
 }
 
+func TestSystemPromptTruncatesHugeBootstrapFile(t *testing.T) {
+	ws := t.TempDir()
+	// Multi-byte runes, far past the cap: only a bounded prefix is read.
+	huge := strings.Repeat("é", 10*maxBootstrapChars)
+	if err := os.WriteFile(filepath.Join(ws, "SOUL.md"), []byte(huge), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := NewContextBuilder(ws).SystemPrompt("cli")
+	if !strings.Contains(p, strings.Repeat("é", maxBootstrapChars)+"\n... (truncated)") ||
+		strings.Contains(p, strings.Repeat("é", maxBootstrapChars+1)) {
+		t.Errorf("bootstrap file not truncated at %d characters", maxBootstrapChars)
+	}
+}
+
 func TestBuildMessages(t *testing.T) {
 	b := NewContextBuilder(t.TempDir())
 	history := []providers.Message{{Role: providers.RoleUser, Content: "old"}, {Role: providers.RoleAssistant, Content: "reply"}}
