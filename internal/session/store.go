@@ -38,6 +38,10 @@ type metadataLine struct {
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
 	Metadata  map[string]any `json:"metadata,omitempty"`
+	// LastConsolidated and LastSummary hold the consolidation state; see
+	// Session.
+	LastConsolidated int    `json:"last_consolidated,omitempty"`
+	LastSummary      string `json:"last_summary,omitempty"`
 }
 
 // Info summarizes a stored session.
@@ -107,6 +111,12 @@ func (s *Store) Load(key string) (*Session, error) {
 			return nil, fmt.Errorf("load session %q: %w", key, err)
 		}
 	}
+	// A marker past the end (skipped corrupt lines, a hand-edited file)
+	// could hide messages the summary does not cover: replay everything
+	// rather than lose them.
+	if meta.LastConsolidated >= 0 && meta.LastConsolidated <= len(sess.Messages) {
+		sess.LastConsolidated, sess.Summary = meta.LastConsolidated, meta.LastSummary
+	}
 	return sess, nil
 }
 
@@ -116,7 +126,10 @@ func (s *Store) Save(sess *Session) error {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false)
-	meta := metadataLine{Type: metadataType, Key: sess.Key, CreatedAt: sess.CreatedAt, UpdatedAt: sess.UpdatedAt, Metadata: sess.Metadata}
+	meta := metadataLine{
+		Type: metadataType, Key: sess.Key, CreatedAt: sess.CreatedAt, UpdatedAt: sess.UpdatedAt, Metadata: sess.Metadata,
+		LastConsolidated: sess.LastConsolidated, LastSummary: sess.Summary,
+	}
 	if err := enc.Encode(meta); err != nil {
 		return fmt.Errorf("save session %q: %w", sess.Key, err)
 	}

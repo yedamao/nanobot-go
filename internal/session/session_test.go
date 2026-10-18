@@ -104,6 +104,116 @@ func TestHistoryNeverStartsWithToolResult(t *testing.T) {
 	}
 }
 
+func TestHistoryStartsAfterConsolidationMarker(t *testing.T) {
+	s := New("k")
+	s.Append(user("u1"), assistant("a1"), user("u2"), toolCall("c1"), toolResult("c1"), assistant("a2"), user("u3"))
+	if err := s.CommitSummary("sum", 2); err != nil {
+		t.Fatal(err)
+	}
+	want := []providers.Message{user("u2"), toolCall("c1"), toolResult("c1"), assistant("a2"), user("u3")}
+	if got := s.History(0); !reflect.DeepEqual(got, want) {
+		t.Errorf("History(0) = %+v, want %+v", got, want)
+	}
+	if got := s.Unconsolidated(); len(got) != 5 {
+		t.Errorf("Unconsolidated = %d messages, want 5", len(got))
+	}
+	// The window applies on top of the marker.
+	if got := s.History(1); !reflect.DeepEqual(got, []providers.Message{user("u3")}) {
+		t.Errorf("History(1) = %+v", got)
+	}
+	if len(s.Messages) != 7 || s.Summary != "sum" || s.LastConsolidated != 2 {
+		t.Errorf("transcript or marker changed: %d messages, %q, %d", len(s.Messages), s.Summary, s.LastConsolidated)
+	}
+}
+
+func TestHistoryTrimsOrphansAfterMarker(t *testing.T) {
+	// A marker that lands between a tool call and its result must never
+	// replay the result without its call (Anthropic rejects it).
+	s := New("k")
+	s.Append(user("u1"), toolCall("c1"), toolResult("c1"), assistant("a1"), user("u2"), assistant("a2"))
+	if err := s.CommitSummary("sum", 2); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := s.History(0), []providers.Message{user("u2"), assistant("a2")}; !reflect.DeepEqual(got, want) {
+		t.Errorf("History = %+v, want %+v", got, want)
+	}
+}
+
+func TestCommitSummaryBounds(t *testing.T) {
+	s := New("k")
+	s.Append(user("u1"), assistant("a1"), user("u2"))
+	if err := s.CommitSummary("x", 4); err == nil {
+		t.Error("boundary past the end accepted")
+	}
+	if err := s.CommitSummary("first", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CommitSummary("back", 1); err == nil {
+		t.Error("marker moved backwards")
+	}
+	if s.Summary != "first" || s.LastConsolidated != 2 {
+		t.Errorf("failed commit changed state: %q, %d", s.Summary, s.LastConsolidated)
+	}
+	if err := s.CommitSummary("all", 3); err != nil {
+		t.Fatal(err)
+	}
+	if len(s.History(0)) != 0 {
+		t.Error("everything consolidated, but history is not empty")
+	}
+	s.Clear()
+	if s.Summary != "" || s.LastConsolidated != 0 || len(s.Messages) != 0 {
+		t.Errorf("Clear left %q, %d, %d messages", s.Summary, s.LastConsolidated, len(s.Messages))
+	}
+}
+
+func TestStoreRoundTripsConsolidation(t *testing.T) {
+	store := NewStore(t.TempDir())
+	s := New("cli:direct")
+	s.Append(user("u1"), assistant("a1"), user("u2"), assistant("a2"))
+	if err := s.CommitSummary("- [ephemeral] working on X", 2); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(s); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load(s.Key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastConsolidated != 2 || got.Summary != s.Summary || len(got.Messages) != 4 {
+		t.Errorf("loaded marker %d summary %q with %d messages", got.LastConsolidated, got.Summary, len(got.Messages))
+	}
+}
+
+func TestStoreResetsMarkerPastEnd(t *testing.T) {
+	// A corrupt line is skipped on load, so the marker can point past the
+	// end. Replaying everything beats hiding unsummarized messages.
+	store := NewStore(t.TempDir())
+	path := store.Path("k")
+	content := `{"_type":"metadata","key":"k","last_consolidated":3,"last_summary":"old"}` + "\n" +
+		`{"role":"user","content":"u1"}` + "\n" +
+		`not json` + "\n" +
+		`{"role":"assistant","content":"a1"}` + "\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := store.Load("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.LastConsolidated != 0 || got.Summary != "" || len(got.History(0)) != 2 {
+		t.Errorf("marker %d summary %q history %d", got.LastConsolidated, got.Summary, len(got.History(0)))
+	}
+
+	neg := `{"_type":"metadata","key":"k","last_consolidated":-1,"last_summary":"old"}` + "\n" + `{"role":"user","content":"u1"}` + "\n"
+	if err := os.WriteFile(path, []byte(neg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err = store.Load("k"); err != nil || got.LastConsolidated != 0 || got.Summary != "" {
+		t.Errorf("negative marker: %+v, %v", got, err)
+	}
+}
+
 func TestStoreRoundTrip(t *testing.T) {
 	store := NewStore(t.TempDir())
 	s := New("telegram:12345")
