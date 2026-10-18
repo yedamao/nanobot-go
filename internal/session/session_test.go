@@ -209,7 +209,8 @@ func TestFileName(t *testing.T) {
 		{"cli_direct", "cli%5Fdirect.jsonl"},
 		{"a/../b", "a%2F..%2Fb.jsonl"},
 		{"..", "%2E..jsonl"},
-		{"", "%00.jsonl"},
+		{"", "%.jsonl"},
+		{"slack:C0ab", "slack_%430ab.jsonl"},
 		{"telegram:-100.5", "telegram_-100.5.jsonl"},
 	}
 	for _, tt := range tests {
@@ -224,6 +225,34 @@ func TestFileName(t *testing.T) {
 	for _, k := range []string{"a/b", "..", `a\b`} {
 		if strings.ContainsAny(fileName(k), `/\`) || filepath.Base(fileName(k)) != fileName(k) {
 			t.Errorf("fileName(%q) = %q escapes the directory", k, fileName(k))
+		}
+	}
+	// Names must stay distinct on case-insensitive filesystems (the macOS
+	// and Windows defaults), and for keys that only differ by a NUL byte.
+	pairs := [][2]string{{"cli:Work", "cli:work"}, {"slack:C0ABC", "slack:c0abc"}, {"", "\x00"}, {"%41", "A"}}
+	for _, p := range pairs {
+		if a, b := fileName(p[0]), fileName(p[1]); strings.EqualFold(a, b) {
+			t.Errorf("fileName(%q) = %q and fileName(%q) = %q collide ignoring case", p[0], a, p[1], b)
+		}
+	}
+}
+
+func TestStoreKeysDifferingOnlyInCase(t *testing.T) {
+	store := NewStore(t.TempDir())
+	for _, key := range []string{"cli:Work", "cli:work"} {
+		s := New(key)
+		s.Append(user("hello from " + key))
+		if err := store.Save(s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, key := range []string{"cli:Work", "cli:work"} {
+		s, err := store.Load(key)
+		if err != nil {
+			t.Fatalf("Load(%q): %v", key, err)
+		}
+		if len(s.Messages) != 1 || s.Messages[0].Content != "hello from "+key {
+			t.Errorf("Load(%q) = %+v", key, s.Messages)
 		}
 	}
 }

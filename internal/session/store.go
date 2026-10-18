@@ -199,19 +199,22 @@ func validRole(r providers.Role) bool {
 	return false
 }
 
-// fileName maps a session key to a safe, unique file name. Letters,
-// digits, '-' and '.' are kept, ':' becomes '_' (so "cli:direct" is
-// "cli_direct.jsonl"), and every other byte, including '_' itself, is
-// percent-encoded, which keeps the mapping injective. A leading '.' is
-// encoded so files are never hidden or "..". Long names are cut and
-// suffixed with a hash of the key.
+// fileName maps a session key to a safe, unique file name. Lower-case
+// letters, digits, '-' and '.' are kept, ':' becomes '_' (so "cli:direct"
+// is "cli_direct.jsonl"), and every other byte, including '_' and
+// upper-case letters, is percent-encoded. That keeps the mapping injective
+// even on case-insensitive filesystems, where "cli:Work" and "cli:work"
+// would otherwise share a file. A leading '.' is encoded so files are
+// never hidden or "..", and the empty key gets the name "%", which no
+// other key produces. Long names are cut and suffixed with a hash of the
+// key.
 func fileName(key string) string {
 	const hexDigits = "0123456789ABCDEF"
 	var b strings.Builder
 	for i := 0; i < len(key); i++ {
 		c := key[i]
 		switch {
-		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '.' && i > 0:
+		case c >= 'a' && c <= 'z', c >= '0' && c <= '9', c == '-', c == '.' && i > 0:
 			b.WriteByte(c)
 		case c == ':':
 			b.WriteByte('_')
@@ -223,7 +226,7 @@ func fileName(key string) string {
 	}
 	name := b.String()
 	if name == "" {
-		name = "%00"
+		name = "%"
 	}
 	if len(name) > maxFileNameBytes {
 		sum := sha256.Sum256([]byte(key))
