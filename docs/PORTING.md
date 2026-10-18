@@ -53,8 +53,13 @@ in which we port them.
     Loop trigger and `/compact`, config `contextWindowTokens` and
     `consolidation`. The shell guard already denied writes to
     `history.jsonl` and `.dream_cursor`.
-  - Next: Dream, long-term files (`memory/MEMORY.md`), history compaction
-    that keeps entries Dream has not processed.
+  - Done: long-term files (`memory/MEMORY.md` created on onboard and
+    loaded by `ContextBuilder`; `SOUL.md`/`USER.md` already were),
+    `Store.DreamCursor`/`Compact`, `DreamTools` (the restricted
+    registry), the `Dream` job with git commits, `agent.DreamRun`, the
+    `nanobot dream` subcommand and config `dream`.
+  - Next: schedule Dream from `internal/cron` (phase 3); `/dream-log` and
+    `/dream-restore` style commands over the git history.
 - SQLite session store outside the workspace, with a generation check.
 - `internal/mcp`: stdio and streamable HTTP transports, owned by the
   application rather than the loop.
@@ -140,5 +145,41 @@ in which we port them.
   is written to `history.jsonl` and no message is lost.
 - **`history.jsonl` cursors come from a full scan.** nanobot keeps a cursor
   counter file; nanobot-go scans the file for the highest valid cursor on
-  each append (appends are rare). Appends are serialized within a process
-  only, and the file is opened without following symlinks.
+  each append (appends are rare). Appends and compaction are serialized
+  within a process by a mutex and across processes by an flock on
+  `memory/.history.lock` (Unix only), so an append can neither reuse a
+  cursor nor land in a file compaction is replacing. The file is opened
+  without following symlinks.
+- **Dream is a CLI command, not a cron callback.** nanobot runs Dream from
+  the gateway's cron service. Until `internal/cron` exists, `nanobot
+  dream` does one pass and is scheduled externally; a non-waiting flock on
+  `memory/.dream.lock` refuses overlapping runs. The turn goes straight to
+  the `Runner` (`agent.DreamRun`) rather than through the `Loop`, so there
+  is no `dream:<timestamp>` session to prune. The `memory` package takes
+  the turn as a `DreamRunFunc` so it does not import `agent`.
+- **Dream sees longer entries.** nanobot cuts each history entry in the
+  Dream prompt to 1000 characters; once the cursor moves, the rest is
+  never seen again. nanobot-go cuts at 8000 characters, about the default
+  summary limit. Entries also show their session key.
+- **A corrupt `.dream_cursor` is an error.** nanobot reads it as 0, which
+  replays the whole archive. nanobot-go refuses to run (or to compact) and
+  asks for the file to be fixed or deleted.
+- **Dream's write restriction is a wrapper.** nanobot gives its file tools
+  an allowed directory plus extra allowed files. nanobot-go wraps the
+  ordinary `write_file`/`edit_file` in a guard that resolves the target
+  through symlinks and accepts only `SOUL.md`, `USER.md`,
+  `memory/MEMORY.md` and `skills/...`. The tool resolves the path again,
+  so only a symlink swapped in between by another process could redirect
+  the write (still within the workspace). There is no `apply_patch` tool.
+- **Git through the `git` binary.** nanobot uses dulwich. nanobot-go runs
+  `git` (30s timeout per command, `GIT_DIR`-style variables removed,
+  hooks and signing skipped, author `nanobot <nanobot@dream>`). A missing
+  binary is a logged no-op. Like nanobot, a workspace inside another
+  repository is left alone, and a new repository gets a `.gitignore` that
+  versions only the memory files; unlike nanobot, an existing `.gitignore`
+  is not merged into, and there is no initial commit. Only the memory
+  paths are committed (`git commit -- <paths>`), the cursor is not
+  tracked, and the body lists `git diff --name-status` instead of a diff
+  summary. Edits from an incomplete run are committed too, as in nanobot.
+- **Trimming runs after every pass**, including one with nothing to
+  process, like nanobot's `finally` block.

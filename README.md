@@ -23,9 +23,13 @@ library.
 - History consolidation (phase 2, part 1): when a conversation outgrows
   `maxHistoryMessages` or the context window, its oldest turns are
   summarized into `memory/history.jsonl` instead of being dropped.
-- CLI: `onboard`, `agent` (interactive or one-shot), `status`, `version`.
+- Long-term memory (phase 2, part 2): `nanobot dream` folds those
+  summaries into `SOUL.md`, `USER.md`, `memory/MEMORY.md` and `skills/`,
+  commits the change to git and trims the archive.
+- CLI: `onboard`, `agent` (interactive or one-shot), `dream`, `status`,
+  `version`.
 
-Not yet: Dream (turning history into long-term memory files), MCP, chat channels (Telegram, Slack, ...), cron,
+Not yet: MCP, chat channels (Telegram, Slack, ...), cron,
 the gateway daemon, process sandboxing. See [docs/PORTING.md](docs/PORTING.md)
 for the roadmap.
 
@@ -79,6 +83,7 @@ Missing fields keep their defaults; unknown keys are an error.
       "maxHistoryMessages": 100,
       "contextWindowTokens": 200000,
       "consolidation": {"enable": true, "summaryMaxTokens": 2048},
+      "dream": {"batchEntries": 20, "maxHistoryEntries": 1000},
       "fallbackModels": [
         {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-5"}
       ]
@@ -105,8 +110,10 @@ uses deepseek), then a gateway (openrouter), each only if it has an API key.
 `apiBase` points a preset at a proxy or any other OpenAI-compatible server.
 
 The workspace may contain `AGENTS.md` (instructions), `SOUL.md`
-(personality) and `USER.md` (about you); they are added to the system
-prompt. Sessions are stored in `~/.nanobot-go/sessions/`, next to the config
+(personality), `USER.md` (about you) and `memory/MEMORY.md` (long-term
+memory); they are added to the system prompt, except `AGENTS.md`,
+`USER.md` and `MEMORY.md` while they are still the untouched templates
+`nanobot onboard` creates. Sessions are stored in `~/.nanobot-go/sessions/`, next to the config
 file and outside the workspace.
 
 ### History consolidation
@@ -128,10 +135,45 @@ the last `maxHistoryMessages` messages, as with
 tries again. The shell guard refuses commands that write to
 `memory/history.jsonl` or `memory/.dream_cursor`.
 
+### Long-term memory (Dream)
+
+`nanobot dream` turns the archived summaries into durable memory, like
+nanobot's Dream job. Each run reads up to `dream.batchEntries` entries of
+`memory/history.jsonl` newer than `memory/.dream_cursor` and gives them to
+one agent turn (not saved as a session) whose only tools are `read_file`
+and `list_dir` inside the workspace and `write_file`/`edit_file` limited to
+`SOUL.md`, `USER.md`, `memory/MEMORY.md` and files under `skills/`. The
+instructions can be replaced by writing `<workspace>/prompts/dream.md`.
+
+- The cursor moves only if the turn finishes normally; a failed or
+  interrupted run exits with status 1 and the same entries are retried
+  next time.
+- Then the changed memory files are committed with `git` as
+  `dream: <timestamp>` (author `nanobot`), listing the changed files in
+  the body. A workspace that is not in a repository gets one, with a
+  `.gitignore` that versions only long-term memory; a workspace inside
+  another repository is not committed to; without `git` on `PATH` the step
+  is skipped. Only the memory paths are committed, never anything else you
+  have staged. Use `git log`/`git revert` in the workspace to audit or undo
+  Dream's edits.
+- Finally `history.jsonl` is trimmed to the newest
+  `dream.maxHistoryEntries` entries (0 disables this). Entries Dream has
+  not processed yet are always kept.
+
+Until the built-in scheduler exists, run it periodically yourself, for
+example every two hours (nanobot's default) from cron:
+
+```cron
+0 */2 * * * /path/to/nanobot dream >> ~/.nanobot-go/dream.log 2>&1
+```
+
+Runs that overlap are refused, and history appends from a running agent
+are safe while Dream trims the file.
+
 ## Architecture
 
 ```
-            cmd/nanobot (onboard | agent | status | version)
+        cmd/nanobot (onboard | agent | dream | status | version)
                  |                       |
            internal/config         stdin / stdout
      (JSON, env, provider factory)       |
@@ -200,6 +242,12 @@ behalf. Treat it like giving someone a shell.
   never poison the conversation history. A history summary is written to
   `memory/history.jsonl` (fsynced, refusing symlinks and special files)
   before the session's consolidation marker moves.
+- Dream's write tools check the target after resolving symlinks, so a link
+  planted at `SOUL.md` or `skills/` cannot redirect a write to
+  `history.jsonl` or out of the workspace. Dream has no `exec` or
+  `web_fetch`, and its prompt tells the model to treat the history as
+  data. Its git commands run with a timeout, skip hooks and signing, and
+  ignore `GIT_DIR`-style variables.
 
 ## Development
 
