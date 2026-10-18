@@ -47,6 +47,12 @@ func TestShellGuardDenyPatterns(t *testing.T) {
 		{"mv a b memory/.dream_cursor", true},
 		{"sed -i s/a/b/ memory/history.jsonl", true},
 		{"cat memory/history.jsonl", false},
+		{"dd of=memory/history.jsonl", true},
+		{"echo x >memory/HISTORY.JSONL", true},
+		{"printf 0 | tee memory/.dream_cursor", true},
+		{"echo x > /abs/ws/memory/history.jsonl", true},
+		{"cp memory/history.jsonl backup.jsonl", false},
+		{"tail -n 5 memory/history.jsonl", false},
 		// rm flag spellings that slipped past `-[rf]{1,2}\b`.
 		{"rm -rfv build", true},
 		{"rm -vrf build", true},
