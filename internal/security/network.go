@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -98,6 +99,48 @@ func ContainsInternalURL(text string) bool {
 		if ip, err := netip.ParseAddr(host); err == nil && IsBlockedIP(ip) {
 			return true
 		}
+		if ip, ok := parseLegacyIPv4(host); ok && IsBlockedIP(ip) {
+			return true
+		}
 	}
 	return false
+}
+
+// parseLegacyIPv4 parses the inet_aton spellings that curl, wget and libc
+// accept besides dotted quads: fewer than four parts ("127.1",
+// "2130706433") and octal ("0177") or hex ("0x7f") parts. The last part
+// fills the remaining bytes.
+func parseLegacyIPv4(s string) (netip.Addr, bool) {
+	parts := strings.Split(strings.ToLower(s), ".")
+	if len(parts) > 4 {
+		return netip.Addr{}, false
+	}
+	vals := make([]uint64, len(parts))
+	for i, p := range parts {
+		base := 10
+		switch {
+		case strings.HasPrefix(p, "0x"):
+			base, p = 16, p[2:]
+		case len(p) > 1 && p[0] == '0':
+			base, p = 8, p[1:]
+		}
+		v, err := strconv.ParseUint(p, base, 32)
+		if err != nil {
+			return netip.Addr{}, false
+		}
+		vals[i] = v
+	}
+	var n uint32
+	last := len(vals) - 1
+	for i, v := range vals[:last] {
+		if v > 0xff {
+			return netip.Addr{}, false
+		}
+		n |= uint32(v) << (24 - 8*i)
+	}
+	if bits := 8 * (4 - last); bits < 32 && vals[last] >= 1<<bits {
+		return netip.Addr{}, false
+	}
+	n |= uint32(vals[last])
+	return netip.AddrFrom4([4]byte{byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n)}), true
 }

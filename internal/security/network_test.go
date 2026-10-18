@@ -79,3 +79,37 @@ func TestContainsInternalURL(t *testing.T) {
 		}
 	}
 }
+
+func TestParseLegacyIPv4(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string // "" means not an address
+	}{
+		{"127.0.0.1", "127.0.0.1"},
+		{"127.1", "127.0.0.1"},
+		{"10.1.2", "10.1.0.2"},
+		{"2130706433", "127.0.0.1"},
+		{"0X7F000001", "127.0.0.1"},
+		{"0177.0.0.01", "127.0.0.1"},
+		{"0", "0.0.0.0"},
+		{"256.1", ""},
+		{"1.2.3.256", ""},
+		{"1.16777216", ""},
+		{"4294967296", ""},
+		{"0x", ""},
+		{"08", ""},
+		{"", ""},
+		{"1.2.3.4.5", ""},
+		{"example.com", ""},
+	}
+	for _, tt := range tests {
+		ip, ok := parseLegacyIPv4(tt.in)
+		got := ""
+		if ok {
+			got = ip.String()
+		}
+		if got != tt.want {
+			t.Errorf("parseLegacyIPv4(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}

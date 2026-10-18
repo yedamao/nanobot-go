@@ -2,10 +2,12 @@ package builtin
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,6 +123,39 @@ func TestWebFetchBlocksPrivateAddressesByDefault(t *testing.T) {
 		if !res.IsError || !strings.Contains(res.Content, "blocked internal/private address") {
 			t.Errorf("fetch %s: got %+v", u, res)
 		}
+	}
+}
+
+// A permitted host that redirects to a blocked address must not get the
+// request through: every hop is dialled through the address check.
+func TestWebFetchRedirectToBlockedAddress(t *testing.T) {
+	ln, err := net.Listen("tcp", "[::1]:0")
+	if err != nil {
+		t.Skipf("no IPv6 loopback: %v", err)
+	}
+	var hit atomic.Bool
+	internal := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hit.Store(true)
+		fmt.Fprint(w, "internal secret")
+	}))
+	internal.Listener.Close()
+	internal.Listener = ln
+	internal.Start()
+	t.Cleanup(internal.Close)
+
+	public := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, internal.URL+"/", http.StatusFound)
+	}))
+	t.Cleanup(public.Close)
+
+	// Treat 127.0.0.1 as "public" and everything else as internal.
+	onlyV4Loopback := func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.1") }
+	res := run(t, NewWebFetch(WebFetchConfig{AllowIP: onlyV4Loopback}), map[string]any{"url": public.URL})
+	if !res.IsError || !strings.Contains(res.Content, "blocked internal/private address") {
+		t.Errorf("got %+v", res)
+	}
+	if hit.Load() || strings.Contains(res.Content, "internal secret") {
+		t.Error("redirect reached the blocked server")
 	}
 }
 
