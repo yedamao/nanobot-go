@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -237,6 +238,11 @@ func Load(path string) (*Config, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(cfg); err != nil {
 		return nil, fmt.Errorf("load config %s: %w", path, err)
+	}
+	// Decode stops after one value; anything else (a botched merge, a
+	// second object) would otherwise be ignored silently.
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("load config %s: trailing data after the JSON object", path)
 	}
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("load config %s: %w", path, err)

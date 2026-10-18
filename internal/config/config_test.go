@@ -85,6 +85,8 @@ func TestLoadErrors(t *testing.T) {
 		{"unknown key", `{"providers": {"anthropic": {"api_key": "x"}}}`, `unknown field "api_key"`},
 		{"invalid value", `{"agents": {"defaults": {"maxTokens": 0}}}`, "maxTokens must be positive"},
 		{"unknown provider", `{"agents": {"defaults": {"provider": "nope"}}}`, `provider "nope"`},
+		{"trailing data", `{"tools": {"exec": {"timeout": 5}}} {"tools": {"exec": {"enable": false}}}`, "trailing data"},
+		{"trailing garbage", "{}\n}", "trailing data"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
