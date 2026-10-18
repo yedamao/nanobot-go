@@ -19,7 +19,7 @@ import (
 func newTestLoop(t *testing.T, p providers.Provider, reg *tools.Registry, b *bus.MessageBus) (*Loop, *session.Manager, string) {
 	t.Helper()
 	dir := t.TempDir()
-	sessions := session.NewManager(dir)
+	sessions := session.NewManager(session.NewJSONLStore(dir))
 	l, err := NewLoop(LoopConfig{
 		Bus:      b,
 		Provider: p,
@@ -53,7 +53,7 @@ func TestProcessDirectPersistsTurns(t *testing.T) {
 	}
 
 	// A fresh manager reads the turns back from disk, without system prompts.
-	sess, err := session.NewManager(dir).GetOrCreate("cli:direct")
+	sess, err := session.NewManager(session.NewJSONLStore(dir)).GetOrCreate("cli:direct")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestFailedTurnIsNotPersisted(t *testing.T) {
 	if _, err := l.ProcessDirect(ctx, "second", "s:1"); !errors.As(err, new(*providers.APIError)) {
 		t.Fatalf("ProcessDirect error = %v, want APIError", err)
 	}
-	for _, m := range []*session.Manager{sessions, session.NewManager(dir)} {
+	for _, m := range []*session.Manager{sessions, session.NewManager(session.NewJSONLStore(dir))} {
 		sess, _ := m.GetOrCreate("s:1")
 		if got, want := summarize(sess.Messages), []string{"user:first", "assistant:ok"}; !slices.Equal(got, want) {
 			t.Errorf("session after failed turn = %v, want %v", got, want)
@@ -157,7 +157,7 @@ func TestCommands(t *testing.T) {
 	if len(p.reqs) != 1 {
 		t.Errorf("provider called %d times, want 1 (commands must not reach the model)", len(p.reqs))
 	}
-	for _, m := range []*session.Manager{sessions, session.NewManager(dir)} {
+	for _, m := range []*session.Manager{sessions, session.NewManager(session.NewJSONLStore(dir))} {
 		if sess, _ := m.GetOrCreate("cli:direct"); len(sess.Messages) != 0 {
 			t.Errorf("history after /new = %v", summarize(sess.Messages))
 		}

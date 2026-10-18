@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -167,7 +168,7 @@ func TestCommitSummaryBounds(t *testing.T) {
 }
 
 func TestStoreRoundTripsConsolidation(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	s := New("cli:direct")
 	s.Append(user("u1"), assistant("a1"), user("u2"), assistant("a2"))
 	if err := s.CommitSummary("- [ephemeral] working on X", 2); err != nil {
@@ -188,7 +189,7 @@ func TestStoreRoundTripsConsolidation(t *testing.T) {
 func TestStoreResetsMarkerPastEnd(t *testing.T) {
 	// A corrupt line is skipped on load, so the marker can point past the
 	// end. Replaying everything beats hiding unsummarized messages.
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	path := store.Path("k")
 	content := `{"_type":"metadata","key":"k","last_consolidated":3,"last_summary":"old"}` + "\n" +
 		`{"role":"user","content":"u1"}` + "\n" +
@@ -215,7 +216,7 @@ func TestStoreResetsMarkerPastEnd(t *testing.T) {
 }
 
 func TestStoreRoundTrip(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	s := New("telegram:12345")
 	s.Metadata["title"] = "hello"
 	failed := toolResult("c2")
@@ -254,7 +255,7 @@ func TestStoreRoundTrip(t *testing.T) {
 
 func TestStoreAtomicSaveLeavesNoTempFiles(t *testing.T) {
 	dir := t.TempDir()
-	store := NewStore(dir)
+	store := NewJSONLStore(dir)
 	s := New("cli:direct")
 	for i := range 10 {
 		s.Append(user(strings.Repeat("x", i*1000)))
@@ -277,7 +278,7 @@ func TestStoreAtomicSaveLeavesNoTempFiles(t *testing.T) {
 
 func TestStoreLoadErrors(t *testing.T) {
 	dir := t.TempDir()
-	store := NewStore(dir)
+	store := NewJSONLStore(dir)
 	if _, err := store.Load("missing"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Load(missing) = %v, want ErrNotFound", err)
 	}
@@ -290,7 +291,7 @@ func TestStoreLoadErrors(t *testing.T) {
 }
 
 func TestStoreSkipsCorruptMessageLines(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	s := New("k")
 	s.Append(user("one"), assistant("two"))
 	if err := store.Save(s); err != nil {
@@ -348,7 +349,7 @@ func TestFileName(t *testing.T) {
 }
 
 func TestStoreKeysDifferingOnlyInCase(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	for _, key := range []string{"cli:Work", "cli:work"} {
 		s := New(key)
 		s.Append(user("hello from " + key))
@@ -368,7 +369,7 @@ func TestStoreKeysDifferingOnlyInCase(t *testing.T) {
 }
 
 func TestStoreListAndDelete(t *testing.T) {
-	store := NewStore(t.TempDir())
+	store := NewJSONLStore(t.TempDir())
 	if infos, err := store.List(); err != nil || len(infos) != 0 {
 		t.Fatalf("List(empty) = %v, %v", infos, err)
 	}
@@ -399,7 +400,7 @@ func TestStoreListAndDelete(t *testing.T) {
 
 func TestManager(t *testing.T) {
 	dir := t.TempDir()
-	m := NewManager(dir)
+	m := NewManager(NewJSONLStore(dir))
 	s, err := m.GetOrCreate("cli:direct")
 	if err != nil {
 		t.Fatal(err)
@@ -421,7 +422,7 @@ func TestManager(t *testing.T) {
 	}
 
 	// A fresh manager (new process) sees the saved session.
-	loaded, err := NewManager(dir).GetOrCreate("cli:direct")
+	loaded, err := NewManager(NewJSONLStore(dir)).GetOrCreate("cli:direct")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -435,5 +436,27 @@ func TestManager(t *testing.T) {
 	fresh, _ := m.GetOrCreate("cli:direct")
 	if fresh == s || len(fresh.Messages) != 0 {
 		t.Error("Delete did not drop the cached session")
+	}
+}
+
+// conflictStore fails every save with ErrSessionConflict.
+type conflictStore struct{ *JSONLStore }
+
+func (conflictStore) Save(sess *Session) error {
+	return fmt.Errorf("save session %q: %w", sess.Key, ErrSessionConflict)
+}
+
+func TestManagerDropsStaleSessionOnConflict(t *testing.T) {
+	m := NewManager(conflictStore{NewJSONLStore(t.TempDir())})
+	s, err := m.GetOrCreate("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Save(s); !errors.Is(err, ErrSessionConflict) {
+		t.Fatalf("Save = %v, want ErrSessionConflict", err)
+	}
+	// The stale session is not handed out again; the next turn reloads.
+	if again, _ := m.GetOrCreate("k"); again == s {
+		t.Error("stale session still cached after a conflict")
 	}
 }

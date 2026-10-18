@@ -1,8 +1,9 @@
-// Package session stores conversations as JSONL files, one per session
-// key. It ports the parts of nanobot/session/manager.py the agent loop
-// needs: Session, a history window that never starts mid-turn, a
-// consolidation marker with its summary, and a Manager that caches
-// sessions and writes them atomically.
+// Package session stores conversations. It ports the parts of
+// nanobot/session the agent loop needs: Session, a history window that
+// never starts mid-turn, a consolidation marker with its summary, a
+// Manager that caches sessions, and two Stores: SQLiteStore (one database
+// per workspace with a generation check, like nanobot's
+// SqliteSessionStore) and JSONLStore (one file per session key).
 package session
 
 import (
@@ -30,6 +31,22 @@ type Session struct {
 	// than extends, the previous one: each consolidation merges the old
 	// summary with the newly archived messages.
 	Summary string
+	// Generation is the stored version of the session this value was
+	// loaded at or last saved as; 0 means it was never stored. Stores that
+	// detect concurrent writers (SQLiteStore) refuse to save a stale
+	// generation and advance it on each successful save. Callers do not
+	// set it.
+	Generation int64
+}
+
+// setConsolidation restores a stored marker and summary. A marker past
+// the end (skipped corrupt lines, a hand-edited file) could hide messages
+// the summary does not cover: it is dropped so everything is replayed
+// rather than lost.
+func (s *Session) setConsolidation(marker int, summary string) {
+	if marker >= 0 && marker <= len(s.Messages) {
+		s.LastConsolidated, s.Summary = marker, summary
+	}
 }
 
 // New returns an empty session.

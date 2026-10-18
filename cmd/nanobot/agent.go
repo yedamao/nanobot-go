@@ -160,7 +160,7 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 	return agent.NewLoop(agent.LoopConfig{
 		Provider:           provider,
 		Tools:              reg,
-		Sessions:           session.NewManager(config.SessionsDir(s.configPath)),
+		Sessions:           session.NewManager(session.NewJSONLStore(config.SessionsDir(s.configPath))),
 		Context:            agent.NewContextBuilder(ws.Root),
 		MaxIterations:      d.MaxToolIterations,
 		MaxTokens:          d.MaxTokens,

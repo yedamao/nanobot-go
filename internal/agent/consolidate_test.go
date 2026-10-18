@@ -78,7 +78,7 @@ func newConsolidationLoop(t *testing.T, maxHistory int) *consolidationEnv {
 			t.Fatal(err)
 		}
 	}
-	sessions := session.NewManager(dir)
+	sessions := session.NewManager(session.NewJSONLStore(dir))
 	l, err := NewLoop(LoopConfig{
 		Provider:           sum,
 		Sessions:           sessions,
@@ -110,7 +110,7 @@ func (e *consolidationEnv) lastChat() providers.ChatRequest {
 
 func (e *consolidationEnv) stored(t *testing.T) *session.Session {
 	t.Helper()
-	sess, err := session.NewStore(e.dir).Load("cli:direct")
+	sess, err := session.NewJSONLStore(e.dir).Load("cli:direct")
 	if err != nil {
 		t.Fatal(err)
 	}
