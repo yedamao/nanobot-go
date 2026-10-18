@@ -38,13 +38,9 @@ type OpenAI struct {
 func NewOpenAI(cfg OpenAIConfig) *OpenAI {
 	cfg.Name = cmp.Or(cfg.Name, "openai")
 	cfg.BaseURL = strings.TrimRight(cmp.Or(cfg.BaseURL, DefaultOpenAIBaseURL), "/")
-	client := cfg.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
 	return &OpenAI{
 		cfg: cfg,
-		ep:  httpEndpoint{provider: cfg.Name, client: client, retry: cfg.Retry, errorMessage: openAIErrorMessage},
+		ep:  httpEndpoint{provider: cfg.Name, client: clientOrDefault(cfg.HTTPClient), retry: cfg.Retry, errorMessage: openAIErrorMessage},
 	}
 }
 

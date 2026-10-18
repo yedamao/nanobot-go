@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -139,10 +140,51 @@ func TestParseRetryAfter(t *testing.T) {
 		{"garbage", 0},
 		{now.Add(30 * time.Second).Format(http.TimeFormat), 30 * time.Second},
 		{now.Add(-30 * time.Second).Format(http.TimeFormat), 0},
+		// Non-finite or huge values must not overflow into a negative wait
+		// (which would skip the backoff); the caller caps the result.
+		{"NaN", 0},
+		{"Inf", math.MaxInt64},
+		{"1e300", math.MaxInt64},
 	}
 	for _, tt := range tests {
 		if got := parseRetryAfter(tt.in, now); got != tt.want {
 			t.Errorf("parseRetryAfter(%q) = %v, want %v", tt.in, got, tt.want)
 		}
+	}
+}
+
+// Without a client timeout a server that accepts the request but never
+// answers hangs the turn forever and retries/failover never run.
+func TestDefaultHTTPClientHasTimeout(t *testing.T) {
+	for name, ep := range map[string]httpEndpoint{
+		"anthropic": NewAnthropic(AnthropicConfig{}).ep,
+		"openai":    NewOpenAI(OpenAIConfig{}).ep,
+	} {
+		if ep.client == nil || ep.client.Timeout != DefaultRequestTimeout {
+			t.Errorf("%s: default client timeout = %v, want %v", name, ep.client.Timeout, DefaultRequestTimeout)
+		}
+	}
+	custom := &http.Client{}
+	if NewAnthropic(AnthropicConfig{HTTPClient: custom}).ep.client != custom {
+		t.Error("explicit HTTPClient not used")
+	}
+}
+
+func TestHangingServerTimesOutAsRetryable(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	defer srv.Close()
+	defer close(release)
+	p := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, HTTPClient: &http.Client{Timeout: 100 * time.Millisecond},
+		Retry: RetryPolicy{Delays: []time.Duration{}}})
+	_, err := p.Chat(context.Background(), ChatRequest{Messages: []Message{{Role: RoleUser, Content: "hi"}}})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Kind != KindTimeout || !ShouldFailover(err) {
+		t.Errorf("err = %v, want a failover-worthy timeout", err)
 	}
 }

@@ -120,7 +120,8 @@ func (c *Config) target(p Preset, model string) (Target, error) {
 
 // ProviderOptions tunes the clients built by BuildProvider.
 type ProviderOptions struct {
-	// HTTPClient is shared by every provider; nil uses http.DefaultClient.
+	// HTTPClient is shared by every provider; nil gives each provider a
+	// client with providers.DefaultRequestTimeout.
 	HTTPClient *http.Client
 	Retry      providers.RetryPolicy
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -22,6 +23,21 @@ const DefaultMaxRetryAfter = 60 * time.Second
 
 // maxResponseBytes caps response bodies read from providers.
 const maxResponseBytes = 32 << 20
+
+// DefaultRequestTimeout bounds one provider HTTP request when no client is
+// configured, like the official SDKs' 10-minute default. Responses are not
+// streamed, so it must cover a whole long generation.
+const DefaultRequestTimeout = 10 * time.Minute
+
+// clientOrDefault returns c, or a client with DefaultRequestTimeout. Never
+// http.DefaultClient: it has no timeout, so a stalled server would hang
+// the turn forever and retries and failover would never run.
+func clientOrDefault(c *http.Client) *http.Client {
+	if c != nil {
+		return c
+	}
+	return &http.Client{Timeout: DefaultRequestTimeout}
+}
 
 // RetryPolicy controls retries of transient failures.
 type RetryPolicy struct {
@@ -132,9 +148,12 @@ func parseRetryAfter(v string, now time.Time) time.Duration {
 	if v == "" {
 		return 0
 	}
-	if secs, err := strconv.ParseFloat(v, 64); err == nil {
-		if secs <= 0 {
+	if secs, err := strconv.ParseFloat(v, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		switch {
+		case math.IsNaN(secs) || secs <= 0:
 			return 0
+		case secs >= float64(math.MaxInt64/int64(time.Second)):
+			return math.MaxInt64 // converting would overflow; the caller caps it
 		}
 		return time.Duration(secs * float64(time.Second))
 	}

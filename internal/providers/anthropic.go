@@ -46,13 +46,9 @@ func NewAnthropic(cfg AnthropicConfig) *Anthropic {
 	cfg.BaseURL = strings.TrimRight(cmp.Or(cfg.BaseURL, DefaultAnthropicBaseURL), "/")
 	cfg.Version = cmp.Or(cfg.Version, DefaultAnthropicVersion)
 	cfg.MaxTokens = cmp.Or(cfg.MaxTokens, DefaultMaxTokens)
-	client := cfg.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
 	return &Anthropic{
 		cfg: cfg,
-		ep:  httpEndpoint{provider: "anthropic", client: client, retry: cfg.Retry, errorMessage: anthropicErrorMessage},
+		ep:  httpEndpoint{provider: "anthropic", client: clientOrDefault(cfg.HTTPClient), retry: cfg.Retry, errorMessage: anthropicErrorMessage},
 	}
 }
 
