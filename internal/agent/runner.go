@@ -77,6 +77,8 @@ type RunSpec struct {
 	MaxIterations int
 	// MaxTokens caps each response; zero uses the provider default.
 	MaxTokens int
+	// Temperature is sent with each request when non-nil.
+	Temperature *float64
 	// Hooks observes the run; nil means NopHooks.
 	Hooks Hooks
 }
@@ -245,10 +247,11 @@ func (r *run) forceFinal(ctx context.Context) (*RunResult, error) {
 // FinishError is turned into an error.
 func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []providers.ToolDef) (*providers.ChatResponse, error) {
 	resp, err := r.runner.provider.Chat(ctx, providers.ChatRequest{
-		Model:     r.spec.Model,
-		Messages:  msgs,
-		Tools:     defs,
-		MaxTokens: r.spec.MaxTokens,
+		Model:       r.spec.Model,
+		Messages:    msgs,
+		Tools:       defs,
+		MaxTokens:   r.spec.MaxTokens,
+		Temperature: r.spec.Temperature,
 	})
 	if err != nil {
 		return nil, err
