@@ -152,7 +152,7 @@ func (r *run) loop(ctx context.Context) (*RunResult, error) {
 			return r.fail(ctx, err)
 		}
 		r.hooks.BeforeIteration(ctx, iter, r.res.Messages)
-		resp, err := r.chat(ctx, r.res.Messages, r.defs)
+		resp, err := r.chat(ctx, r.res.Messages, r.defs, providers.ToolChoiceAuto)
 		r.res.Iterations = iter + 1
 		if err != nil {
 			return r.fail(ctx, err)
@@ -223,15 +223,18 @@ func (r *run) loop(ctx context.Context) (*RunResult, error) {
 	return r.forceFinal(ctx)
 }
 
-// forceFinal makes one request without tools asking for a final answer
-// after the iteration budget is spent, falling back to a fixed message.
+// forceFinal makes one request that forbids tool calls, asking for a final
+// answer after the iteration budget is spent, and falls back to a fixed
+// message. The tool definitions stay in the request (with tool_choice
+// "none") because Anthropic rejects histories containing tool calls when no
+// tools are defined.
 func (r *run) forceFinal(ctx context.Context) (*RunResult, error) {
 	if err := ctx.Err(); err != nil {
 		return r.fail(ctx, err)
 	}
 	msgs := append(slices.Clip(r.res.Messages), providers.Message{Role: providers.RoleUser, Content: budgetExhaustedPrompt})
 	final := fmt.Sprintf(maxIterationsMessage, r.maxIter)
-	resp, err := r.chat(ctx, msgs, nil)
+	resp, err := r.chat(ctx, msgs, r.defs, providers.ToolChoiceNone)
 	switch {
 	case err != nil && ctx.Err() != nil:
 		return r.fail(ctx, err)
@@ -245,11 +248,12 @@ func (r *run) forceFinal(ctx context.Context) (*RunResult, error) {
 
 // chat sends one request and accounts for its usage. A response with
 // FinishError is turned into an error.
-func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []providers.ToolDef) (*providers.ChatResponse, error) {
+func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []providers.ToolDef, choice providers.ToolChoice) (*providers.ChatResponse, error) {
 	resp, err := r.runner.provider.Chat(ctx, providers.ChatRequest{
 		Model:       r.spec.Model,
 		Messages:    msgs,
 		Tools:       defs,
+		ToolChoice:  choice,
 		MaxTokens:   r.spec.MaxTokens,
 		Temperature: r.spec.Temperature,
 	})

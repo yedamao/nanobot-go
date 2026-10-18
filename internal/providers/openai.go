@@ -81,6 +81,7 @@ type openAIRequest struct {
 	Model       string          `json:"model"`
 	Messages    []openAIMessage `json:"messages"`
 	Tools       []openAITool    `json:"tools,omitempty"`
+	ToolChoice  string          `json:"tool_choice,omitempty"`
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
 }
@@ -160,6 +161,9 @@ func (o *OpenAI) buildRequest(req ChatRequest) openAIRequest {
 			wire.Function.Parameters = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
 		out.Tools = append(out.Tools, wire)
+	}
+	if len(out.Tools) > 0 {
+		out.ToolChoice = string(req.ToolChoice)
 	}
 	return out
 }

@@ -86,6 +86,34 @@ func TestOpenAIToolCallRoundTrip(t *testing.T) {
 	]`)
 }
 
+func TestOpenAIToolChoice(t *testing.T) {
+	tools := []ToolDef{{Name: "echo"}}
+	tests := []struct {
+		name   string
+		tools  []ToolDef
+		choice ToolChoice
+		want   string // "" when absent
+	}{
+		{"auto omitted", tools, ToolChoiceAuto, ""},
+		{"none", tools, ToolChoiceNone, "none"},
+		{"none without tools omitted", nil, ToolChoiceNone, ""},
+	}
+	p := NewOpenAI(OpenAIConfig{Model: "m"})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := roundTrip(t, p.buildRequest(ChatRequest{
+				Messages:   []Message{{Role: RoleUser, Content: "x"}},
+				Tools:      tt.tools,
+				ToolChoice: tt.choice,
+			})).(map[string]any)
+			got, ok := body["tool_choice"]
+			if tt.want == "" && ok || tt.want != "" && got != tt.want {
+				t.Errorf("tool_choice = %v (present %v), want %q", got, ok, tt.want)
+			}
+		})
+	}
+}
+
 func TestOpenAIFinishReasons(t *testing.T) {
 	tests := []struct {
 		name, finish, toolCalls, want string

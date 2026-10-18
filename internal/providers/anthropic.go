@@ -85,7 +85,12 @@ type anthropicRequest struct {
 	System      string             `json:"system,omitempty"`
 	Messages    []anthropicMessage `json:"messages"`
 	Tools       []anthropicTool    `json:"tools,omitempty"`
+	ToolChoice  *anthropicChoice   `json:"tool_choice,omitempty"`
 	Temperature *float64           `json:"temperature,omitempty"`
+}
+
+type anthropicChoice struct {
+	Type string `json:"type"`
 }
 
 type anthropicMessage struct {
@@ -174,6 +179,9 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 			schema = map[string]any{"type": "object", "properties": map[string]any{}}
 		}
 		out.Tools = append(out.Tools, anthropicTool{Name: t.Name, Description: t.Description, InputSchema: schema})
+	}
+	if len(out.Tools) > 0 && req.ToolChoice != ToolChoiceAuto {
+		out.ToolChoice = &anthropicChoice{Type: string(req.ToolChoice)}
 	}
 	return out
 }

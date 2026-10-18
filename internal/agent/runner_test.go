@@ -453,8 +453,15 @@ func TestRunMaxIterationsForcedFinal(t *testing.T) {
 			t.Fatalf("requests = %d, want 4", len(p.reqs))
 		}
 		final := p.reqs[3]
-		if final.Tools != nil {
-			t.Error("forced final request offered tools")
+		// Tools stay defined (Anthropic requires them when the history has
+		// tool calls) but calling them is forbidden.
+		if final.ToolChoice != providers.ToolChoiceNone || len(final.Tools) != 1 {
+			t.Errorf("forced final request: tool_choice = %q, tools = %d", final.ToolChoice, len(final.Tools))
+		}
+		for i, req := range p.reqs[:3] {
+			if req.ToolChoice != providers.ToolChoiceAuto {
+				t.Errorf("request %d: tool_choice = %q", i, req.ToolChoice)
+			}
 		}
 		if last := final.Messages[len(final.Messages)-1]; last.Role != providers.RoleUser || !strings.Contains(last.Content, "budget for this turn is exhausted") {
 			t.Errorf("final prompt = %+v", last)
@@ -493,6 +500,23 @@ func TestRunMaxIterationsForcedFinal(t *testing.T) {
 		}
 		if res.StopReason != StopMaxIterations || !strings.Contains(res.FinalContent, "maximum number of tool call iterations (2)") {
 			t.Errorf("res = %+v", res)
+		}
+		assertValidHistory(t, res.Messages)
+	})
+
+	t.Run("tool calls in final answer are ignored", func(t *testing.T) {
+		log := &execLog{}
+		reg := registry(t, &fakeTool{name: "echo", readOnly: true, log: log})
+		p := &scripted{steps: []step{loop}}
+		res, err := NewRunner(p).Run(context.Background(), RunSpec{Messages: userMsg("go"), Tools: reg, MaxIterations: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.StopReason != StopMaxIterations || !strings.Contains(res.FinalContent, "maximum number of tool call iterations (1)") {
+			t.Errorf("res = %+v", res)
+		}
+		if n := len(log.get()); n != 1 {
+			t.Errorf("tool executed %d times, want 1 (forced final calls must not run)", n)
 		}
 		assertValidHistory(t, res.Messages)
 	})

@@ -28,6 +28,20 @@ const (
 	FinishError     = "error"
 )
 
+// ToolChoice controls whether the model may call the offered tools.
+type ToolChoice string
+
+// Tool choices.
+const (
+	// ToolChoiceAuto lets the model decide; the field is omitted on the wire.
+	ToolChoiceAuto ToolChoice = ""
+	// ToolChoiceNone keeps the tool definitions in the request but forbids
+	// calling them. Use it instead of dropping Tools when the history holds
+	// tool calls: Anthropic rejects tool_use/tool_result blocks in a request
+	// that defines no tools.
+	ToolChoiceNone ToolChoice = "none"
+)
+
 // Message is one entry of a conversation.
 type Message struct {
 	Role    Role   `json:"role"`
@@ -67,6 +81,9 @@ type ChatRequest struct {
 	Model    string
 	Messages []Message
 	Tools    []ToolDef
+	// ToolChoice is ToolChoiceAuto (the default) or ToolChoiceNone. It is
+	// only sent when Tools is non-empty.
+	ToolChoice ToolChoice
 	// MaxTokens caps the output; zero uses the provider default.
 	MaxTokens int
 	// Temperature is omitted from the request when nil.

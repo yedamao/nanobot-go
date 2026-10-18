@@ -149,6 +149,38 @@ func TestAnthropicToolCallRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAnthropicToolChoice(t *testing.T) {
+	tools := []ToolDef{{Name: "echo"}}
+	tests := []struct {
+		name   string
+		tools  []ToolDef
+		choice ToolChoice
+		want   string // tool_choice JSON, "" when absent
+	}{
+		{"auto omitted", tools, ToolChoiceAuto, ""},
+		{"none", tools, ToolChoiceNone, `{"type":"none"}`},
+		{"none without tools omitted", nil, ToolChoiceNone, ""},
+	}
+	p := NewAnthropic(AnthropicConfig{Model: "m"})
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := roundTrip(t, p.buildRequest(ChatRequest{
+				Messages:   []Message{{Role: RoleUser, Content: "x"}},
+				Tools:      tt.tools,
+				ToolChoice: tt.choice,
+			})).(map[string]any)
+			got, ok := body["tool_choice"]
+			if tt.want == "" {
+				if ok {
+					t.Errorf("tool_choice = %v, want absent", got)
+				}
+				return
+			}
+			assertJSONEqual(t, got, tt.want)
+		})
+	}
+}
+
 func TestAnthropicFinishReasons(t *testing.T) {
 	tests := []struct {
 		stop, content, want string

@@ -38,8 +38,8 @@ in which we port them.
   backends, retry with backoff, `Fallback` with a circuit breaker.
 - `internal/session`: JSONL session store with atomic writes.
 - `internal/agent`: `Runner` (model/tool loop, concurrent read-only tools,
-  iteration limit with a final no-tools request) and `Loop` (one worker per
-  session key, ordered within a session).
+  iteration limit with a final request that forbids tool calls) and `Loop`
+  (one worker per session key, ordered within a session).
 - `internal/config`: JSON config file.
 - `cmd/nanobot`: interactive and one-shot CLI going through the bus.
 
@@ -77,8 +77,18 @@ in which we port them.
 - **History is durable, poisonable data.** Validate at the edge, write
   atomically, never persist error turns, and advance cursors only after
   success.
-- **Errors are results.** Tool failures go back to the model as error results;
-  they never crash a turn.
+- **Errors are results.** Tool failures go back to the model as error results
+  (flagged `is_error` on tool messages, sent as `tool_result.is_error` to
+  Anthropic); they never crash a turn.
+
+## Deliberate deviations from nanobot
+
+- **Forced final answer keeps tools defined.** After the iteration budget is
+  spent, nanobot sends the finalization request with `tools=None`. Anthropic
+  rejects a request whose history contains `tool_use`/`tool_result` blocks
+  but defines no tools, so nanobot-go keeps the definitions and sends
+  `tool_choice: none` (supported by both Anthropic and OpenAI). Tool calls in
+  that response are still ignored and replaced by the fallback message.
 - **Security is a feature.** Workspace containment and the shell guard live
   in the tools from day one; the shell guard is best-effort and not a sandbox.
 - **No package-level mutable state.** Everything is wired explicitly with
