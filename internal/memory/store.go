@@ -23,12 +23,13 @@ import (
 )
 
 // Workspace-relative locations of the memory files. The shell guard denies
-// writes to HistoryFile and DreamCursorFile: only the Store appends to
-// them.
+// writes to HistoryFile and DreamCursorFile: only the Store writes them.
+// LongTermFile (memory/MEMORY.md) is curated by Dream.
 const (
 	Dir             = "memory"
 	HistoryFile     = "history.jsonl"
 	DreamCursorFile = ".dream_cursor"
+	LongTermFile    = "MEMORY.md"
 )
 
 // maxEntryChars is an emergency cap on one history entry, like nanobot's

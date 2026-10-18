@@ -52,6 +52,46 @@ func TestSystemPrompt(t *testing.T) {
 	}
 }
 
+func TestSystemPromptLongTermMemory(t *testing.T) {
+	ws := t.TempDir()
+	if _, err := WriteBootstrapFiles(ws); err != nil {
+		t.Fatal(err)
+	}
+	b := NewContextBuilder(ws)
+	// The untouched template carries nothing and is left out.
+	if p := b.SystemPrompt("cli"); strings.Contains(p, memoryHeader) {
+		t.Error("prompt contains the untouched MEMORY.md template")
+	}
+	if err := os.WriteFile(filepath.Join(ws, "memory", "MEMORY.md"), []byte("\n- Ada prefers Go.\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := b.SystemPrompt("cli")
+	im, it := strings.Index(p, memoryHeader+"- Ada prefers Go."), strings.Index(p, "Tool Usage Notes")
+	if im < 0 || it < 0 || im < it {
+		t.Errorf("memory section missing or before the tool notes (%d, %d):\n%s", im, it, p)
+	}
+	// Loaded once, not also as a bootstrap section.
+	if strings.Count(p, "Ada prefers Go.") != 1 {
+		t.Error("MEMORY.md content repeated")
+	}
+	// A directory or an empty file in its place is ignored.
+	if err := os.WriteFile(filepath.Join(ws, "memory", "MEMORY.md"), []byte(" \n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if p := b.SystemPrompt("cli"); strings.Contains(p, memoryHeader) {
+		t.Error("empty MEMORY.md produced a section")
+	}
+	if err := os.Remove(filepath.Join(ws, "memory", "MEMORY.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(ws, "memory", "MEMORY.md"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if p := b.SystemPrompt("cli"); strings.Contains(p, memoryHeader) {
+		t.Error("MEMORY.md directory produced a section")
+	}
+}
+
 func TestSystemPromptWithoutBootstrapFiles(t *testing.T) {
 	p := NewContextBuilder(t.TempDir()).SystemPrompt("")
 	if strings.Contains(p, "## SOUL.md") || !strings.Contains(p, "Channel: unknown") {
@@ -114,8 +154,11 @@ func TestWriteBootstrapFilesKeepsExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(created, BootstrapFiles()) {
-		t.Errorf("created = %v", created)
+	if want := []string{"AGENTS.md", "SOUL.md", "USER.md", "memory/MEMORY.md"}; !slices.Equal(created, want) {
+		t.Errorf("created = %v, want %v", created, want)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "memory", "MEMORY.md")); err != nil {
+		t.Errorf("memory/MEMORY.md: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(ws, "SOUL.md"), []byte("custom"), 0o600); err != nil {
 		t.Fatal(err)

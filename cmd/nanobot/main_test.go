@@ -146,7 +146,7 @@ func TestOnboard(t *testing.T) {
 	if got.Providers.Anthropic.APIKey != "sk-keep-me" {
 		t.Error("onboard overwrote an existing config without --force")
 	}
-	for _, f := range []string{"AGENTS.md", "SOUL.md", "USER.md"} {
+	for _, f := range []string{"AGENTS.md", "SOUL.md", "USER.md", "memory/MEMORY.md"} {
 		if _, err := os.Stat(filepath.Join(e.workspace, f)); err != nil {
 			t.Errorf("workspace file %s: %v", f, err)
 		}
