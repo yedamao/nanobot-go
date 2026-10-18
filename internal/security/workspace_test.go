@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -144,6 +145,72 @@ func TestRel(t *testing.T) {
 	}
 	if got := ws.Rel(outside); got != outside {
 		t.Errorf("Rel outside = %q", got)
+	}
+}
+
+// On a case-insensitive filesystem (the macOS default) an absolute path
+// spelled with different case names the same file and must not be
+// rejected as outside the workspace.
+func TestResolveCaseInsensitiveFS(t *testing.T) {
+	ws, outside := newTestWorkspace(t, true)
+	upper := filepath.Join(filepath.Dir(ws.Root), "WS")
+	if _, err := os.Stat(filepath.Join(upper, "sub", "a.txt")); err != nil {
+		t.Skip("filesystem is case-sensitive")
+	}
+	got, err := ws.ResolveRead(filepath.Join(upper, "sub", "a.txt"))
+	if err != nil {
+		t.Fatalf("resolve with different case: %v", err)
+	}
+	if rel := ws.Rel(got); rel != filepath.Join("sub", "a.txt") {
+		t.Errorf("Rel = %q", rel)
+	}
+	if !ws.Contains(upper) {
+		t.Error("Contains(root with different case) = false")
+	}
+	// A different directory is still outside.
+	if _, err := ws.ResolveRead(filepath.Join(strings.ToUpper(outside), "secret.txt")); err == nil {
+		t.Error("outside path with different case resolved")
+	}
+}
+
+func TestOpenRoot(t *testing.T) {
+	ws, outside := newTestWorkspace(t, true)
+	mustSymlink(t, outside, filepath.Join(ws.Root, "escape"))
+
+	root, rel, err := ws.OpenRoot(filepath.Join(ws.Root, "sub", "a.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if rel != filepath.Join("sub", "a.txt") {
+		t.Errorf("rel = %q", rel)
+	}
+	if data, err := root.ReadFile(rel); err != nil || string(data) != "a" {
+		t.Errorf("ReadFile = %q, %v", data, err)
+	}
+	// The root refuses to follow a symlink out of the workspace even when
+	// handed a path that skipped resolution.
+	if _, err := root.ReadFile(filepath.Join("escape", "secret.txt")); err == nil {
+		t.Error("os.Root followed a symlink out of the workspace")
+	}
+
+	if _, _, err := ws.OpenRoot(filepath.Join(outside, "secret.txt")); !errors.Is(err, ErrOutsideWorkspace) {
+		t.Errorf("OpenRoot(outside) err = %v, want ErrOutsideWorkspace", err)
+	}
+
+	// Unrestricted workspaces open the volume root for outside paths.
+	open, _ := newTestWorkspace(t, false)
+	secret := filepath.Join(outside, "secret.txt")
+	root2, rel2, err := open.OpenRoot(secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root2.Close()
+	if filepath.IsAbs(rel2) {
+		t.Errorf("rel = %q, want relative", rel2)
+	}
+	if data, err := root2.ReadFile(rel2); err != nil || string(data) != "s" {
+		t.Errorf("ReadFile = %q, %v", data, err)
 	}
 }
 

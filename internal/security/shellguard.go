@@ -156,7 +156,7 @@ func (g *ShellGuard) checkPaths(cmd, cwd string) error {
 	if err != nil {
 		return fmt.Errorf("%w (cannot resolve working dir: %v)", ErrCommandBlocked, err)
 	}
-	if !IsWithin(realCwd, root) {
+	if !g.workspace.Contains(realCwd) {
 		return fmt.Errorf("%w (working dir outside workspace).%s", ErrCommandBlocked, boundaryNote)
 	}
 	if parentRef.MatchString(cmd) {
@@ -196,7 +196,7 @@ func (g *ShellGuard) checkPaths(cmd, cwd string) error {
 		if benignDevicePaths[real] {
 			continue
 		}
-		if !IsWithin(real, realCwd) && !IsWithin(real, root) {
+		if !IsWithin(real, realCwd) && !g.workspace.Contains(real) {
 			return fmt.Errorf("%w (path outside working dir: %s).%s", ErrCommandBlocked, raw, boundaryNote)
 		}
 	}

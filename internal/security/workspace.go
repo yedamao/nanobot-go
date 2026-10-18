@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -59,15 +60,69 @@ func (w *Workspace) ResolveWrite(path string) (string, error) {
 
 // Contains reports whether the resolved path p lies within the workspace.
 func (w *Workspace) Contains(p string) bool {
-	return IsWithin(p, w.Root)
+	_, ok := w.relWithin(p)
+	return ok
 }
 
 // Rel returns p relative to the workspace root when possible, for display.
 func (w *Workspace) Rel(p string) string {
-	if rel, err := filepath.Rel(w.Root, p); err == nil && IsWithin(p, w.Root) {
+	if rel, ok := w.relWithin(p); ok {
 		return rel
 	}
 	return p
+}
+
+// OpenRoot opens the directory through which the resolved path p must be
+// accessed and returns p relative to it: the workspace root when the
+// workspace is restricted, otherwise the root of p's volume. Operations on
+// the returned os.Root refuse to follow symlinks or ".." out of it, so a
+// symlink swapped in between resolving and opening cannot redirect them.
+// The caller must close the root.
+func (w *Workspace) OpenRoot(p string) (*os.Root, string, error) {
+	dir, rel := w.Root, ""
+	if r, ok := w.relWithin(p); ok {
+		rel = r
+	} else if w.RestrictToWorkspace {
+		return nil, "", fmt.Errorf("%w: %s (workspace: %s)", ErrOutsideWorkspace, p, w.Root)
+	} else {
+		dir = filepath.VolumeName(p) + string(filepath.Separator)
+		if rel, _ = filepath.Rel(dir, p); rel == "" {
+			rel = "."
+		}
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, "", err
+	}
+	return root, rel, nil
+}
+
+// relWithin returns p relative to the workspace root if p lies within it.
+// Besides the lexical check it compares each ancestor of p with the root
+// by file identity, so a path spelled with different case on a
+// case-insensitive filesystem (the macOS default) is still recognised.
+func (w *Workspace) relWithin(p string) (string, bool) {
+	if IsWithin(p, w.Root) {
+		rel, err := filepath.Rel(w.Root, p)
+		return rel, err == nil
+	}
+	rootInfo, err := os.Stat(w.Root)
+	if err != nil {
+		return "", false
+	}
+	var below []string
+	for cur := filepath.Clean(p); ; {
+		if info, err := os.Stat(cur); err == nil && os.SameFile(info, rootInfo) {
+			slices.Reverse(below)
+			return filepath.Join(append([]string{"."}, below...)...), true
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return "", false
+		}
+		below = append(below, filepath.Base(cur))
+		cur = parent
+	}
 }
 
 func (w *Workspace) resolve(path string) (string, error) {
@@ -85,7 +140,7 @@ func (w *Workspace) resolve(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if w.RestrictToWorkspace && !IsWithin(real, w.Root) {
+	if w.RestrictToWorkspace && !w.Contains(real) {
 		return "", fmt.Errorf("%w: %s (workspace: %s)", ErrOutsideWorkspace, path, w.Root)
 	}
 	return real, nil
