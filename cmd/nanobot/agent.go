@@ -156,6 +156,11 @@ func (a *app) oneShot(ctx context.Context, loop *agent.Loop, message, key string
 // repl reads one message per line until EOF, "exit" or "quit". Ctrl-C
 // cancels the turn in progress, or exits when idle.
 func (a *app) repl(ctx context.Context, loop *agent.Loop, key string) error {
+	// Canceled on return so the reader goroutine stops instead of blocking
+	// forever on a send nobody receives (it can still sit in a blocked
+	// stdin Read until the process exits).
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	lines := make(chan string)
 	readErr := make(chan error, 1)
 	go func() {

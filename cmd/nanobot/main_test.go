@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -239,6 +240,24 @@ func TestAgentREPL(t *testing.T) {
 	}
 	if strings.Contains(out, "not reached") {
 		t.Error("REPL kept reading after exit")
+	}
+}
+
+func TestAgentREPLExitStopsReader(t *testing.T) {
+	e := newTestEnv(t)
+	before := runtime.NumGoroutine()
+	// Input remains after "exit": the reader goroutine must not stay
+	// blocked trying to hand it over.
+	in := strings.NewReader("exit\nleft\nover\n")
+	if code := e.run(t, in, "agent", "--workspace", e.workspace); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > before {
+		if time.Now().After(deadline) {
+			t.Fatalf("goroutines: %d before, %d after the REPL returned", before, runtime.NumGoroutine())
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
