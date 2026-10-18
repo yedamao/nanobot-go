@@ -177,6 +177,27 @@ func TestExecuteArgumentHandling(t *testing.T) {
 	}
 }
 
+// Schemas that come from JSON (MCP servers, config) decode "required" as
+// []any rather than []string; validation must still enforce it.
+func TestExecuteValidatesJSONDecodedSchema(t *testing.T) {
+	var schema map[string]any
+	if err := json.Unmarshal([]byte(`{"type":"object","properties":{"q":{"type":"string"},"n":{"type":"integer"}},"required":["q"]}`), &schema); err != nil {
+		t.Fatal(err)
+	}
+	r := NewRegistry()
+	if err := r.Register(&fakeTool{name: "mcp_x_search", params: schema}); err != nil {
+		t.Fatal(err)
+	}
+	if res := r.Execute(context.Background(), "mcp_x_search", json.RawMessage(`{"n":1}`)); !res.IsError ||
+		!strings.Contains(res.Content, "missing required parameter 'q'") {
+		t.Errorf("got %+v", res)
+	}
+	if res := r.Execute(context.Background(), "mcp_x_search", json.RawMessage(`{"q":"go","n":"2"}`)); res.IsError ||
+		res.Content != `{"n":2,"q":"go"}` {
+		t.Errorf("got %+v", res)
+	}
+}
+
 func TestExecuteRecoversPanics(t *testing.T) {
 	r := NewRegistry()
 	_ = r.Register(&fakeTool{name: "boom", params: Object(nil), run: func(context.Context, json.RawMessage) Result {

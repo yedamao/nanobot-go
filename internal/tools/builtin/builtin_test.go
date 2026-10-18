@@ -10,6 +10,31 @@ import (
 	"github.com/yedamao/nanobot-go/internal/tools"
 )
 
+// The runner executes consecutive read-only calls concurrently, so a tool
+// that mutates state must never claim to be read-only.
+func TestReadOnlyFlags(t *testing.T) {
+	r := tools.NewRegistry()
+	if err := RegisterAll(r, Config{Workspace: newWS(t)}); err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{
+		"read_file": true, "list_dir": true, "web_fetch": true,
+		"write_file": false, "edit_file": false, "exec": false,
+	}
+	for name, ro := range want {
+		tool, ok := r.Get(name)
+		if !ok {
+			t.Fatalf("%s not registered", name)
+		}
+		if tool.ReadOnly() != ro {
+			t.Errorf("%s.ReadOnly() = %v, want %v", name, tool.ReadOnly(), ro)
+		}
+		if tool.Description() == "" || tool.Parameters()["type"] != "object" {
+			t.Errorf("%s: missing description or object schema", name)
+		}
+	}
+}
+
 func TestRegisterAll(t *testing.T) {
 	tests := []struct {
 		name string

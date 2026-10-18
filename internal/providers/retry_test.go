@@ -153,6 +153,22 @@ func TestParseRetryAfter(t *testing.T) {
 	}
 }
 
+// The default (real timer) sleep must wait and must stop early when the
+// context ends, or a long Retry-After would outlive a canceled turn.
+func TestRetryPolicyRealSleep(t *testing.T) {
+	var p RetryPolicy
+	start := time.Now()
+	if err := p.sleep(context.Background(), 20*time.Millisecond); err != nil || time.Since(start) < 20*time.Millisecond {
+		t.Errorf("sleep returned %v after %v", err, time.Since(start))
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	start = time.Now()
+	if err := p.sleep(ctx, time.Hour); !errors.Is(err, context.Canceled) || time.Since(start) > 5*time.Second {
+		t.Errorf("canceled sleep returned %v after %v", err, time.Since(start))
+	}
+}
+
 // Without a client timeout a server that accepts the request but never
 // answers hangs the turn forever and retries/failover never run.
 func TestDefaultHTTPClientHasTimeout(t *testing.T) {
