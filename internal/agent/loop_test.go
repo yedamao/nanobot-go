@@ -63,6 +63,24 @@ func TestProcessDirectPersistsTurns(t *testing.T) {
 	}
 }
 
+func TestWaitConcurrentWithNewSessions(t *testing.T) {
+	// Wait may run while turns for new sessions are being enqueued (for
+	// example ProcessDirect during Run's shutdown); neither may race.
+	p := &scripted{steps: []step{reply("ok")}}
+	l, _, _ := newTestLoop(t, p, nil, nil)
+	var wg sync.WaitGroup
+	for i := range 20 {
+		wg.Go(func() {
+			if _, err := l.ProcessDirect(context.Background(), "hi", fmt.Sprintf("cli:%d", i)); err != nil {
+				t.Error(err)
+			}
+		})
+		wg.Go(l.Wait)
+	}
+	wg.Wait()
+	l.Wait()
+}
+
 func TestProcessDirectPersistsToolExchange(t *testing.T) {
 	log := &execLog{}
 	tool := &fakeTool{name: "probe", readOnly: true, log: log}

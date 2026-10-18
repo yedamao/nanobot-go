@@ -62,9 +62,12 @@ type Loop struct {
 	runner *Runner
 	log    *slog.Logger
 
+	// mu guards workers; idle is signaled when the last worker exits. A
+	// counter under mu (rather than a WaitGroup) lets Wait run concurrently
+	// with enqueues for new sessions.
 	mu      sync.Mutex
+	idle    *sync.Cond
 	workers map[string]*worker
-	wg      sync.WaitGroup
 }
 
 type worker struct {
@@ -98,7 +101,9 @@ func NewLoop(cfg LoopConfig) (*Loop, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Loop{cfg: cfg, runner: NewRunner(cfg.Provider), log: log, workers: map[string]*worker{}}, nil
+	l := &Loop{cfg: cfg, runner: NewRunner(cfg.Provider), log: log, workers: map[string]*worker{}}
+	l.idle = sync.NewCond(&l.mu)
+	return l, nil
 }
 
 // Run consumes inbound messages from the bus until ctx ends, then waits for
@@ -118,8 +123,15 @@ func (l *Loop) Run(ctx context.Context) error {
 	}
 }
 
-// Wait blocks until every session worker has exited.
-func (l *Loop) Wait() { l.wg.Wait() }
+// Wait blocks until no session worker is running. Turns enqueued while it
+// waits are waited for too.
+func (l *Loop) Wait() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for len(l.workers) > 0 {
+		l.idle.Wait()
+	}
+}
 
 // ProcessDirect runs one turn for content in sessionKey and returns the
 // reply, bypassing the bus. It is serialized with other turns of the same
@@ -154,7 +166,6 @@ func (l *Loop) enqueue(j job) {
 	if !ok {
 		w = &worker{}
 		l.workers[key] = w
-		l.wg.Add(1)
 		go l.work(key, w)
 	}
 	w.queue = append(w.queue, j)
@@ -164,11 +175,13 @@ func (l *Loop) enqueue(j job) {
 // an empty queue and the removal happen under the same lock as enqueue, so
 // no job is ever stranded.
 func (l *Loop) work(key string, w *worker) {
-	defer l.wg.Done()
 	for {
 		l.mu.Lock()
 		if len(w.queue) == 0 {
 			delete(l.workers, key)
+			if len(l.workers) == 0 {
+				l.idle.Broadcast()
+			}
 			l.mu.Unlock()
 			return
 		}
