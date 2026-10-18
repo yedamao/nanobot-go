@@ -89,6 +89,10 @@ in which we port them.
   but defines no tools, so nanobot-go keeps the definitions and sends
   `tool_choice: none` (supported by both Anthropic and OpenAI). Tool calls in
   that response are still ignored and replaced by the fallback message.
+- **exec passes PATH.** Like nanobot, commands get a minimal environment
+  plus `tools.exec.allowedEnvKeys`, never the agent's API keys. nanobot
+  relies on a login shell to rebuild PATH; nanobot-go runs `sh -c`, so
+  PATH (and a few locale/temp variables) are passed through as well.
 - **Security is a feature.** Workspace containment and the shell guard live
   in the tools from day one; the shell guard is best-effort and not a sandbox.
   Where nanobot resolves a path and then opens it by name, the Go file tools

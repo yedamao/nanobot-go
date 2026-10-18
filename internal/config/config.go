@@ -132,6 +132,9 @@ type ExecToolConfig struct {
 	Timeout       int      `json:"timeout"`
 	DenyPatterns  []string `json:"denyPatterns"`
 	AllowPatterns []string `json:"allowPatterns"`
+	// AllowedEnvKeys are environment variables passed through to commands
+	// on top of a minimal base set (HOME, PATH, LANG, ...).
+	AllowedEnvKeys []string `json:"allowedEnvKeys"`
 }
 
 // WebToolConfig configures the web_fetch tool.
@@ -155,7 +158,7 @@ func Default() *Config {
 		}},
 		Tools: ToolsConfig{
 			RestrictToWorkspace: true,
-			Exec:                ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}},
+			Exec:                ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{}},
 			Web:                 WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
 		},
 	}

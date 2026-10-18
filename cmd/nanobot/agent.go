@@ -95,6 +95,7 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 			Timeout:       time.Duration(cfg.Tools.Exec.Timeout) * time.Second,
 			DenyPatterns:  cfg.Tools.Exec.DenyPatterns,
 			AllowPatterns: cfg.Tools.Exec.AllowPatterns,
+			AllowEnv:      cfg.Tools.Exec.AllowedEnvKeys,
 		},
 		Web: builtin.WebFetchConfig{
 			Disabled: !cfg.Tools.Web.Enable,

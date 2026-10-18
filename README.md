@@ -85,7 +85,7 @@ Missing fields keep their defaults; unknown keys are an error.
   },
   "tools": {
     "restrictToWorkspace": true,
-    "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": []},
+    "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": []},
     "web": {"enable": true, "fetchMaxBytes": 2097152}
   }
 }
@@ -154,6 +154,10 @@ behalf. Treat it like giving someone a shell.
 - `tools.exec.denyPatterns` adds regular expressions to the built-in deny
   list. `allowPatterns`, when non-empty, is an allowlist: every command
   segment must match one, and an allowed command skips the deny list.
+- Commands run with a minimal environment (`HOME`, `PATH`, `LANG`, `TERM`,
+  `TMPDIR`, `USER`, ...), so provider API keys and other secrets in the
+  agent's environment are not visible to them. List extra variables to pass
+  through in `tools.exec.allowedEnvKeys`.
 - The shell guard blocks well-known destructive commands (`rm -rf /`,
   `mkfs`, fork bombs, `shutdown`, ...) and requests to internal URLs. It is
   **best-effort pattern matching, not a sandbox**; a determined model can

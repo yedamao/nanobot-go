@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +37,38 @@ type ExecConfig struct {
 	AllowPatterns []string
 	// Shell is the interpreter run as `Shell -c command` (default "sh").
 	Shell string
+	// AllowEnv lists extra environment variables passed through to
+	// commands. Everything outside baseEnvKeys and this list, notably
+	// provider API keys, is withheld.
+	AllowEnv []string
+}
+
+// baseEnvKeys are passed to every command when set. Unlike nanobot, PATH
+// is included: commands run under `sh -c`, not a login shell that would
+// rebuild it.
+var baseEnvKeys = []string{
+	"HOME", "PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TMPDIR", "USER", "LOGNAME", "SHELL",
+	// Windows essentials.
+	"SYSTEMROOT", "COMSPEC", "PATHEXT", "TEMP", "TMP", "USERPROFILE", "HOMEDRIVE", "HOMEPATH",
+}
+
+// commandEnv builds the minimal environment commands run with.
+func commandEnv(allow []string) []string {
+	var env []string
+	seen := map[string]bool{}
+	for _, k := range slices.Concat(baseEnvKeys, allow) {
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		if v, ok := os.LookupEnv(k); ok && (v != "" || k != "TERM") {
+			env = append(env, k+"="+v)
+		}
+	}
+	if os.Getenv("TERM") == "" {
+		env = append(env, "TERM=dumb") // no colour codes or pagers in captured output
+	}
+	return env
 }
 
 // Exec implements the exec tool.
@@ -116,6 +149,7 @@ func (e *Exec) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
 
 	cmd := exec.CommandContext(ctx, e.cfg.Shell, "-c", args.Command)
 	cmd.Dir = cwd
+	cmd.Env = commandEnv(e.cfg.AllowEnv)
 	cmd.WaitDelay = execWaitDelay
 	setProcessGroup(cmd)
 	stdout := newHeadTail(e.cfg.MaxOutput)

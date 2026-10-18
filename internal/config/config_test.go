@@ -46,7 +46,7 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	  "agents": {"defaults": {"model": "deepseek-chat", "maxTokens": 1024,
 	    "fallbackModels": [{"provider": "openai", "model": "gpt-4o"}]}},
 	  "providers": {"deepseek": {"apiKey": "sk-ds"}},
-	  "tools": {"exec": {"timeout": 5}}
+	  "tools": {"exec": {"timeout": 5, "allowedEnvKeys": ["GOPATH"]}}
 	}`
 	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
 		t.Fatal(err)
@@ -65,6 +65,9 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 	if !cfg.Tools.RestrictToWorkspace || !cfg.Tools.Exec.Enable || cfg.Tools.Exec.Timeout != 5 {
 		t.Errorf("tools = %+v", cfg.Tools)
+	}
+	if !reflect.DeepEqual(cfg.Tools.Exec.AllowedEnvKeys, []string{"GOPATH"}) {
+		t.Errorf("allowedEnvKeys = %q", cfg.Tools.Exec.AllowedEnvKeys)
 	}
 	if cfg.Providers.DeepSeek.APIKey != "sk-ds" {
 		t.Errorf("deepseek key not loaded")

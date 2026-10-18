@@ -107,6 +107,40 @@ func TestExecAllowPatterns(t *testing.T) {
 	}
 }
 
+// Commands must not see the agent's secrets (provider API keys live in the
+// environment), only a minimal environment plus explicitly allowed keys.
+func TestExecMinimalEnv(t *testing.T) {
+	t.Setenv("ANTHROPIC_API_KEY", "sk-secret")
+	t.Setenv("NANOBOT_TEST_ALLOWED", "visible")
+	e, _ := newExec(t, ExecConfig{AllowEnv: []string{"NANOBOT_TEST_ALLOWED", "NANOBOT_TEST_UNSET"}})
+	res := run(t, e, map[string]any{"command": "env"})
+	if res.IsError {
+		t.Fatal(res.Content)
+	}
+	if strings.Contains(res.Content, "sk-secret") {
+		t.Errorf("secret leaked into command environment:\n%s", res.Content)
+	}
+	for _, want := range []string{"NANOBOT_TEST_ALLOWED=visible", "HOME=", "PATH="} {
+		if !strings.Contains(res.Content, want) {
+			t.Errorf("env missing %q:\n%s", want, res.Content)
+		}
+	}
+	if strings.Contains(res.Content, "NANOBOT_TEST_UNSET") {
+		t.Errorf("unset allowed key should be omitted:\n%s", res.Content)
+	}
+}
+
+func TestExecWorkingDirSymlinkEscape(t *testing.T) {
+	e, root := newExec(t, ExecConfig{})
+	if err := os.Symlink(t.TempDir(), filepath.Join(root, "out")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	res := run(t, e, map[string]any{"command": "pwd", "working_dir": "out"})
+	if !res.IsError || !strings.Contains(res.Content, "outside the workspace") {
+		t.Errorf("got %+v", res)
+	}
+}
+
 func TestHeadTail(t *testing.T) {
 	h := newHeadTail(10)
 	for _, s := range []string{"abc", "defgh", "ijklmno", "pq"} {
