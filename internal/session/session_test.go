@@ -108,7 +108,9 @@ func TestStoreRoundTrip(t *testing.T) {
 	store := NewStore(t.TempDir())
 	s := New("telegram:12345")
 	s.Metadata["title"] = "hello"
-	s.Append(user("hi <b>&</b>"), toolCall("c1"), toolResult("c1"), assistant("multi\nline"))
+	failed := toolResult("c2")
+	failed.IsError = true
+	s.Append(user("hi <b>&</b>"), toolCall("c1", "c2"), toolResult("c1"), failed, assistant("multi\nline"))
 	if err := store.Save(s); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

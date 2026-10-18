@@ -298,6 +298,7 @@ func (r *run) appendToolResult(call providers.ToolCall, res tools.Result) {
 		ToolCallID: call.ID,
 		Name:       call.Name,
 		Content:    res.Content,
+		IsError:    res.IsError,
 	})
 }
 

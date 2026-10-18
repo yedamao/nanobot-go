@@ -38,6 +38,10 @@ type Message struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	// Name is the tool name on tool messages.
 	Name string `json:"name,omitempty"`
+	// IsError marks a tool message whose call failed. Anthropic receives it
+	// as tool_result.is_error; OpenAI has no equivalent field, so the
+	// content itself must describe the failure.
+	IsError bool `json:"is_error,omitempty"`
 }
 
 // ToolCall is a tool invocation requested by the model.

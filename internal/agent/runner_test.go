@@ -253,7 +253,7 @@ func TestRunToolRoundTrip(t *testing.T) {
 	if len(newMsgs) != 3 {
 		t.Fatalf("new messages = %+v", newMsgs)
 	}
-	if tm := newMsgs[1]; tm.Role != providers.RoleTool || tm.ToolCallID != "c1" || tm.Name != "echo" || tm.Content != "echo got x" {
+	if tm := newMsgs[1]; tm.Role != providers.RoleTool || tm.ToolCallID != "c1" || tm.Name != "echo" || tm.Content != "echo got x" || tm.IsError {
 		t.Errorf("tool message = %+v", tm)
 	}
 	// The second request carries the tool result and the tool definitions.
@@ -359,8 +359,8 @@ func TestRunLengthWithToolCallsDoesNotExecute(t *testing.T) {
 		t.Errorf("assistant = %+v", a)
 	}
 	for _, m := range newMsgs[1:3] {
-		if m.Content != truncatedToolResult {
-			t.Errorf("tool result = %q", m.Content)
+		if m.Content != truncatedToolResult || !m.IsError {
+			t.Errorf("tool result = %+v", m)
 		}
 	}
 	if len(hooks.started) != 0 || !slices.Equal(hooks.ended, []string{"c1", "c2"}) {
@@ -558,6 +558,9 @@ func TestRunToolErrors(t *testing.T) {
 			results := toolResults(res.Messages)
 			if len(results) != 1 || !strings.HasPrefix(results[0], "Error: ") || !strings.Contains(results[0], tt.want) {
 				t.Errorf("results = %q, want %q", results, tt.want)
+			}
+			if tm := res.NewMessages()[1]; tm.Role != providers.RoleTool || !tm.IsError {
+				t.Errorf("tool message not flagged as error: %+v", tm)
 			}
 		})
 	}

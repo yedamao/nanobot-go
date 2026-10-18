@@ -104,6 +104,7 @@ type anthropicBlock struct {
 	// tool_result
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
+	IsError   bool   `json:"is_error,omitempty"`
 }
 
 type anthropicTool struct {
@@ -147,7 +148,7 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 			}
 		case RoleTool:
 			role = "user"
-			blocks = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content}}
+			blocks = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content, IsError: m.IsError}}
 		default:
 			role = "user"
 			if m.Content != "" { // empty text blocks are rejected

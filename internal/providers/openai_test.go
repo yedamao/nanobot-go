@@ -69,7 +69,7 @@ func TestOpenAIToolCallRoundTrip(t *testing.T) {
 	req.Messages = append(req.Messages,
 		Message{Role: RoleAssistant, ToolCalls: resp.ToolCalls},
 		Message{Role: RoleTool, ToolCallID: "call_1", Name: "read_file", Content: "hello"},
-		Message{Role: RoleTool, ToolCallID: "call_2", Name: "exec", Content: "Error: bad args"},
+		Message{Role: RoleTool, ToolCallID: "call_2", Name: "exec", Content: "Error: bad args", IsError: true},
 	)
 	if _, err := p.Chat(context.Background(), req); err != nil {
 		t.Fatal(err)

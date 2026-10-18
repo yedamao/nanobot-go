@@ -124,7 +124,7 @@ func TestAnthropicToolCallRoundTrip(t *testing.T) {
 		Message{Role: RoleAssistant, Content: resp.Content, ToolCalls: append(resp.ToolCalls,
 			ToolCall{ID: "toolu_2", Name: "broken", Arguments: json.RawMessage(`"{not json"`)})},
 		Message{Role: RoleTool, ToolCallID: "toolu_1", Name: "read_file", Content: "hello"},
-		Message{Role: RoleTool, ToolCallID: "toolu_2", Name: "broken", Content: "Error: bad args"},
+		Message{Role: RoleTool, ToolCallID: "toolu_2", Name: "broken", Content: "Error: bad args", IsError: true},
 		Message{Role: RoleUser, Content: "go on"},
 	)
 	req.Temperature = nil
@@ -140,7 +140,7 @@ func TestAnthropicToolCallRoundTrip(t *testing.T) {
 		]},
 		{"role": "user", "content": [
 			{"type": "tool_result", "tool_use_id": "toolu_1", "content": "hello"},
-			{"type": "tool_result", "tool_use_id": "toolu_2", "content": "Error: bad args"},
+			{"type": "tool_result", "tool_use_id": "toolu_2", "content": "Error: bad args", "is_error": true},
 			{"type": "text", "text": "go on"}
 		]}
 	]`)
