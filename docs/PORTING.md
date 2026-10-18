@@ -91,5 +91,13 @@ in which we port them.
   that response are still ignored and replaced by the fallback message.
 - **Security is a feature.** Workspace containment and the shell guard live
   in the tools from day one; the shell guard is best-effort and not a sandbox.
+  Where nanobot resolves a path and then opens it by name, the Go file tools
+  resolve with `Workspace.ResolveRead/ResolveWrite` and then do every
+  operation (open, mkdir, temp file, rename) through the `os.Root` returned
+  by `Workspace.OpenRoot`, which closes the check-then-open race. Note that
+  `os.Root` refuses absolute symlink targets, so callers pass it resolved
+  (symlink-free) paths. Workspace membership also falls back to comparing
+  file identity, so differently-cased paths on case-insensitive filesystems
+  are not rejected.
 - **No package-level mutable state.** Everything is wired explicitly with
   `context.Context` for cancellation.

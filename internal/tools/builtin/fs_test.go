@@ -7,7 +7,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/tools"
@@ -293,6 +296,149 @@ func TestListDir(t *testing.T) {
 	}
 	if res := run(t, tool, map[string]any{"path": "b.txt"}); !res.IsError {
 		t.Error("expected error listing a file")
+	}
+}
+
+// TestFileToolsSymlinkSwapRace swaps a workspace directory with a symlink
+// to the outside while the tools run. A tool that resolves the path and
+// then opens it by name would follow the swapped-in symlink; the tools must
+// never read from or write to the outside directory.
+func TestFileToolsSymlinkSwapRace(t *testing.T) {
+	ws := newWS(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "f.txt"), []byte("secret\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, ws, "d/f.txt", "inside\n")
+	d, dtmp := filepath.Join(ws.Root, "d"), filepath.Join(ws.Root, "dtmp")
+	if err := os.Symlink(outside, filepath.Join(ws.Root, "probe")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	stop := make(chan struct{})
+	swapped := make(chan struct{})
+	go func() {
+		defer close(swapped)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// d becomes a symlink to outside, then the real directory again.
+			// write_file may recreate d as a fresh directory in the gaps;
+			// that stray copy is discarded.
+			if os.Rename(d, dtmp) != nil {
+				continue
+			}
+			if os.Symlink(outside, d) == nil {
+				_ = os.Remove(d)
+			}
+			for os.Rename(dtmp, d) != nil {
+				_ = os.RemoveAll(d)
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		<-swapped
+	}()
+
+	read, write := NewReadFile(ws), NewWriteFile(ws)
+	deadline := time.Now().Add(2 * time.Second)
+	var wg sync.WaitGroup
+	var leakedRead, leakedWrite atomic.Bool
+	for range 4 {
+		wg.Go(func() {
+			for time.Now().Before(deadline) && !leakedRead.Load() && !leakedWrite.Load() {
+				res := read.Execute(context.Background(), json.RawMessage(`{"path":"d/f.txt"}`))
+				if strings.Contains(res.Content, "secret") {
+					leakedRead.Store(true)
+				}
+				write.Execute(context.Background(), json.RawMessage(`{"path":"d/new.txt","content":"x"}`))
+				if _, err := os.Lstat(filepath.Join(outside, "new.txt")); err == nil {
+					leakedWrite.Store(true)
+				}
+			}
+		})
+	}
+	wg.Wait()
+	if leakedRead.Load() {
+		t.Error("read_file followed a swapped-in symlink out of the workspace")
+	}
+	if leakedWrite.Load() {
+		t.Error("write_file wrote through a swapped-in symlink out of the workspace")
+	}
+}
+
+func TestReadFileHugeLine(t *testing.T) {
+	ws := newWS(t)
+	// Far longer than both the bufio buffer and the kept prefix.
+	writeFile(t, ws, "huge.txt", strings.Repeat("y", 1<<20)+"\nnext\n")
+	res := run(t, NewReadFile(ws), map[string]any{"path": "huge.txt"})
+	want := "1| " + strings.Repeat("y", maxLineChars) + "... (line truncated)\n2| next"
+	if res.IsError || res.Content != want {
+		t.Errorf("got %+v (len %d)", res.IsError, len(res.Content))
+	}
+}
+
+func TestFileToolsInternalSymlinks(t *testing.T) {
+	ws := newWS(t)
+	writeFile(t, ws, "sub/a.txt", "old\n")
+	// An absolute symlink that stays inside the workspace is fine.
+	if err := os.Symlink(filepath.Join(ws.Root, "sub"), filepath.Join(ws.Root, "inner")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	if res := run(t, NewEditFile(ws), map[string]any{"path": "inner/a.txt", "old_string": "old", "new_string": "new"}); res.IsError {
+		t.Fatal(res.Content)
+	}
+	if res := run(t, NewWriteFile(ws), map[string]any{"path": "inner/deep/b.txt", "content": "b"}); res.IsError ||
+		!strings.Contains(res.Content, filepath.Join("sub", "deep", "b.txt")) {
+		t.Fatalf("got %+v", res)
+	}
+	if res := run(t, NewReadFile(ws), map[string]any{"path": "inner/a.txt"}); res.Content != "1| new" {
+		t.Errorf("got %+v", res)
+	}
+	if res := run(t, NewListDir(ws), map[string]any{"path": "inner"}); res.Content != "a.txt\ndeep/" {
+		t.Errorf("got %+v", res)
+	}
+}
+
+func TestFileToolsUnrestricted(t *testing.T) {
+	ws, err := security.NewWorkspace(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	outside, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := filepath.Join(outside, "new", "f.txt")
+	if res := run(t, NewWriteFile(ws), map[string]any{"path": p, "content": "hi\n"}); res.IsError ||
+		!strings.Contains(res.Content, p) {
+		t.Fatalf("got %+v", res)
+	}
+	if res := run(t, NewEditFile(ws), map[string]any{"path": p, "old_string": "hi", "new_string": "yo"}); res.IsError {
+		t.Fatal(res.Content)
+	}
+	if res := run(t, NewReadFile(ws), map[string]any{"path": p}); res.Content != "1| yo" {
+		t.Errorf("got %+v", res)
+	}
+	if res := run(t, NewListDir(ws), map[string]any{"path": filepath.Dir(p)}); res.Content != "f.txt" {
+		t.Errorf("got %+v", res)
+	}
+}
+
+func TestListDirDoesNotFollowEscapingSymlinks(t *testing.T) {
+	ws := newWS(t)
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(ws.Root, "escape")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+	res := run(t, NewListDir(ws), map[string]any{})
+	// Marking the entry "escape/" would reveal what lies outside the workspace.
+	if res.IsError || res.Content != "escape" {
+		t.Errorf("got %+v, want plain %q", res, "escape")
 	}
 }
 

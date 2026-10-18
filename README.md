@@ -147,7 +147,10 @@ behalf. Treat it like giving someone a shell.
 
 - `restrictToWorkspace` (default `true`) confines file tools to the
   workspace, including through symlinks and `..`, and makes the shell guard
-  reject commands that reference paths outside it.
+  reject commands that reference paths outside it. File tools do their I/O
+  through an `os.Root` opened on the workspace, so a symlink swapped in
+  after a path was checked still cannot lead outside. They only read
+  regular files (never FIFOs or devices).
 - `tools.exec.denyPatterns` adds regular expressions to the built-in deny
   list. `allowPatterns`, when non-empty, is an allowlist: every command
   segment must match one, and an allowed command skips the deny list.

@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,18 +61,16 @@ func (t *ReadFile) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 	if args.Limit <= 0 {
 		args.Limit = defaultReadLimit
 	}
-	p, err := t.ws.ResolveRead(args.Path)
+	root, rel, err := openTarget(t.ws, args.Path, false)
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	f, err := os.Open(p)
+	defer root.Close()
+	f, err := openRegular(root, rel, args.Path)
 	if err != nil {
-		return tools.Errorf("read %s: %v", args.Path, err)
+		return tools.Errorf("%v", err)
 	}
 	defer f.Close()
-	if info, err := f.Stat(); err == nil && info.IsDir() {
-		return tools.Errorf("%s is a directory; use list_dir", args.Path)
-	}
 
 	br := bufio.NewReader(f)
 	if head, _ := br.Peek(binarySniffBytes); bytes.IndexByte(head, 0) >= 0 {
@@ -83,13 +83,15 @@ func (t *ReadFile) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 		if total%1024 == 0 && ctx.Err() != nil {
 			return tools.Errorf("read %s: %v", args.Path, ctx.Err())
 		}
-		line, err := br.ReadString('\n')
-		if line != "" {
+		raw, cut, err := readLine(br, 4*maxLineChars)
+		if len(raw) > 0 {
 			total++
 			if total >= args.Offset && shown < args.Limit {
-				line = strings.TrimRight(line, "\r\n")
+				line := strings.TrimRight(string(raw), "\r\n")
 				if r := []rune(line); len(r) > maxLineChars {
 					line = string(r[:maxLineChars]) + "... (line truncated)"
+				} else if cut {
+					line += "... (line truncated)"
 				}
 				fmt.Fprintf(&out, "%d| %s\n", total, line)
 				shown++
@@ -119,6 +121,65 @@ func (t *ReadFile) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 	return tools.Text(strings.TrimRight(out.String(), "\n"))
 }
 
+// openTarget resolves path in ws and opens the os.Root it must be accessed
+// through, returning the path relative to that root. Going through the
+// root, rather than opening the resolved path by name, means a symlink
+// swapped in after resolution cannot redirect the operation out of the
+// workspace. The caller must close the root.
+func openTarget(ws *security.Workspace, path string, write bool) (*os.Root, string, error) {
+	resolve := ws.ResolveRead
+	if write {
+		resolve = ws.ResolveWrite
+	}
+	p, err := resolve(path)
+	if err != nil {
+		return nil, "", err
+	}
+	return ws.OpenRoot(p)
+}
+
+// openRegular opens rel in root for reading and fails unless it is a
+// regular file. The open is non-blocking where supported, so a FIFO
+// without a writer cannot hang the tool before the check runs.
+func openRegular(root *os.Root, rel, display string) (*os.File, error) {
+	f, err := root.OpenFile(rel, os.O_RDONLY|openNonblock, 0)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", display, err)
+	}
+	info, err := f.Stat()
+	switch {
+	case err != nil:
+		f.Close()
+		return nil, fmt.Errorf("read %s: %w", display, err)
+	case info.IsDir():
+		f.Close()
+		return nil, fmt.Errorf("%s is a directory; use list_dir", display)
+	case !info.Mode().IsRegular():
+		f.Close()
+		return nil, fmt.Errorf("%s is not a regular file", display)
+	}
+	return f, nil
+}
+
+// readLine reads one line, including its terminator, keeping at most keep
+// bytes. The rest of an over-long line is consumed and discarded instead of
+// buffered, so a huge file without newlines cannot exhaust memory. cut
+// reports whether anything was discarded.
+func readLine(br *bufio.Reader, keep int) (line []byte, cut bool, err error) {
+	for {
+		chunk, err := br.ReadSlice('\n')
+		if room := keep - len(line); room >= len(chunk) {
+			line = append(line, chunk...)
+		} else {
+			line = append(line, chunk[:max(room, 0)]...)
+			cut = true
+		}
+		if !errors.Is(err, bufio.ErrBufferFull) {
+			return line, cut, err
+		}
+	}
+}
+
 // WriteFile implements write_file.
 type WriteFile struct{ ws *security.Workspace }
 
@@ -145,38 +206,46 @@ func (t *WriteFile) Execute(_ context.Context, raw json.RawMessage) tools.Result
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	p, err := t.ws.ResolveWrite(args.Path)
+	root, rel, err := openTarget(t.ws, args.Path, true)
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	if info, err := os.Stat(p); err == nil && info.IsDir() {
+	defer root.Close()
+	if info, err := root.Stat(rel); err == nil && info.IsDir() {
 		return tools.Errorf("%s is a directory", args.Path)
 	}
-	if err := atomicWrite(p, []byte(args.Content)); err != nil {
+	if err := atomicWrite(root, rel, []byte(args.Content)); err != nil {
 		return tools.Errorf("write %s: %v", args.Path, err)
 	}
-	return tools.Text(fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), t.ws.Rel(p)))
+	return tools.Text(fmt.Sprintf("Wrote %d bytes to %s", len(args.Content), t.ws.Rel(filepath.Join(root.Name(), rel))))
 }
 
-// atomicWrite writes data to a temp file in the target directory and
-// renames it into place, preserving the mode of an existing file.
-func atomicWrite(path string, data []byte) (err error) {
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// atomicWrite writes data to a temp file next to name inside root and
+// renames it into place, preserving the mode of an existing file. Every
+// step goes through root, so neither the parent directories it creates nor
+// the temp file can be redirected out of it by a symlink.
+func atomicWrite(root *os.Root, name string, data []byte) (err error) {
+	dir := filepath.Dir(name)
+	if err := root.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	mode := fs.FileMode(0o644)
-	if info, err := os.Stat(path); err == nil {
+	if info, err := root.Stat(name); err == nil {
 		mode = info.Mode().Perm()
 	}
-	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".tmp-*")
+	var suffix [8]byte
+	if _, err := rand.Read(suffix[:]); err != nil {
+		return err
+	}
+	tmpName := filepath.Join(dir, "."+filepath.Base(name)+".tmp-"+hex.EncodeToString(suffix[:]))
+	tmp, err := root.OpenFile(tmpName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
 			tmp.Close()
-			os.Remove(tmp.Name())
+			root.Remove(tmpName)
 		}
 	}()
 	if _, err = tmp.Write(data); err != nil {
@@ -191,7 +260,7 @@ func atomicWrite(path string, data []byte) (err error) {
 	if err = tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), path)
+	return root.Rename(tmpName, name)
 }
 
 // EditFile implements edit_file.
@@ -231,11 +300,17 @@ func (t *EditFile) Execute(_ context.Context, raw json.RawMessage) tools.Result 
 	if args.OldString == args.NewString {
 		return tools.Errorf("old_string and new_string are identical")
 	}
-	p, err := t.ws.ResolveWrite(args.Path)
+	root, rel, err := openTarget(t.ws, args.Path, true)
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	data, err := os.ReadFile(p)
+	defer root.Close()
+	f, err := openRegular(root, rel, args.Path)
+	if err != nil {
+		return tools.Errorf("%v", err)
+	}
+	data, err := io.ReadAll(f)
+	f.Close()
 	if err != nil {
 		return tools.Errorf("read %s: %v", args.Path, err)
 	}
@@ -267,10 +342,10 @@ func (t *EditFile) Execute(_ context.Context, raw json.RawMessage) tools.Result 
 	}
 	b.WriteString(content[prev:])
 
-	if err := atomicWrite(p, []byte(b.String())); err != nil {
+	if err := atomicWrite(root, rel, []byte(b.String())); err != nil {
 		return tools.Errorf("write %s: %v", args.Path, err)
 	}
-	msg := fmt.Sprintf("Edited %s: replaced %d occurrence(s)", t.ws.Rel(p), len(matches))
+	msg := fmt.Sprintf("Edited %s: replaced %d occurrence(s)", t.ws.Rel(filepath.Join(root.Name(), rel)), len(matches))
 	if fuzzy {
 		msg += " (matched ignoring leading/trailing whitespace)"
 	}
@@ -392,11 +467,17 @@ func (t *ListDir) Execute(_ context.Context, raw json.RawMessage) tools.Result {
 	if args.Path == "" {
 		args.Path = "."
 	}
-	p, err := t.ws.ResolveRead(args.Path)
+	root, rel, err := openTarget(t.ws, args.Path, false)
 	if err != nil {
 		return tools.Errorf("%v", err)
 	}
-	entries, err := os.ReadDir(p)
+	defer root.Close()
+	dir, err := root.Open(rel)
+	if err != nil {
+		return tools.Errorf("list %s: %v", args.Path, err)
+	}
+	entries, err := dir.ReadDir(-1)
+	dir.Close()
 	if err != nil {
 		return tools.Errorf("list %s: %v", args.Path, err)
 	}
@@ -409,8 +490,12 @@ func (t *ListDir) Execute(_ context.Context, raw json.RawMessage) tools.Result {
 		if e.IsDir() {
 			name += "/"
 		} else if e.Type()&fs.ModeSymlink != 0 {
-			if info, err := os.Stat(filepath.Join(p, name)); err == nil && info.IsDir() {
-				name += "/"
+			// Resolve through the workspace: a symlink leading out of it is
+			// listed without revealing what it points at.
+			if real, err := t.ws.ResolveRead(filepath.Join(root.Name(), rel, name)); err == nil {
+				if info, err := os.Stat(real); err == nil && info.IsDir() {
+					name += "/"
+				}
 			}
 		}
 		names = append(names, name)
