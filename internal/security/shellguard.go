@@ -16,7 +16,7 @@ var ErrCommandBlocked = errors.New("command blocked by safety guard")
 // are matched against the lower-cased command. Python's `format(?!=)\b` is
 // rewritten without lookahead for RE2.
 var defaultDenyPatterns = []string{
-	`\brm\s+-[rf]{1,2}\b`,                               // rm -r, rm -rf, rm -fr
+	`\brm\b[^|;&\n]*\s(?:-[a-z]*[rf][a-z]*|--(?:recursive|force))\b`, // rm -r/-f in any flag cluster or position
 	`\bdel\s+/[fq]\b`,                                   // del /f, del /q
 	`\brmdir\s+/s\b`,                                    // rmdir /s
 	`(?:^|[;&|]\s*)format(?:$|[^\w=])`,                  // format (as standalone command only)
@@ -43,8 +43,10 @@ var (
 	// parentRef matches a ".." path component: "cd ..", "../x", "a/../b".
 	parentRef = regexp.MustCompile(`(?:^|[\s;&|(=<>"'/\\])\.\.(?:$|[\s;&|)/\\"'<>])`)
 	// pathToken matches words that start like an absolute, home or
-	// variable-based path at a shell word boundary.
-	pathToken = regexp.MustCompile(`(?:^|[\s"'=<>|;&(` + "`" + `])((?:/|~|\$)[^\s"'<>|;&()` + "`" + `]*)`)
+	// variable-based path at a shell word boundary. A backslash (`\/etc`)
+	// and an opening brace (`{/etc,x}`) count as boundaries because the
+	// shell strips or expands them.
+	pathToken = regexp.MustCompile(`(?:^|[\s"'=<>|;&(` + "`" + `\\{])((?:/|~|\$)[^\s"'<>|;&()` + "`" + `]*)`)
 	// dirStack matches tilde forms that refer to the shell directory stack
 	// or another user's home; they cannot be resolved statically.
 	dirStack = regexp.MustCompile(`^~(?:[+-]\d*|[A-Za-z0-9_.@-]+)(?:/|$)`)

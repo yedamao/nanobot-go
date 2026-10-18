@@ -47,6 +47,18 @@ func TestShellGuardDenyPatterns(t *testing.T) {
 		{"mv a b memory/.dream_cursor", true},
 		{"sed -i s/a/b/ memory/history.jsonl", true},
 		{"cat memory/history.jsonl", false},
+		// rm flag spellings that slipped past `-[rf]{1,2}\b`.
+		{"rm -rfv build", true},
+		{"rm -vrf build", true},
+		{"rm -Rf build", true},
+		{"rm -v -r build", true},
+		{"rm --recursive build", true},
+		{"rm --force x", true},
+		{"rm build -rf", true},
+		{"rm -v file.txt", false},
+		{"rm --verbose file.txt", false},
+		{"git rm --cached x", false},
+		{"npm run format", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.cmd, func(t *testing.T) {
@@ -115,6 +127,17 @@ func TestShellGuardInternalURLs(t *testing.T) {
 		{"curl http://10.0.0.5", true},
 		{"curl 'http://[::1]:80/'", true},
 		{"curl http://api.localhost/", true},
+		// Legacy IPv4 spellings that curl and wget accept.
+		{"curl http://127.1/", true},
+		{"curl http://2130706433/", true},
+		{"curl http://0x7f000001/", true},
+		{"curl http://0177.0.0.1/", true},
+		{"curl http://0x7f.1/", true},
+		{"curl http://0/", true},
+		{"curl http://10.1/", true},
+		{"curl http://8.8.8.8/", false},
+		{"curl http://134744072/", false}, // 8.8.8.8
+		{"curl http://1.2.3.4.5/", false}, // not an address; DNS would decide
 	}
 	for _, tt := range tests {
 		if err := g.Check(tt.cmd, ""); (err != nil) != tt.blocked {
@@ -163,6 +186,9 @@ func TestShellGuardWorkspaceContainment(t *testing.T) {
 		{"env var", "cat $NANOBOT_TEST_OUTSIDE/secret.txt", "", true},
 		{"symlink escape", "cat " + filepath.Join(ws.Root, "escape", "secret.txt"), "", true},
 		{"cwd outside", "ls", outside, true},
+		{"escaped slash", `cat \/etc/passwd`, "", true},
+		{"brace expansion", "cat {/etc,x}/passwd", "", true},
+		{"brace inside", "ls {sub,other}", "", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
