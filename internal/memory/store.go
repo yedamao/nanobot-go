@@ -1,7 +1,11 @@
-// Package memory ports stage 1 of nanobot's memory (nanobot/agent/memory.py):
-// a Store for the append-only <workspace>/memory/history.jsonl archive and
-// a Consolidator that summarizes the oldest unconsolidated session messages
-// into it when the replayed history grows too large.
+// Package memory ports nanobot's two-stage memory (nanobot/agent/memory.py).
+// Stage 1: a Store for the append-only <workspace>/memory/history.jsonl
+// archive and a Consolidator that summarizes the oldest unconsolidated
+// session messages into it when the replayed history grows too large.
+// Stage 2: Dream, which folds archived entries into the long-term files
+// (SOUL.md, USER.md, memory/MEMORY.md, skills/) through an ephemeral agent
+// turn with a restricted tool registry, commits them to git and trims the
+// archive.
 package memory
 
 import (
