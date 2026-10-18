@@ -29,3 +29,25 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 	}
 	return io.ReadAll(io.LimitReader(f, limit))
 }
+
+// OpenRegularNoFollow opens path with flag and perm like os.OpenFile, but
+// non-blocking, without following a symlink in the last path component
+// (where the platform supports it), and only if the result is a regular
+// file (ErrNotRegular otherwise). Use it for files the agent could replace
+// through its tools.
+func OpenRegularNoFollow(path string, flag int, perm os.FileMode) (*os.File, error) {
+	f, err := os.OpenFile(path, flag|oNonblock|oNoFollow, perm)
+	if err != nil {
+		return nil, err
+	}
+	info, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		f.Close()
+		return nil, fmt.Errorf("open %s: %w", path, ErrNotRegular)
+	}
+	return f, nil
+}
