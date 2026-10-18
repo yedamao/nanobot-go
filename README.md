@@ -31,14 +31,14 @@ for the roadmap.
 Requires Go 1.26+.
 
 ```sh
-go build -o nanobot ./cmd/nanobot
+go build -o bin/nanobot ./cmd/nanobot
 
-./nanobot onboard          # writes ~/.nanobot-go/config.json and the workspace
+bin/nanobot onboard          # writes ~/.nanobot-go/config.json and the workspace
 $EDITOR ~/.nanobot-go/config.json   # add an API key (or use an env var, below)
-./nanobot status           # check what will be used (keys are never printed)
+bin/nanobot status           # check what will be used (keys are never printed)
 
-./nanobot agent -m "What files are in my workspace?"   # one-shot
-./nanobot agent                                        # interactive
+bin/nanobot agent -m "What files are in my workspace?"   # one-shot
+bin/nanobot agent                                        # interactive
 ```
 
 In interactive mode, Ctrl-C cancels the current reply (or exits when idle),
@@ -66,14 +66,14 @@ Missing fields keep their defaults; unknown keys are an error.
   "agents": {
     "defaults": {
       "workspace": "~/.nanobot-go/workspace",
-      "model": "claude-opus-5-5",
+      "model": "claude-opus-4-5",
       "provider": "auto",
       "maxTokens": 8192,
       "temperature": 0.1,
       "maxToolIterations": 200,
       "maxHistoryMessages": 100,
       "fallbackModels": [
-        {"provider": "openrouter", "model": "anthropic/claude-sonnet-5-5"}
+        {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-5"}
       ]
     }
   },
@@ -168,8 +168,9 @@ behalf. Treat it like giving someone a shell.
 
 ```sh
 gofmt -l .
+go build ./...
 go vet ./...
-go test ./...
+go test -race ./...
 ```
 
 Tests use fakes and `httptest`; they need no network access or API keys.

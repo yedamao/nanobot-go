@@ -26,7 +26,7 @@ const (
 	DefaultDirName            = ".nanobot-go"
 	DefaultFileName           = "config.json"
 	DefaultWorkspace          = "~/" + DefaultDirName + "/workspace"
-	DefaultModel              = "claude-opus-5-5"
+	DefaultModel              = "claude-opus-4-5" // nanobot: anthropic/claude-opus-4-5
 	DefaultProvider           = ProviderAuto
 	DefaultMaxTokens          = 8192
 	DefaultTemperature        = 0.1

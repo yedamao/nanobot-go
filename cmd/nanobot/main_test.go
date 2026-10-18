@@ -179,7 +179,7 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	if strings.Contains(out, "secret") {
 		t.Fatalf("status printed a key:\n%s", out)
 	}
-	for _, want := range []string{e.configPath, e.workspace + " (missing)", "claude-opus-5-5", "auto -> anthropic",
+	for _, want := range []string{e.configPath, e.workspace + " (missing)", config.DefaultModel, "auto -> anthropic",
 		"set (config)", "set (env)", "not set"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)

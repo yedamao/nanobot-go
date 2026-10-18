@@ -14,6 +14,22 @@ func TestDefaultIsValid(t *testing.T) {
 	}
 }
 
+func TestDefaultModelResolvesToAnthropic(t *testing.T) {
+	cfg := Default()
+	if cfg.Agents.Defaults.Model != "claude-opus-4-5" {
+		t.Errorf("default model = %q, want nanobot's claude-opus-4-5", cfg.Agents.Defaults.Model)
+	}
+	cfg.Providers.Anthropic.APIKey = "k"
+	tgt, err := cfg.Resolve(cfg.Agents.Defaults.Provider, cfg.Agents.Defaults.Model)
+	if err != nil || tgt.Preset.Name != "anthropic" || tgt.Model != "claude-opus-4-5" {
+		t.Errorf("Resolve(default) = %+v, %v", tgt, err)
+	}
+	// nanobot's namespaced form resolves the same way.
+	if tgt, err := cfg.Resolve(ProviderAuto, "anthropic/claude-opus-4-5"); err != nil || tgt.Model != "claude-opus-4-5" {
+		t.Errorf("Resolve(anthropic/claude-opus-4-5) = %+v, %v", tgt, err)
+	}
+}
+
 func TestLoadMissingFileReturnsDefaults(t *testing.T) {
 	cfg, err := Load(filepath.Join(t.TempDir(), "nope.json"))
 	if err != nil {
