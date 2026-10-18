@@ -29,3 +29,30 @@ func TestAppendRefusesSymlink(t *testing.T) {
 		t.Errorf("symlink target modified: %q", data)
 	}
 }
+
+func TestDreamCursorRefusesSymlink(t *testing.T) {
+	s := newTestStore(t)
+	outside := filepath.Join(t.TempDir(), "target")
+	if err := os.WriteFile(outside, []byte("99"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(s.DreamCursorPath()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, s.DreamCursorPath()); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.DreamCursor(); err == nil {
+		t.Errorf("DreamCursor followed a symlink: %d", c)
+	}
+	// Setting it replaces the link instead of writing through it.
+	if err := s.SetDreamCursor(3); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(outside); string(data) != "99" {
+		t.Errorf("symlink target modified: %q", data)
+	}
+	if c, err := s.DreamCursor(); err != nil || c != 3 {
+		t.Errorf("cursor = %d, %v", c, err)
+	}
+}
