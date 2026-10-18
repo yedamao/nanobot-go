@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
@@ -165,6 +166,68 @@ func TestFallbackCircuitBreaker(t *testing.T) {
 	}
 	if got := call(); got != "primary" {
 		t.Fatalf("got %q, want primary after close", got)
+	}
+}
+
+// blockingProvider signals each call, then blocks until release is closed.
+type blockingProvider struct {
+	calls   chan struct{}
+	release chan struct{}
+}
+
+func (b *blockingProvider) Name() string { return "primary" }
+func (b *blockingProvider) Chat(ctx context.Context, _ ChatRequest) (*ChatResponse, error) {
+	b.calls <- struct{}{}
+	select {
+	case <-b.release:
+		return &ChatResponse{Content: "primary", FinishReason: FinishStop}, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func TestFallbackHalfOpenAllowsOneProbe(t *testing.T) {
+	var mu sync.Mutex
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	primary := &blockingProvider{calls: make(chan struct{}, 10), release: make(chan struct{})}
+	fb := &fakeProvider{name: "fb"}
+	p := NewFallback(primary, []Fallback{{Provider: fb}}, WithCircuitBreaker(1, time.Minute), WithClock(clock))
+
+	// Trip the circuit with a failure-worthy error.
+	p.recordFailure()
+	mu.Lock()
+	now = now.Add(time.Minute)
+	mu.Unlock()
+
+	probe := make(chan string, 1)
+	go func() {
+		resp, err := p.Chat(context.Background(), ChatRequest{})
+		if err != nil {
+			probe <- err.Error()
+			return
+		}
+		probe <- resp.Content
+	}()
+	<-primary.calls // the probe is in flight
+
+	// While it runs, other callers go straight to the fallback.
+	for range 3 {
+		resp, err := p.Chat(context.Background(), ChatRequest{})
+		if err != nil || resp.Content != "fb" {
+			t.Fatalf("resp = %+v, err = %v; want fallback during probe", resp, err)
+		}
+	}
+	close(primary.release)
+	if got := <-probe; got != "primary" {
+		t.Fatalf("probe = %q", got)
+	}
+	if n := len(primary.calls); n != 0 {
+		t.Errorf("primary called %d extra times during the probe", n)
+	}
+	// The successful probe closed the circuit.
+	if resp, err := p.Chat(context.Background(), ChatRequest{}); err != nil || resp.Content != "primary" {
+		t.Fatalf("after probe: resp = %+v, err = %v", resp, err)
 	}
 }
 

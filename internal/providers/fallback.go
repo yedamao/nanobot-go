@@ -133,10 +133,20 @@ func (f *FallbackProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResp
 	return nil, fmt.Errorf("all providers failed: %w", lastErr)
 }
 
+// primaryAvailable reports whether the primary may be called. After the
+// cooldown exactly one caller gets the half-open probe: the circuit is
+// re-armed for everyone else until the probe's outcome is recorded.
 func (f *FallbackProvider) primaryAvailable() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return f.trippedAt.IsZero() || f.now().Sub(f.trippedAt) >= f.cooldown
+	if f.trippedAt.IsZero() {
+		return true
+	}
+	if now := f.now(); now.Sub(f.trippedAt) >= f.cooldown {
+		f.trippedAt = now
+		return true
+	}
+	return false
 }
 
 func (f *FallbackProvider) recordSuccess() {
