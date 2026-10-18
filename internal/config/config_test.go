@@ -44,6 +44,7 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	data := `{
 	  "agents": {"defaults": {"model": "deepseek-chat", "maxTokens": 1024,
+	    "contextWindowTokens": 64000, "consolidation": {"enable": false},
 	    "fallbackModels": [{"provider": "openai", "model": "gpt-4o"}]}},
 	  "providers": {"deepseek": {"apiKey": "sk-ds"}},
 	  "tools": {"exec": {"timeout": 5, "allowedEnvKeys": ["GOPATH"]}}
@@ -59,9 +60,12 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	if d.Model != "deepseek-chat" || d.MaxTokens != 1024 {
 		t.Errorf("model/maxTokens = %q/%d", d.Model, d.MaxTokens)
 	}
-	// Unset fields keep their defaults.
+	// Unset fields keep their defaults, also inside partly set objects.
 	if d.Temperature != DefaultTemperature || d.MaxToolIterations != DefaultMaxToolIterations || d.Workspace != DefaultWorkspace {
 		t.Errorf("defaults lost: %+v", d)
+	}
+	if d.ContextWindowTokens != 64000 || d.Consolidation.Enable || d.Consolidation.SummaryMaxTokens != DefaultSummaryMaxTokens {
+		t.Errorf("consolidation settings = %d %+v", d.ContextWindowTokens, d.Consolidation)
 	}
 	if !cfg.Tools.RestrictToWorkspace || !cfg.Tools.Exec.Enable || cfg.Tools.Exec.Timeout != 5 {
 		t.Errorf("tools = %+v", cfg.Tools)
@@ -114,6 +118,9 @@ func TestValidate(t *testing.T) {
 		{"temperature", func(c *Config) { c.Agents.Defaults.Temperature = 3 }, "temperature"},
 		{"iterations", func(c *Config) { c.Agents.Defaults.MaxToolIterations = 0 }, "maxToolIterations"},
 		{"history", func(c *Config) { c.Agents.Defaults.MaxHistoryMessages = -1 }, "maxHistoryMessages"},
+		{"context window", func(c *Config) { c.Agents.Defaults.ContextWindowTokens = c.Agents.Defaults.MaxTokens }, "contextWindowTokens"},
+		{"summary tokens", func(c *Config) { c.Agents.Defaults.Consolidation.SummaryMaxTokens = 0 }, "summaryMaxTokens"},
+		{"consolidation off", func(c *Config) { c.Agents.Defaults.Consolidation.Enable = false }, ""},
 		{"fallback provider", func(c *Config) {
 			c.Agents.Defaults.FallbackModels = []FallbackModel{{Provider: "x", Model: "m"}}
 		}, "fallbackModels[0].provider"},

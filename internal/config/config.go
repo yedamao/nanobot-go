@@ -33,8 +33,11 @@ const (
 	DefaultTemperature        = 0.1
 	DefaultMaxToolIterations  = 200
 	DefaultMaxHistoryMessages = 100
-	DefaultExecTimeout        = 60
-	DefaultFetchMaxBytes      = 2 << 20
+	// DefaultContextWindowTokens matches nanobot's context_window_tokens.
+	DefaultContextWindowTokens = 200_000
+	DefaultSummaryMaxTokens    = 2048
+	DefaultExecTimeout         = 60
+	DefaultFetchMaxBytes       = 2 << 20
 )
 
 // ProviderAuto picks the provider from the model name and configured keys.
@@ -72,11 +75,27 @@ type AgentDefaults struct {
 	// MaxToolIterations caps model requests per turn.
 	MaxToolIterations int `json:"maxToolIterations"`
 	// MaxHistoryMessages caps how many past session messages are replayed
-	// to the model each turn.
+	// to the model each turn. With consolidation enabled, exceeding it
+	// summarizes the oldest messages instead of dropping them.
 	MaxHistoryMessages int `json:"maxHistoryMessages"`
+	// ContextWindowTokens is the model's context window. Consolidation
+	// runs when the estimated prompt plus maxTokens would not fit.
+	ContextWindowTokens int `json:"contextWindowTokens"`
+	// Consolidation configures history summaries.
+	Consolidation ConsolidationConfig `json:"consolidation"`
 	// FallbackModels are tried in order when the primary provider fails
 	// with a failover-worthy error.
 	FallbackModels []FallbackModel `json:"fallbackModels"`
+}
+
+// ConsolidationConfig configures history consolidation: summarizing old
+// session messages into <workspace>/memory/history.jsonl.
+type ConsolidationConfig struct {
+	// Enable turns consolidation (and the /compact command) on. When off,
+	// messages beyond maxHistoryMessages are simply not replayed.
+	Enable bool `json:"enable"`
+	// SummaryMaxTokens caps each summary.
+	SummaryMaxTokens int `json:"summaryMaxTokens"`
 }
 
 // FallbackModel names a fallback provider and model. An empty Provider
@@ -148,14 +167,16 @@ type WebToolConfig struct {
 func Default() *Config {
 	return &Config{
 		Agents: AgentsConfig{Defaults: AgentDefaults{
-			Workspace:          DefaultWorkspace,
-			Model:              DefaultModel,
-			Provider:           DefaultProvider,
-			MaxTokens:          DefaultMaxTokens,
-			Temperature:        DefaultTemperature,
-			MaxToolIterations:  DefaultMaxToolIterations,
-			MaxHistoryMessages: DefaultMaxHistoryMessages,
-			FallbackModels:     []FallbackModel{},
+			Workspace:           DefaultWorkspace,
+			Model:               DefaultModel,
+			Provider:            DefaultProvider,
+			MaxTokens:           DefaultMaxTokens,
+			Temperature:         DefaultTemperature,
+			MaxToolIterations:   DefaultMaxToolIterations,
+			MaxHistoryMessages:  DefaultMaxHistoryMessages,
+			ContextWindowTokens: DefaultContextWindowTokens,
+			Consolidation:       ConsolidationConfig{Enable: true, SummaryMaxTokens: DefaultSummaryMaxTokens},
+			FallbackModels:      []FallbackModel{},
 		}},
 		Tools: ToolsConfig{
 			RestrictToWorkspace: true,
@@ -320,6 +341,12 @@ func (c *Config) Validate() error {
 	}
 	if d.MaxHistoryMessages < 0 {
 		bad("agents.defaults.maxHistoryMessages must not be negative, got %d", d.MaxHistoryMessages)
+	}
+	if d.ContextWindowTokens <= d.MaxTokens {
+		bad("agents.defaults.contextWindowTokens (%d) must be larger than maxTokens (%d)", d.ContextWindowTokens, d.MaxTokens)
+	}
+	if d.Consolidation.SummaryMaxTokens <= 0 {
+		bad("agents.defaults.consolidation.summaryMaxTokens must be positive, got %d", d.Consolidation.SummaryMaxTokens)
 	}
 	for i, fb := range d.FallbackModels {
 		if fb.Provider != "" && !validProvider(fb.Provider) {
