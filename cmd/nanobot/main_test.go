@@ -286,6 +286,40 @@ func TestAgentREPL(t *testing.T) {
 	}
 }
 
+func TestAgentREPLCompact(t *testing.T) {
+	e := newTestEnv(t)
+	in := strings.NewReader("hello\n/compact\nexit\n")
+	if code := e.run(t, in, "agent", "--workspace", e.workspace); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	if out := e.stdout.String(); !strings.Contains(out, "Compacted 2 messages into a summary.") {
+		t.Errorf("output:\n%s", out)
+	}
+	data, err := os.ReadFile(filepath.Join(e.workspace, "memory", "history.jsonl"))
+	if err != nil || strings.Count(string(data), "\n") != 1 || !strings.Contains(string(data), `"cursor":1`) {
+		t.Errorf("history.jsonl = %q, %v", data, err)
+	}
+
+	// Disabled in the config: /compact says so and writes nothing.
+	e = newTestEnv(t)
+	if err := os.MkdirAll(filepath.Dir(e.configPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(e.configPath, []byte(`{"agents": {"defaults": {"consolidation": {"enable": false}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	in = strings.NewReader("hello\n/compact\nexit\n")
+	if code := e.run(t, in, "agent", "--workspace", e.workspace); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	if out := e.stdout.String(); !strings.Contains(out, "History consolidation is disabled.") {
+		t.Errorf("output:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(e.workspace, "memory")); !os.IsNotExist(err) {
+		t.Errorf("memory dir created while disabled: %v", err)
+	}
+}
+
 func TestAgentREPLExitStopsReader(t *testing.T) {
 	e := newTestEnv(t)
 	before := runtime.NumGoroutine()

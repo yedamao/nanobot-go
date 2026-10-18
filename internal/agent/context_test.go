@@ -76,7 +76,7 @@ func TestSystemPromptTruncatesHugeBootstrapFile(t *testing.T) {
 func TestBuildMessages(t *testing.T) {
 	b := NewContextBuilder(t.TempDir())
 	history := []providers.Message{{Role: providers.RoleUser, Content: "old"}, {Role: providers.RoleAssistant, Content: "reply"}}
-	msgs := b.BuildMessages(history, "new", "cli")
+	msgs := b.BuildMessages("", history, "new", "cli")
 	roles := make([]providers.Role, len(msgs))
 	for i, m := range msgs {
 		roles[i] = m.Role
@@ -84,6 +84,27 @@ func TestBuildMessages(t *testing.T) {
 	want := []providers.Role{providers.RoleSystem, providers.RoleUser, providers.RoleAssistant, providers.RoleUser}
 	if !slices.Equal(roles, want) || msgs[3].Content != "new" {
 		t.Errorf("BuildMessages roles = %v, last = %q", roles, msgs[3].Content)
+	}
+	if strings.Contains(msgs[0].Content, "Archived Context Summary") {
+		t.Error("summary section without a summary")
+	}
+}
+
+func TestBuildMessagesWithSummary(t *testing.T) {
+	b := NewContextBuilder(t.TempDir())
+	fixed := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
+	b.now = func() time.Time { return fixed } // the prompt is compared twice
+	msgs := b.BuildMessages("  - [ephemeral] fixing the build\n", nil, "new", "cli")
+	sys := msgs[0].Content
+	if !strings.HasPrefix(sys, b.SystemPrompt("cli")) {
+		t.Error("summary does not come after the stable system prompt")
+	}
+	tail := sys[len(b.SystemPrompt("cli")):]
+	if !strings.HasPrefix(tail, promptSeparator+"# Archived Context Summary\n") || !strings.HasSuffix(tail, "\n\n- [ephemeral] fixing the build") {
+		t.Errorf("summary section = %q", tail)
+	}
+	if len(msgs) != 2 || msgs[1].Content != "new" {
+		t.Errorf("messages = %+v", msgs)
 	}
 }
 

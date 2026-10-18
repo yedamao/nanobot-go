@@ -14,6 +14,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
@@ -120,7 +121,24 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 	if verbose {
 		level = slog.LevelDebug
 	}
+	logger := slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
 	d := cfg.Agents.Defaults
+	var consolidator *memory.Consolidator
+	if d.Consolidation.Enable {
+		consolidator, err = memory.NewConsolidator(memory.Config{
+			Provider:            provider,
+			Store:               memory.NewStore(ws.Root),
+			Temperature:         &d.Temperature,
+			ContextWindowTokens: d.ContextWindowTokens,
+			ReplyMaxTokens:      d.MaxTokens,
+			MaxMessages:         d.MaxHistoryMessages,
+			SummaryMaxTokens:    d.Consolidation.SummaryMaxTokens,
+			Logger:              logger,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
 	return agent.NewLoop(agent.LoopConfig{
 		Provider:           provider,
 		Tools:              reg,
@@ -130,8 +148,9 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 		MaxTokens:          d.MaxTokens,
 		Temperature:        &d.Temperature,
 		MaxHistoryMessages: d.MaxHistoryMessages,
+		Consolidator:       consolidator,
 		Hooks:              &toolHints{w: a.stderr},
-		Logger:             slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level})),
+		Logger:             logger,
 	})
 }
 

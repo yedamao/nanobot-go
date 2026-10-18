@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/session"
 	"github.com/yedamao/nanobot-go/internal/tools"
@@ -17,16 +18,22 @@ import (
 
 // Built-in chat commands handled by the loop without calling the model.
 const (
-	CommandNew  = "/new"
-	CommandHelp = "/help"
+	CommandNew     = "/new"
+	CommandCompact = "/compact"
+	CommandHelp    = "/help"
 )
 
 const (
 	helpText = "Commands:\n" +
-		"  /new   start a new conversation (clears this session's history)\n" +
-		"  /help  show this help"
-	newSessionText = "New session started."
-	errorReplyText = "Sorry, I hit an error while processing that: %v"
+		"  /new      start a new conversation (clears this session's history)\n" +
+		"  /compact  summarize this conversation so far into memory and continue from the summary\n" +
+		"  /help     show this help"
+	newSessionText         = "New session started."
+	compactDisabledText    = "History consolidation is disabled."
+	compactNothingText     = "Nothing to compact."
+	compactDoneText        = "Compacted %d messages into a summary."
+	errorReplyText         = "Sorry, I hit an error while processing that: %v"
+	consolidationFailedLog = "history consolidation failed; replaying the most recent messages only this turn"
 )
 
 // LoopConfig wires a Loop.
@@ -43,7 +50,14 @@ type LoopConfig struct {
 	MaxTokens     int
 	Temperature   *float64
 	// MaxHistoryMessages caps replayed history; <= 0 replays everything.
+	// With a Consolidator, the oldest messages are summarized before the
+	// cap is reached, so the cap only drops messages when consolidation
+	// fails.
 	MaxHistoryMessages int
+	// Consolidator summarizes old history when the next prompt would be
+	// too large, and serves /compact. Nil disables both. Its MaxMessages
+	// should match MaxHistoryMessages.
+	Consolidator *memory.Consolidator
 	// Hooks observes every run; nil means none.
 	Hooks Hooks
 	// Logger defaults to discarding output.
@@ -233,11 +247,14 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error)
 			return "", fmt.Errorf("reset session: %w", err)
 		}
 		return newSessionText, nil
+	case CommandCompact:
+		return l.compact(ctx, sess)
 	case CommandHelp:
 		return helpText, nil
 	}
 
-	messages := l.cfg.Context.BuildMessages(sess.History(l.cfg.MaxHistoryMessages), msg.Content, msg.Channel)
+	l.consolidate(ctx, sess, msg)
+	messages := l.cfg.Context.BuildMessages(sess.Summary, sess.History(l.cfg.MaxHistoryMessages), msg.Content, msg.Channel)
 	res, err := l.runner.Run(ctx, RunSpec{
 		Messages:      messages,
 		Tools:         l.cfg.Tools,
@@ -262,4 +279,60 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error)
 	l.log.Debug("agent turn done", "session", key, "iterations", res.Iterations, "stop", res.StopReason,
 		"input_tokens", res.Usage.InputTokens, "output_tokens", res.Usage.OutputTokens)
 	return res.FinalContent, nil
+}
+
+// consolidate summarizes the oldest unconsolidated messages of sess when
+// the prompt for msg would exceed the history limits. A failure is logged
+// and the turn goes on with the plain History window, as before
+// consolidation existed; nothing is lost and the next turn tries again.
+func (l *Loop) consolidate(ctx context.Context, sess *session.Session, msg bus.InboundMessage) {
+	c := l.cfg.Consolidator
+	if c == nil {
+		return
+	}
+	overhead := memory.EstimateMessages([]providers.Message{
+		{Role: providers.RoleSystem, Content: l.cfg.Context.SystemPrompt(msg.Channel)},
+		{Role: providers.RoleUser, Content: msg.Content},
+	})
+	if l.cfg.Tools != nil {
+		overhead += memory.EstimateJSON(l.cfg.Tools.Definitions())
+	}
+	boundary, ok := c.Plan(sess, overhead)
+	if !ok {
+		return
+	}
+	if _, err := c.Consolidate(ctx, sess, boundary); err != nil {
+		if ctx.Err() == nil {
+			l.log.Warn(consolidationFailedLog, "session", sess.Key, "error", err)
+		}
+		return
+	}
+	l.saveConsolidated(sess)
+}
+
+// compact handles /compact: everything so far is summarized, and later
+// turns replay only the summary and what follows.
+func (l *Loop) compact(ctx context.Context, sess *session.Session) (string, error) {
+	if l.cfg.Consolidator == nil {
+		return compactDisabledText, nil
+	}
+	res, err := l.cfg.Consolidator.Consolidate(ctx, sess, len(sess.Messages))
+	if err != nil {
+		return "", fmt.Errorf("compact: %w", err)
+	}
+	if res.Archived == 0 {
+		return compactNothingText, nil
+	}
+	l.saveConsolidated(sess)
+	return fmt.Sprintf(compactDoneText, res.Archived), nil
+}
+
+// saveConsolidated persists a moved marker right away so the session file
+// agrees with history.jsonl even if the turn then fails. A failed save is
+// retried by the next successful turn's save; sess stays cached with the
+// new marker meanwhile.
+func (l *Loop) saveConsolidated(sess *session.Session) {
+	if err := l.cfg.Sessions.Save(sess); err != nil {
+		l.log.Error("save session after consolidation", "session", sess.Key, "error", err)
+	}
 }

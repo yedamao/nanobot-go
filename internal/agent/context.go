@@ -59,6 +59,10 @@ const toolGuidance = `# Tool Usage Notes
 - The exec tool runs in the workspace with a timeout. Some dangerous commands are blocked; do not try to work around a block.
 - If a tool returns an error, read it, adjust and retry, or explain the problem to the user.`
 
+const summaryHeader = "# Archived Context Summary\n\n" +
+	"Earlier messages of this conversation were archived to memory/history.jsonl. " +
+	"This checkpoint summarizes them; treat it as background, not as a new request.\n\n"
+
 // formatHint returns channel-specific formatting guidance.
 func formatHint(channel string) string {
 	switch channel {
@@ -92,10 +96,17 @@ func (b *ContextBuilder) SystemPrompt(channel string) string {
 }
 
 // BuildMessages returns the system prompt, the replayed history and the new
-// user message.
-func (b *ContextBuilder) BuildMessages(history []providers.Message, content, channel string) []providers.Message {
+// user message. A non-empty summary (the session's consolidation
+// checkpoint) is appended to the system prompt, like nanobot's
+// [Archived Context Summary]; it comes last so the stable prefix of the
+// prompt stays cacheable.
+func (b *ContextBuilder) BuildMessages(summary string, history []providers.Message, content, channel string) []providers.Message {
+	system := b.SystemPrompt(channel)
+	if summary = strings.TrimSpace(summary); summary != "" {
+		system += promptSeparator + summaryHeader + summary
+	}
 	msgs := make([]providers.Message, 0, len(history)+2)
-	msgs = append(msgs, providers.Message{Role: providers.RoleSystem, Content: b.SystemPrompt(channel)})
+	msgs = append(msgs, providers.Message{Role: providers.RoleSystem, Content: system})
 	msgs = append(msgs, history...)
 	return append(msgs, providers.Message{Role: providers.RoleUser, Content: content})
 }
