@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -210,6 +211,48 @@ func TestAgentOneShot(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(filepath.Dir(e.configPath), "sessions", "cli_other.jsonl")); err != nil {
 		t.Errorf("session file for -s: %v", err)
+	}
+}
+
+func TestAgentOneShotRunsTools(t *testing.T) {
+	e := newTestEnv(t)
+	var mu sync.Mutex
+	var reqs []providers.ChatRequest
+	e.provider.chat = func(_ context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		reqs = append(reqs, req)
+		if len(reqs) == 1 {
+			return &providers.ChatResponse{FinishReason: providers.FinishToolCalls, ToolCalls: []providers.ToolCall{
+				{ID: "c1", Name: "write_file", Arguments: json.RawMessage(`{"path":"note.txt","content":"hi"}`)},
+				{ID: "c2", Name: "write_file", Arguments: json.RawMessage(`{"path":"../escape.txt","content":"x"}`)},
+			}}, nil
+		}
+		return &providers.ChatResponse{Content: "done", FinishReason: providers.FinishStop}, nil
+	}
+	if code := e.run(t, nil, "agent", "-m", "write a note", "--workspace", e.workspace); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	if got := e.stdout.String(); got != "done\n" {
+		t.Errorf("stdout = %q", got)
+	}
+	if data, err := os.ReadFile(filepath.Join(e.workspace, "note.txt")); err != nil || string(data) != "hi" {
+		t.Errorf("note.txt = %q, %v", data, err)
+	}
+	if _, err := os.Stat(filepath.Join(e.dir, "escape.txt")); err == nil {
+		t.Error("write_file escaped the workspace")
+	}
+	if !strings.Contains(e.stderr.String(), "↳ write_file") {
+		t.Errorf("no tool hint on stderr: %q", e.stderr)
+	}
+	if len(reqs) != 2 {
+		t.Fatalf("requests = %d", len(reqs))
+	}
+	msgs := reqs[1].Messages
+	ok, escaped := msgs[len(msgs)-2], msgs[len(msgs)-1]
+	if ok.Role != providers.RoleTool || ok.IsError || escaped.ToolCallID != "c2" || !escaped.IsError ||
+		!strings.Contains(escaped.Content, "outside the workspace") {
+		t.Errorf("tool results = %+v / %+v", ok, escaped)
 	}
 }
 
