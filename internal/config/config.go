@@ -161,6 +161,9 @@ type ToolsConfig struct {
 	RestrictToWorkspace bool           `json:"restrictToWorkspace"`
 	Exec                ExecToolConfig `json:"exec"`
 	Web                 WebToolConfig  `json:"web"`
+	// MCPServers maps a server name to its connection settings. Each
+	// server's tools appear as mcp_<server>_<tool>.
+	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 }
 
 // ExecToolConfig configures the exec tool.
@@ -201,6 +204,7 @@ func Default() *Config {
 			RestrictToWorkspace: true,
 			Exec:                ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{}},
 			Web:                 WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
+			MCPServers:          map[string]MCPServerConfig{},
 		},
 	}
 }
@@ -397,6 +401,7 @@ func (c *Config) Validate() error {
 	if c.Tools.Web.FetchMaxBytes < 0 {
 		bad("tools.web.fetchMaxBytes must not be negative, got %d", c.Tools.Web.FetchMaxBytes)
 	}
+	validateMCP(c.Tools.MCPServers, bad)
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
 	}
