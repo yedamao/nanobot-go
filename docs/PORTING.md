@@ -70,6 +70,20 @@ in which we port them.
     uses. `JSONLStore` stays as the import source and for tests.
 - `internal/mcp`: stdio and streamable HTTP transports, owned by the
   application rather than the loop.
+  - Done: config `tools.mcpServers` (`type`, `command`, `args`, `env`,
+    `cwd`, `url`, `headers`, `toolTimeout`, `enabledTools`, plus
+    `enabled`); `mcp.Manager` on the official Go SDK
+    (`github.com/modelcontextprotocol/go-sdk`) with stdio, streamable HTTP
+    and SSE, concurrent connects with a per-server timeout, per-server
+    status, `mcp_<server>_<tool>` wrappers with schema normalization,
+    per-call timeouts and one reconnect-and-retry on a dead session;
+    `Registry.RegisterEach` and a variadic `Unregister` so a server's tools
+    appear and disappear atomically; CLI wiring in `agent` (connect before
+    the first turn, close after the loop) and `status [--mcp]`.
+  - Not ported: OAuth (`auth: "oauth"`), resources and prompts as tools,
+    hot reload (`MCPProvider.reload`), `tools/list_changed`.
+
+Phase 2 is complete; phase 3 starts next.
 
 ### Phase 3: reach
 
@@ -200,3 +214,80 @@ in which we port them.
   sessions in the workspace, so it imports only the flat files in its
   sessions directory. As in nanobot, one unreadable or duplicate file
   aborts the whole import and leaves the sources unchanged.
+
+### MCP
+
+- **No OAuth yet.** nanobot's `auth: "oauth"` (browser authorization,
+  tokens stored outside the config) is not ported; the key is rejected as
+  unknown. Put a token in `headers`, ideally as `${VAR}`.
+- **Tools only.** With `enabledTools: ["*"]` nanobot also registers each
+  resource as a read-only `mcp_<server>_resource_<name>` tool and each
+  prompt as `mcp_<server>_prompt_<name>`. nanobot-go skips both: each needs
+  its own wrapper, naming, result rendering and reconnect handling, and
+  most servers are used for their tools. Planned as a follow-up.
+- **Images are described, not stored.** nanobot saves image results as
+  artifacts and tells the model to deliver them with the message tool.
+  nanobot-go has no artifacts or message tool yet, so images, audio and
+  blobs become a placeholder (`[image: image/png, 5120 bytes]`); text
+  resources embedded in a result are inlined.
+- **SSE is supported** through the SDK, inferred like nanobot from a URL
+  ending in `/sse`.
+- **No SSRF filter or TCP probe on MCP URLs.** nanobot validates MCP URLs
+  against its SSRF rules (blocking localhost and private ranges unless
+  whitelisted), pins DNS and probes the port before connecting.
+  nanobot-go treats the URL as trusted operator configuration, so local
+  servers work without a whitelist; the per-server connect timeout
+  replaces the probe.
+- **Concurrent connects with a timeout.** nanobot connects servers one by
+  one with no overall limit. nanobot-go connects them concurrently, each
+  within 30 seconds (10 in `status --mcp`). A failed server is not retried
+  in the background (nanobot retries on its next readiness check); calling
+  one of its tools, if it ever registered any, reconnects at most once per
+  30 seconds.
+- **Reconnect keeps the registrations.** On a terminated session nanobot
+  unregisters the server's tools, reconnects and registers them again.
+  nanobot-go's wrappers look up the server's current session on every
+  call, so a reconnect touches no registry state and the tool list (and
+  prompt cache) stays stable mid-run. Tools added or removed on the server
+  after the first connection appear only after a restart. nanobot's
+  separate "retry a transient error once after 1s" is folded into the
+  same reconnect-once-and-retry, triggered by connection-level errors
+  (closed connection, EOF, broken pipe, reset, missing HTTP session) and
+  never by the server rejecting a call. Concurrent calls share one
+  reconnect.
+- **Close cancels in-flight calls.** The SDK's session `Close` waits for
+  outstanding calls; nanobot-go cancels them first, so shutdown does not
+  wait for a slow tool. Stdio servers get their stdin closed, then
+  SIGTERM, then SIGKILL, 2 seconds apart.
+- **Collisions are skipped, not overwritten.** nanobot's registry replaces
+  a tool registered under the same name. nanobot-go keeps the first tool
+  (built-ins always win) and logs the skipped one. Sanitizing matches
+  nanobot (invalid characters to `_`, runs of `_` collapsed); a name over
+  64 characters ends in 8 hex digits of the SHA-1 of the *unsanitized*
+  name (nanobot hashes the sanitized one), so two tools that differ only
+  in punctuation still get distinct long names.
+- **`readOnlyHint` is honored.** nanobot treats every MCP tool as having
+  side effects. nanobot-go marks a tool read-only when the server
+  annotates it `readOnlyHint: true`, which only lets it run alongside other
+  read-only tools in the same batch.
+- **Schemas: refs are inlined.** nanobot hoists arbitrary local JSON
+  pointers into `$defs` and keeps `$ref`. nanobot-go inlines local refs
+  (better for providers without `$ref` support) and drops `$defs`/
+  `definitions` when nothing refers to them; recursive or unresolvable
+  refs stay as `$ref` with their definitions. Nullable unions are
+  flattened with `"nullable": true` as in nanobot.
+- **`${VAR}` only in the MCP entry, at connect time.** nanobot resolves
+  `${VAR}` across the whole config when loading it. nanobot-go expands
+  `args`, `env`, `url` and `headers` of each MCP server when it connects;
+  an unset variable fails only that server, and `nanobot status` works
+  without the variables set.
+- **`enabled` switch.** New; nanobot has no way to keep a disabled entry.
+- **Stdio environment.** Like the Python SDK's default, stdio servers get
+  `HOME`, `LOGNAME`, `PATH`, `SHELL`, `TERM`, `USER` (plus `TMPDIR`,
+  locale and Windows essentials) and their `env`. nanobot's Windows
+  wrapping of `npx`/`.cmd` launchers in `cmd /c` is not ported. Server
+  stderr is inherited by nanobot; nanobot-go keeps its last 2 KB for the
+  connection error and forwards it only with `--verbose`.
+- **Secrets are redacted from errors.** Configured env and header values,
+  the URL query and password are replaced with `[redacted]` in connection
+  and call errors, which `status --mcp` prints.

@@ -2,11 +2,12 @@
 
 A Go rewrite of [nanobot](https://github.com/HKUDS/nanobot), a small,
 always-on personal AI agent. It talks to Anthropic or any OpenAI-compatible
-API, keeps persistent conversations, and can read and edit files, run shell
-commands and fetch web pages inside a workspace directory.
+API, keeps persistent conversations, can read and edit files, run shell
+commands and fetch web pages inside a workspace directory, and can use the
+tools of any [MCP](https://modelcontextprotocol.io) server.
 
-It is a single static binary with no dependencies outside the Go standard
-library.
+It is a single static binary. Its only dependencies outside the Go
+standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 
 ## Status
 
@@ -27,12 +28,13 @@ library.
 - Long-term memory (phase 2, part 2): `nanobot dream` folds those
   summaries into `SOUL.md`, `USER.md`, `memory/MEMORY.md` and `skills/`,
   commits the change to git and trims the archive.
-- CLI: `onboard`, `agent` (interactive or one-shot), `dream`, `status`,
-  `version`.
+- MCP client (phase 2, part 3): tools of stdio, streamable HTTP and SSE
+  servers appear as `mcp_<server>_<tool>`.
+- CLI: `onboard`, `agent` (interactive or one-shot), `dream`, `status`
+  (`--mcp` to probe MCP servers), `version`.
 
-Not yet: MCP, chat channels (Telegram, Slack, ...), cron,
-the gateway daemon, process sandboxing. See [docs/PORTING.md](docs/PORTING.md)
-for the roadmap.
+Not yet: chat channels (Telegram, Slack, ...), cron, the gateway daemon,
+process sandboxing. See [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
 
@@ -99,7 +101,8 @@ Missing fields keep their defaults; unknown keys are an error.
   "tools": {
     "restrictToWorkspace": true,
     "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": []},
-    "web": {"enable": true, "fetchMaxBytes": 2097152}
+    "web": {"enable": true, "fetchMaxBytes": 2097152},
+    "mcpServers": {}
   }
 }
 ```
@@ -177,6 +180,72 @@ example every two hours (nanobot's default) from cron:
 Runs that overlap are refused, and history appends from a running agent
 are safe while Dream trims the file.
 
+### MCP servers
+
+`tools.mcpServers` connects the agent to
+[Model Context Protocol](https://modelcontextprotocol.io) servers. The
+keys mirror nanobot's:
+
+```json
+{
+  "tools": {
+    "mcpServers": {
+      "filesystem": {
+        "command": "npx",
+        "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/me/notes"]
+      },
+      "github": {
+        "url": "https://api.githubcopilot.com/mcp/",
+        "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"},
+        "enabledTools": ["search_repositories", "get_file_contents"],
+        "toolTimeout": 60
+      },
+      "local": {
+        "type": "stdio",
+        "command": "/usr/local/bin/my-mcp-server",
+        "env": {"API_KEY": "${MY_SERVER_KEY}"},
+        "cwd": "~/my-server",
+        "enabled": false
+      }
+    }
+  }
+}
+```
+
+| Key | Meaning |
+|-----|---------|
+| `type` | `stdio`, `streamableHttp` or `sse`. Optional: `command` means stdio, a `url` ending in `/sse` means SSE, any other `url` streamable HTTP. |
+| `command`, `args`, `env`, `cwd` | Start a stdio server. Set exactly one of `command` and `url`. |
+| `url`, `headers` | Reach an HTTP server; headers go with every request. |
+| `toolTimeout` | Seconds before a tool call is abandoned (default 30). |
+| `enabledTools` | Tools to expose, by their name on the server (`search_repositories`) or the agent's name (`mcp_github_search_repositories`). Default `["*"]`, all tools; `[]` exposes none. |
+| `enabled` | `false` keeps the entry but does not connect (default `true`). |
+
+`${VAR}` in `args`, `env`, `url` and `headers` is replaced with the
+environment variable when connecting, so tokens can stay out of the file;
+an unset variable fails that server only.
+
+Each tool becomes `mcp_<server>_<tool>`: characters other than
+`[A-Za-z0-9_-]` turn into `_`, and a name longer than 64 characters keeps
+its start and ends in a short hash. The description starts with
+`[MCP <server>]`. Tools that declare `readOnlyHint` may run alongside other
+read-only tools. Text results come back as text; images, audio and binary
+resources as a short placeholder such as `[image: image/png, 5120 bytes]`.
+
+`nanobot agent` connects to every enabled server at startup, concurrently
+and with a 30-second limit each. A server that fails is skipped; the rest
+work. Interactive mode prints a summary to stderr, for example
+`MCP: filesystem connected (11 tools), github failed: connect: ...`
+(one-shot mode only with `--verbose`, which also shows the servers'
+stderr). If a server dies mid-session, the next call to one of its tools
+reconnects once and retries. `nanobot status` lists the configured
+servers without connecting; `nanobot status --mcp` connects, reports
+each server's state and tool count or error, and disconnects.
+`nanobot dream` never uses MCP tools.
+
+MCP resources and prompts are not exposed yet, nor is OAuth; use a header
+with a token instead.
+
 ## Architecture
 
 ```
@@ -204,10 +273,10 @@ are safe while Dream trims the file.
                         +----+-----------+----+
                              |           |
                              v           v
-                internal/providers   internal/tools (+ builtin)
-                Anthropic, OpenAI-   registry, validation,
-                compatible, retry,   fs / exec / web_fetch
-                FallbackProvider          |
+                internal/providers   internal/tools (+ builtin)  <-- internal/mcp
+                Anthropic, OpenAI-   registry, validation,        Manager (owned by
+                compatible, retry,   fs / exec / web_fetch        cmd/nanobot): MCP
+                FallbackProvider          |                       sessions, mcp_* tools
                                           v
                                   internal/security
                                   workspace containment,
@@ -216,6 +285,9 @@ are safe while Dream trims the file.
 
 The split follows nanobot: the **Loop** owns the channel-facing turn
 (session, context, delivery) and the **Runner** owns the model/tool loop.
+MCP connections belong to the application, not the loop: the command
+creates an `mcp.Manager` on the shared registry, connects it before the
+first turn and closes it at exit.
 
 ## Safety notes
 
@@ -246,6 +318,16 @@ behalf. Treat it like giving someone a shell.
 - The config file and session database are written with mode `0600`
   (its directory `0700`).
   `nanobot status` reports which keys are set, never their values.
+- MCP servers are code you chose to run, with your privileges; nanobot-go
+  does not sandbox them. Stdio servers get a minimal environment (`HOME`,
+  `PATH`, `SHELL`, `TERM`, `USER`, locale and temp variables) plus their
+  `env`, never the agent's API keys. `nanobot status` shows MCP `env` and
+  `headers` names but never their values, counts `args` instead of
+  printing them, and shows only the scheme and host of URLs; connection
+  errors have configured secrets replaced with `[redacted]`. MCP URLs are
+  trusted as configured (localhost servers work); they are not subject to
+  `web_fetch`'s private-address checks. Tool results from MCP servers go
+  to the model like any other tool output.
 - A turn whose provider call fails or is canceled is not saved, so errors
   never poison the conversation history. A history summary is written to
   `memory/history.jsonl` (fsynced, refusing symlinks and special files)
@@ -266,4 +348,6 @@ go vet ./...
 go test -race ./...
 ```
 
-Tests use fakes and `httptest`; they need no network access or API keys.
+Tests use fakes, `httptest` and in-memory MCP servers (the stdio test
+re-runs the test binary as a server); they need no network access or API
+keys.
