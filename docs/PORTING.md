@@ -17,7 +17,7 @@ in which we port them.
 | `nanobot/agent/memory.py` (Consolidator, Dream) | `internal/memory`         | history.jsonl archive, long-term files, Dream job |
 | `nanobot/agent/subagent.py`              | `internal/agent/subagent`        | Reuses `Runner` with a restricted registry |
 | `nanobot/providers`                      | `internal/providers`             | `Provider` interface, OpenAI-compatible + Anthropic over `net/http`, retry, `Fallback` |
-| `nanobot/session`                        | `internal/session`               | `Store` interface; JSONL first, SQLite later |
+| `nanobot/session`                        | `internal/session`               | `Store` interface; SQLite (default) and JSONL |
 | `nanobot/config`                         | `internal/config`                | JSON config, defaults, validation |
 | `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `onboard` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
@@ -61,6 +61,13 @@ in which we port them.
   - Next: schedule Dream from `internal/cron` (phase 3); `/dream-log` and
     `/dream-restore` style commands over the git history.
 - SQLite session store outside the workspace, with a generation check.
+  - Done: the `session.Store` interface, `SQLiteStore` (one database per
+    workspace at `<sessions>/<workspace id>/sessions.sqlite3`, WAL, a
+    generation per session so a stale `Save` fails with
+    `ErrSessionConflict`, schema versioning), a one-time import of the
+    flat JSONL files in the sessions directory (renamed to
+    `*.jsonl.migrated` afterwards), and `session.Open`, which the CLI
+    uses. `JSONLStore` stays as the import source and for tests.
 - `internal/mcp`: stdio and streamable HTTP transports, owned by the
   application rather than the loop.
 
@@ -183,3 +190,13 @@ in which we port them.
   summary. Edits from an incomplete run are committed too, as in nanobot.
 - **Trimming runs after every pass**, including one with nothing to
   process, like nanobot's `finally` block.
+- **The workspace ID comes from its path.** nanobot stores a random ID in
+  the workspace to locate its session database. nanobot-go hashes the
+  canonical workspace path instead, so the workspace is never written to;
+  a moved workspace starts with an empty database (the old one stays on
+  disk under the previous ID).
+- **The JSONL import reads one directory.** nanobot also imports
+  `<workspace>/sessions/*.jsonl` from older layouts; nanobot-go never kept
+  sessions in the workspace, so it imports only the flat files in its
+  sessions directory. As in nanobot, one unreadable or duplicate file
+  aborts the whole import and leaves the sources unchanged.

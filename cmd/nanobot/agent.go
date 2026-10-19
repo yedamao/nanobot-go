@@ -29,7 +29,7 @@ const (
 )
 
 // agent runs one message (-m) or an interactive session.
-func (a *app) agent(ctx context.Context, args []string) error {
+func (a *app) agent(ctx context.Context, args []string) (err error) {
 	fs := a.newFlagSet("agent", "agent [-m message] [-s session] [--config path] [--workspace dir] [--verbose]")
 	var message, sessionKey string
 	fs.StringVar(&message, "m", "", "send one message, print the reply and exit")
@@ -46,10 +46,16 @@ func (a *app) agent(ctx context.Context, args []string) error {
 		return errors.New("session key must not be empty")
 	}
 
-	loop, err := a.buildLoop(*configFlag, *workspace, *verbose)
+	loop, sessions, err := a.buildLoop(*configFlag, *workspace, *verbose)
 	if err != nil {
 		return err
 	}
+	// Close the store once background work (consolidation) has finished.
+	defer func() {
+		if cerr := sessions.Close(); cerr != nil {
+			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
+		}
+	}()
 	defer loop.Wait()
 
 	if message != "" {
@@ -114,11 +120,12 @@ func (a *app) load(configFlag, workspaceFlag string, verbose bool) (*setup, erro
 	return &setup{cfg: cfg, configPath: path, ws: ws, provider: provider, logger: logger}, nil
 }
 
-// buildLoop wires the tools, sessions and agent loop.
-func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, error) {
+// buildLoop wires the tools, sessions and agent loop. The caller closes
+// the returned session manager once the loop is done.
+func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, *session.Manager, error) {
 	s, err := a.load(configFlag, workspaceFlag, verbose)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cfg, ws, provider, logger := s.cfg, s.ws, s.provider, s.logger
 	reg := tools.NewRegistry()
@@ -137,7 +144,7 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 		},
 	})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	d := cfg.Agents.Defaults
@@ -154,13 +161,19 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 			Logger:              logger,
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
-	return agent.NewLoop(agent.LoopConfig{
+	// Opened last so no earlier failure leaves the database open.
+	store, err := session.Open(config.SessionsDir(s.configPath), ws.Root)
+	if err != nil {
+		return nil, nil, err
+	}
+	sessions := session.NewManager(store)
+	loop, err := agent.NewLoop(agent.LoopConfig{
 		Provider:           provider,
 		Tools:              reg,
-		Sessions:           session.NewManager(session.NewJSONLStore(config.SessionsDir(s.configPath))),
+		Sessions:           sessions,
 		Context:            agent.NewContextBuilder(ws.Root),
 		MaxIterations:      d.MaxToolIterations,
 		MaxTokens:          d.MaxTokens,
@@ -170,6 +183,11 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 		Hooks:              &toolHints{w: a.stderr},
 		Logger:             logger,
 	})
+	if err != nil {
+		sessions.Close()
+		return nil, nil, err
+	}
+	return loop, sessions, nil
 }
 
 // oneShot sends one message and prints the reply. Ctrl-C cancels it.

@@ -19,7 +19,8 @@ library.
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
   `web_fetch`.
-- Persistent sessions (JSONL, atomic writes), `/new`, `/compact` and `/help`.
+- Persistent sessions (SQLite, one database per workspace, conflict
+  detection between processes), `/new`, `/compact` and `/help`.
 - History consolidation (phase 2, part 1): when a conversation outgrows
   `maxHistoryMessages` or the context window, its oldest turns are
   summarized into `memory/history.jsonl` instead of being dropped.
@@ -113,8 +114,14 @@ The workspace may contain `AGENTS.md` (instructions), `SOUL.md`
 (personality), `USER.md` (about you) and `memory/MEMORY.md` (long-term
 memory); they are added to the system prompt, except `AGENTS.md`,
 `USER.md` and `MEMORY.md` while they are still the untouched templates
-`nanobot onboard` creates. Sessions are stored in `~/.nanobot-go/sessions/`, next to the config
-file and outside the workspace.
+`nanobot onboard` creates. Sessions are stored in a SQLite database,
+`~/.nanobot-go/sessions/<workspace id>/sessions.sqlite3` (the ID is a hash
+of the workspace path; `nanobot status` prints the full path), next to the
+config file and outside the workspace. Session files from older versions
+(`~/.nanobot-go/sessions/*.jsonl`) are imported the first time the
+database is opened and renamed to `*.jsonl.migrated`. If another process
+saved the same session in the meantime, the turn fails instead of
+overwriting it.
 
 ### History consolidation
 
@@ -127,7 +134,7 @@ half of each limit stay verbatim. The summary merges the previous one, is
 appended to `<workspace>/memory/history.jsonl` as one
 `{"cursor", "timestamp", "content", "session_key"}` line, and then replaces
 the archived turns in the prompt (at the end of the system prompt). The
-session file records the boundary (`last_consolidated`) and the summary.
+session records the boundary (`last_consolidated`) and the summary.
 
 If summarization fails, the error is logged and that turn simply replays
 the last `maxHistoryMessages` messages, as with
@@ -191,7 +198,7 @@ are safe while Dream trims the file.
                                         |            \
                                         v             v
                         +---------------------+   internal/session
-                        |  agent.Runner       |   (JSONL, atomic writes,
+                        |  agent.Runner       |   (SQLite, generations,
                         |  model <-> tools    |    history window)
                         |  loop, iteration cap|
                         +----+-----------+----+
@@ -236,7 +243,8 @@ behalf. Treat it like giving someone a shell.
 - `web_fetch` refuses loopback, private, link-local and cloud-metadata
   addresses, checked at connect time so DNS rebinding and redirects are
   covered. Fetched content is marked as untrusted data for the model.
-- The config file and session files are written with mode `0600`.
+- The config file and session database are written with mode `0600`
+  (its directory `0700`).
   `nanobot status` reports which keys are set, never their values.
 - A turn whose provider call fails or is canceled is not saved, so errors
   never poison the conversation history. A history summary is written to

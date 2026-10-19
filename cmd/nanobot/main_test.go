@@ -15,6 +15,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/session"
 )
 
 // fakeProvider answers "echo: <last user message>" unless chat is set.
@@ -93,6 +94,20 @@ func (e *testEnv) run(t *testing.T, stdin io.Reader, args ...string) int {
 		stdin = strings.NewReader("")
 	}
 	return e.app(stdin).run(context.Background(), args)
+}
+
+// sessionsDir is where the agent keeps sessions for the test config.
+func (e *testEnv) sessionsDir() string { return filepath.Join(filepath.Dir(e.configPath), "sessions") }
+
+// loadSession reads key from the workspace's session database.
+func (e *testEnv) loadSession(t *testing.T, key string) (*session.Session, error) {
+	t.Helper()
+	store, err := session.Open(e.sessionsDir(), e.workspace)
+	if err != nil {
+		t.Fatalf("open sessions: %v", err)
+	}
+	defer store.Close()
+	return store.Load(key)
 }
 
 func TestUsageAndVersion(t *testing.T) {
@@ -180,8 +195,12 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	if strings.Contains(out, "secret") {
 		t.Fatalf("status printed a key:\n%s", out)
 	}
-	for _, want := range []string{e.configPath, e.workspace + " (missing)", config.DefaultModel, "auto -> anthropic",
-		"set (config)", "set (env)", "not set"} {
+	db, err := session.SQLitePath(e.sessionsDir(), e.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{e.configPath, e.workspace + " (missing)", db + " (not created yet)", config.DefaultModel,
+		"auto -> anthropic", "set (config)", "set (env)", "not set"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}
@@ -197,9 +216,17 @@ func TestAgentOneShot(t *testing.T) {
 	if got := e.stdout.String(); got != "echo: hello\n" {
 		t.Errorf("stdout = %q", got)
 	}
-	// The turn was saved under the default session key next to the config.
-	if _, err := os.Stat(filepath.Join(filepath.Dir(e.configPath), "sessions", "cli_direct.jsonl")); err != nil {
-		t.Errorf("session file: %v", err)
+	// The turn was saved under the default session key in the workspace's
+	// database next to the config.
+	db, err := session.SQLitePath(e.sessionsDir(), e.workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(db); err != nil {
+		t.Errorf("session database: %v", err)
+	}
+	if s, err := e.loadSession(t, "cli:direct"); err != nil || len(s.Messages) != 2 {
+		t.Errorf("session cli:direct = %+v, %v", s, err)
 	}
 	if _, err := os.Stat(e.workspace); err != nil {
 		t.Errorf("workspace not created: %v", err)
@@ -209,8 +236,8 @@ func TestAgentOneShot(t *testing.T) {
 	if code := e.run(t, nil, "agent", "--message", "x", "-s", "cli:other", "--workspace", e.workspace); code != 0 {
 		t.Fatalf("exit = %d", code)
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(e.configPath), "sessions", "cli_other.jsonl")); err != nil {
-		t.Errorf("session file for -s: %v", err)
+	if _, err := e.loadSession(t, "cli:other"); err != nil {
+		t.Errorf("session for -s: %v", err)
 	}
 }
 
@@ -377,12 +404,31 @@ func TestAgentREPLInterruptCancelsTurn(t *testing.T) {
 		t.Errorf("output:\n%s", out)
 	}
 	// The canceled turn is not in the session; the next one is.
-	data, err := os.ReadFile(filepath.Join(filepath.Dir(e.configPath), "sessions", "cli_direct.jsonl"))
+	s, err := e.loadSession(t, "cli:direct")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "slow") || !strings.Contains(string(data), "fast") {
-		t.Errorf("session file:\n%s", data)
+	var contents []string
+	for _, m := range s.Messages {
+		contents = append(contents, m.Content)
+	}
+	if all := strings.Join(contents, "\n"); strings.Contains(all, "slow") || !strings.Contains(all, "fast") {
+		t.Errorf("session messages:\n%s", all)
+	}
+}
+
+func TestAgentRefusesSessionsInsideWorkspace(t *testing.T) {
+	e := newTestEnv(t)
+	// The workspace contains the config directory, so the session
+	// database would be inside it.
+	if code := e.run(t, nil, "agent", "-m", "hi", "--workspace", e.dir); code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
+	}
+	if !strings.Contains(e.stderr.String(), "must be outside the workspace") {
+		t.Errorf("stderr = %q", e.stderr)
+	}
+	if _, err := os.Stat(e.sessionsDir()); !os.IsNotExist(err) {
+		t.Errorf("sessions dir created: %v", err)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/session"
 )
 
 // status prints where things are and which providers have keys. It never
@@ -50,7 +51,15 @@ func (a *app) status(args []string) error {
 		return err
 	}
 	row("Workspace:", "%s%s", ws, unless(wsExists, " (missing)"))
-	row("Sessions:", "%s", config.SessionsDir(path))
+	if db, err := session.SQLitePath(config.SessionsDir(path), ws); err != nil {
+		row("Sessions:", "unavailable: %v", err)
+	} else {
+		dbExists, err := fileExists(db)
+		if err != nil {
+			return err
+		}
+		row("Sessions:", "%s%s", db, unless(dbExists, " (not created yet)"))
+	}
 
 	d := cfg.Agents.Defaults
 	row("Model:", "%s", d.Model)
