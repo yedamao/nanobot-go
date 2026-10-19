@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/providers"
 )
 
@@ -30,7 +31,8 @@ Commands:
   onboard   write a default config file and workspace
   agent     chat with the agent (interactive, or one-shot with -m)
   dream     fold archived history into long-term memory (run on a schedule)
-  status    show the configuration (API keys are never printed)
+  status    show the configuration (API keys are never printed);
+            --mcp also connects to the MCP servers
   version   print the version
 
 Run 'nanobot <command> -h' for the command's flags.
@@ -62,6 +64,8 @@ type app struct {
 	interrupts <-chan os.Signal
 	// newProvider builds the model provider; nil uses the config.
 	newProvider func(*config.Config) (providers.Provider, error)
+	// mcpTransport connects to MCP servers; nil uses mcp.DefaultTransport.
+	mcpTransport mcp.TransportFactory
 }
 
 // run dispatches a subcommand and returns the exit code.
@@ -79,7 +83,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	case "dream":
 		err = a.dream(ctx, args[1:])
 	case "status":
-		err = a.status(args[1:])
+		err = a.status(ctx, args[1:])
 	case "version", "-v", "--version":
 		fmt.Fprintf(a.stdout, "nanobot-go %s (%s %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	case "help", "-h", "--help":

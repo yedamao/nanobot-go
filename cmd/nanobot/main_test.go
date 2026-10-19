@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/session"
 )
@@ -56,6 +57,7 @@ type testEnv struct {
 	stdout, stderr             *syncBuffer
 	interrupts                 chan os.Signal
 	provider                   *fakeProvider
+	mcpTransport               mcp.TransportFactory
 }
 
 func newTestEnv(t *testing.T) *testEnv {
@@ -79,12 +81,13 @@ func newTestEnv(t *testing.T) *testEnv {
 
 func (e *testEnv) app(stdin io.Reader) *app {
 	return &app{
-		stdin:       stdin,
-		stdout:      e.stdout,
-		stderr:      e.stderr,
-		getenv:      func(k string) string { return e.env[k] },
-		interrupts:  e.interrupts,
-		newProvider: func(*config.Config) (providers.Provider, error) { return e.provider, nil },
+		stdin:        stdin,
+		stdout:       e.stdout,
+		stderr:       e.stderr,
+		getenv:       func(k string) string { return e.env[k] },
+		interrupts:   e.interrupts,
+		newProvider:  func(*config.Config) (providers.Provider, error) { return e.provider, nil },
+		mcpTransport: e.mcpTransport,
 	}
 }
 

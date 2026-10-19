@@ -1,19 +1,25 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"text/tabwriter"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/nanobot-go/internal/tools"
 )
 
-// status prints where things are and which providers have keys. It never
-// prints key material.
-func (a *app) status(args []string) error {
-	fs := a.newFlagSet("status", "status [--config path]")
+// status prints where things are, which providers have keys and which MCP
+// servers are configured. It never prints key material, MCP header or env
+// values. With --mcp it also connects to the MCP servers and reports
+// their state.
+func (a *app) status(ctx context.Context, args []string) error {
+	fs := a.newFlagSet("status", "status [--config path] [--mcp]")
 	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	probeMCP := fs.Bool("mcp", false, fmt.Sprintf("connect to the MCP servers (at most %s each) and report their state", statusMCPTimeout))
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -83,6 +89,17 @@ func (a *app) status(args []string) error {
 	}
 	row("Restrict to workspace:", "%t", cfg.Tools.RestrictToWorkspace)
 	row("Tools:", "exec %s, web_fetch %s", onOff(cfg.Tools.Exec.Enable), onOff(cfg.Tools.Web.Enable))
+	var live []mcp.ServerStatus
+	if *probeMCP && len(cfg.Tools.MCPServers) > 0 {
+		m := a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(statusMCPTimeout))
+		err := m.Connect(ctx)
+		live = m.Status()
+		m.Close()
+		if err != nil {
+			return err
+		}
+	}
+	mcpStatusRows(row, cfg.Tools.MCPServers, live)
 	row("API keys:", "")
 	for _, p := range config.Presets() {
 		row("  "+p.Name, "%s", keySource(keyInFile[p.Name], a.getenv(config.EnvKeyName(p.Name)) != ""))

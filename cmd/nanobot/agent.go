@@ -14,6 +14,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
@@ -46,18 +47,23 @@ func (a *app) agent(ctx context.Context, args []string) (err error) {
 		return errors.New("session key must not be empty")
 	}
 
-	loop, sessions, err := a.buildLoop(*configFlag, *workspace, *verbose)
+	loop, sessions, servers, err := a.buildLoop(*configFlag, *workspace, *verbose)
 	if err != nil {
 		return err
 	}
-	// Close the store once background work (consolidation) has finished.
+	// Defers run in reverse: wait for background work (consolidation),
+	// then stop the MCP servers, then close the store.
 	defer func() {
 		if cerr := sessions.Close(); cerr != nil {
 			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
 		}
 	}()
+	defer servers.Close()
 	defer loop.Wait()
 
+	if err := a.connectMCP(ctx, servers, message == "" || *verbose); err != nil {
+		return err
+	}
 	if message != "" {
 		return a.oneShot(ctx, loop, message, sessionKey)
 	}
@@ -120,12 +126,13 @@ func (a *app) load(configFlag, workspaceFlag string, verbose bool) (*setup, erro
 	return &setup{cfg: cfg, configPath: path, ws: ws, provider: provider, logger: logger}, nil
 }
 
-// buildLoop wires the tools, sessions and agent loop. The caller closes
-// the returned session manager once the loop is done.
-func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, *session.Manager, error) {
+// buildLoop wires the tools, sessions, MCP servers and agent loop. The
+// caller connects the MCP manager, and closes it and the session manager
+// once the loop is done.
+func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, *session.Manager, *mcp.Manager, error) {
 	s, err := a.load(configFlag, workspaceFlag, verbose)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	cfg, ws, provider, logger := s.cfg, s.ws, s.provider, s.logger
 	reg := tools.NewRegistry()
@@ -144,7 +151,7 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 		},
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	d := cfg.Agents.Defaults
@@ -161,13 +168,13 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 			Logger:              logger,
 		})
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
 	// Opened last so no earlier failure leaves the database open.
 	store, err := session.Open(config.SessionsDir(s.configPath), ws.Root)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	sessions := session.NewManager(store)
 	loop, err := agent.NewLoop(agent.LoopConfig{
@@ -185,9 +192,11 @@ func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.
 	})
 	if err != nil {
 		sessions.Close()
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return loop, sessions, nil
+	// MCP tools join reg once the caller connects the servers; the loop
+	// reads the registry on every request.
+	return loop, sessions, a.newMCP(cfg, reg, logger, verbose), nil
 }
 
 // oneShot sends one message and prints the reply. Ctrl-C cancels it.
