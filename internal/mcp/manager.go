@@ -15,8 +15,10 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net/url"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -140,6 +142,7 @@ type conn struct {
 	session *sdk.ClientSession
 	ctx     context.Context // the session's lifetime
 	cancel  context.CancelFunc
+	secrets []string // redacted from call errors
 }
 
 func (c *conn) close() {
@@ -270,6 +273,17 @@ func (m *Manager) dial(ctx context.Context, s *server) (*conn, []*sdk.Tool, erro
 	if err != nil {
 		return nil, nil, err
 	}
+	secrets := secretsOf(cfg)
+	c, defs, err := m.open(ctx, s, cfg)
+	if err != nil {
+		return nil, nil, redact(err, secrets)
+	}
+	c.secrets = secrets
+	return c, defs, nil
+}
+
+// open does the work of dial with the expanded config.
+func (m *Manager) open(ctx context.Context, s *server, cfg config.MCPServerConfig) (*conn, []*sdk.Tool, error) {
 	tail := &tailBuffer{max: stderrTail}
 	var stderr io.Writer = tail
 	if m.stderr != nil {
@@ -329,6 +343,60 @@ func (m *Manager) dial(ctx context.Context, s *server) (*conn, []*sdk.Tool, erro
 		return nil, nil, withStderr(fmt.Errorf("list tools: %w", err), tail)
 	}
 	return c, defs, nil
+}
+
+// secretError hides configured secrets in an error's text while keeping
+// it unwrappable.
+type secretError struct {
+	msg string
+	err error
+}
+
+func (e *secretError) Error() string { return e.msg }
+func (e *secretError) Unwrap() error { return e.err }
+
+// secretsOf returns the values that must not show up in errors or logs:
+// env and header values (and their last word, for "Bearer <token>"), and
+// the URL's query and password.
+func secretsOf(cfg config.MCPServerConfig) []string {
+	var out []string
+	add := func(s string) {
+		if len(s) >= 4 { // shorter values would mangle unrelated text
+			out = append(out, s)
+		}
+	}
+	for _, m := range []map[string]string{cfg.Env, cfg.Headers} {
+		for _, v := range m {
+			add(v)
+			if f := strings.Fields(v); len(f) > 1 {
+				add(f[len(f)-1])
+			}
+		}
+	}
+	if u, err := url.Parse(cfg.URL); err == nil {
+		add(u.RawQuery)
+		if p, ok := u.User.Password(); ok {
+			add(p)
+		}
+	}
+	// Longest first, so a value containing another is replaced whole.
+	slices.SortFunc(out, func(a, b string) int { return len(b) - len(a) })
+	return out
+}
+
+// redact replaces secrets in err's text with "[redacted]".
+func redact(err error, secrets []string) error {
+	if err == nil || len(secrets) == 0 {
+		return err
+	}
+	msg := err.Error()
+	for _, s := range secrets {
+		msg = strings.ReplaceAll(msg, s, "[redacted]")
+	}
+	if msg == err.Error() {
+		return err
+	}
+	return &secretError{msg: msg, err: err}
 }
 
 func withStderr(err error, tail *tailBuffer) error {

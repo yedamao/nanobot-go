@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"runtime"
@@ -437,6 +438,33 @@ func TestOneServerFailingDoesNotStopOthers(t *testing.T) {
 	}
 	if got := h.reg.Names(); len(got) != 4 || !strings.HasPrefix(got[0], "mcp_good_") {
 		t.Errorf("registered %v, want only good's tools", got)
+	}
+}
+
+func TestErrorsHideSecrets(t *testing.T) {
+	env := map[string]string{"TOK": "query-secret-1", "KEY": "header-secret-2"}
+	cfg := config.MCPServerConfig{
+		URL:     "https://user:pw-secret-3@mcp.example.com/mcp?token=${TOK}",
+		Headers: map[string]string{"Authorization": "Bearer ${KEY}"},
+	}
+	failing := func(_ string, cfg config.MCPServerConfig, _ io.Writer) (sdk.Transport, error) {
+		return nil, fmt.Errorf("cannot reach %s (auth %q)", cfg.URL, cfg.Headers["Authorization"])
+	}
+	h := newHarness(t, map[string]config.MCPServerConfig{"remote": cfg}, WithTransport(failing),
+		WithLookupEnv(func(k string) (string, bool) { v, ok := env[k]; return v, ok }))
+	h.connect(t)
+	st := h.status(t, "remote")
+	if st.Err == nil {
+		t.Fatal("no error")
+	}
+	msg := st.Err.Error()
+	for _, secret := range []string{"query-secret-1", "header-secret-2", "pw-secret-3"} {
+		if strings.Contains(msg, secret) || strings.Contains(h.logs.String(), secret) {
+			t.Errorf("secret %q leaked: %s", secret, msg)
+		}
+	}
+	if !strings.Contains(msg, "mcp.example.com/mcp?[redacted]") {
+		t.Errorf("error = %s", msg)
 	}
 }
 

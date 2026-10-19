@@ -83,6 +83,7 @@ func (t *remoteTool) Execute(ctx context.Context, args json.RawMessage) tools.Re
 	case errors.Is(err, context.DeadlineExceeded):
 		return tools.Errorf("MCP tool %s timed out after %s", t.name, t.timeout)
 	}
+	err = redact(err, c.secrets)
 	t.m.logger.Warn("MCP tool call failed", "server", t.srv.name, "tool", t.name, "error", err)
 	return tools.Errorf("MCP tool %s failed: %v", t.name, err)
 }
