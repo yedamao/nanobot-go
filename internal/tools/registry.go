@@ -58,30 +58,46 @@ func NewRegistry(opts ...Option) *Registry {
 
 // Register adds a tool. It fails if the name is invalid or already taken.
 func (r *Registry) Register(t Tool) error {
-	if t == nil {
-		return errors.New("register tool: nil tool")
-	}
-	name := t.Name()
-	if !validName.MatchString(name) {
-		return fmt.Errorf("register tool %q: name must match %s", name, validName)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if _, ok := r.tools[name]; ok {
-		return fmt.Errorf("register tool %q: already registered", name)
-	}
-	r.tools[name] = t
-	r.defs = nil
-	return nil
+	return r.RegisterEach(t)[0]
 }
 
-// Unregister removes a tool if present.
-func (r *Registry) Unregister(name string) {
+// RegisterEach adds several tools in one step, so a concurrent
+// Definitions call sees all of them or none. Each tool is checked on its
+// own: the result holds one error (nil on success) per tool, and a
+// rejected tool does not stop the others.
+func (r *Registry) RegisterEach(ts ...Tool) []error {
+	errs := make([]error, len(ts))
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, ok := r.tools[name]; ok {
-		delete(r.tools, name)
+	for i, t := range ts {
+		if t == nil {
+			errs[i] = errors.New("register tool: nil tool")
+			continue
+		}
+		name := t.Name()
+		if !validName.MatchString(name) {
+			errs[i] = fmt.Errorf("register tool %q: name must match %s", name, validName)
+			continue
+		}
+		if _, ok := r.tools[name]; ok {
+			errs[i] = fmt.Errorf("register tool %q: already registered", name)
+			continue
+		}
+		r.tools[name] = t
 		r.defs = nil
+	}
+	return errs
+}
+
+// Unregister removes the named tools that are present, in one step.
+func (r *Registry) Unregister(names ...string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for _, name := range names {
+		if _, ok := r.tools[name]; ok {
+			delete(r.tools, name)
+			r.defs = nil
+		}
 	}
 }
 

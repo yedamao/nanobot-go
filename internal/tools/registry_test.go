@@ -95,6 +95,65 @@ func TestDefinitionsStableOrder(t *testing.T) {
 	}
 }
 
+func TestRegisterEachAndUnregisterMany(t *testing.T) {
+	r := newTestRegistry(t)
+	errs := r.RegisterEach(
+		&fakeTool{name: "mcp_x_a", params: Object(nil)},
+		&fakeTool{name: "exec"}, // taken
+		nil,
+		&fakeTool{name: "bad name"},
+		&fakeTool{name: "mcp_x_b", params: Object(nil)},
+	)
+	for i, wantErr := range []bool{false, true, true, true, false} {
+		if (errs[i] != nil) != wantErr {
+			t.Errorf("errs[%d] = %v, want error %t", i, errs[i], wantErr)
+		}
+	}
+	if _, ok := r.Get("mcp_x_b"); !ok {
+		t.Error("a rejected tool stopped later ones")
+	}
+	r.Unregister("mcp_x_a", "mcp_x_b", "never_registered")
+	if got := strings.Join(r.Names(), ","); got != "exec,mcp_github_search,read_file,write_file" {
+		t.Errorf("names after Unregister = %s", got)
+	}
+}
+
+// TestBatchIsAtomic checks that readers see a batch fully or not at all.
+func TestBatchIsAtomic(t *testing.T) {
+	r := NewRegistry()
+	batch := []Tool{
+		&fakeTool{name: "mcp_s_a", params: Object(nil)},
+		&fakeTool{name: "mcp_s_b", params: Object(nil)},
+		&fakeTool{name: "mcp_s_c", params: Object(nil)},
+	}
+	names := []string{"mcp_s_a", "mcp_s_b", "mcp_s_c"}
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for i := 0; i < 200; i++ {
+			r.RegisterEach(batch...)
+			r.Unregister(names...)
+		}
+		close(stop)
+	})
+	for range 4 {
+		wg.Go(func() {
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				if n := len(r.Definitions()); n != 0 && n != len(batch) {
+					t.Errorf("saw %d of %d batch tools", n, len(batch))
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+}
+
 func TestExecuteUnknownToolSuggests(t *testing.T) {
 	r := newTestRegistry(t)
 	tests := []struct {
