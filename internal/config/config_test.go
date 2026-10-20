@@ -114,6 +114,28 @@ func TestLoadGatewayAndChannels(t *testing.T) {
 	}
 }
 
+func TestLoadAPI(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := `{"api": {"enabled": true, "port": 9100, "apiKey": "k"}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := APIConfig{Enabled: true, Host: DefaultAPIHost, Port: 9100, Timeout: DefaultAPITimeout, APIKey: "k"}
+	if cfg.API != want {
+		t.Errorf("api = %+v, want %+v", cfg.API, want)
+	}
+	if cfg.API.Addr() != "127.0.0.1:9100" || cfg.API.TurnTimeout() != 120*time.Second {
+		t.Errorf("Addr = %q, TurnTimeout = %v", cfg.API.Addr(), cfg.API.TurnTimeout())
+	}
+	if d := Default().API; d.Enabled || d.Addr() != "127.0.0.1:8900" || d.APIKey != "" {
+		t.Errorf("default api = %+v", d)
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name, data, want string
@@ -176,6 +198,11 @@ func TestValidate(t *testing.T) {
 		{"gateway port any", func(c *Config) { c.Gateway.Port = 0 }, ""},
 		{"gateway shutdown", func(c *Config) { c.Gateway.ShutdownTimeout = -1 }, "gateway.shutdownTimeout"},
 		{"gateway no wait", func(c *Config) { c.Gateway.ShutdownTimeout = 0 }, ""},
+		{"api host", func(c *Config) { c.API.Host = "" }, "api.host"},
+		{"api port high", func(c *Config) { c.API.Port = 65536 }, "api.port"},
+		{"api port any", func(c *Config) { c.API.Port = 0 }, ""},
+		{"api timeout", func(c *Config) { c.API.Timeout = 0 }, "api.timeout"},
+		{"api remote without key", func(c *Config) { c.API.Host = "0.0.0.0" }, ""}, // refused when the API starts
 		{"channel object", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`{"enabled": true}`) }, ""},
 		{"channel not object", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`true`) }, "channels.telegram must be a JSON object"},
 		{"channel null", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`null`) }, "channels.telegram"},
@@ -232,6 +259,7 @@ func TestApplyEnv(t *testing.T) {
 		"NANOBOT_GO_OPENAI_API_KEY":    "sk-oa",
 		"NANOBOT_GO_OPENAI_API_BASE":   "http://localhost:1234/v1",
 		"NANOBOT_GO_ANTHROPIC_API_KEY": "",
+		"NANOBOT_GO_API_KEY":           "bearer",
 		// Must not be read: it belongs to other tools.
 		"ANTHROPIC_API_KEY": "sk-should-not-be-used",
 	}
@@ -248,6 +276,9 @@ func TestApplyEnv(t *testing.T) {
 	}
 	if cfg.Providers.Anthropic.APIKey != "from-file" {
 		t.Errorf("empty env var or ANTHROPIC_API_KEY overrode the file: %q", cfg.Providers.Anthropic.APIKey)
+	}
+	if cfg.API.APIKey != "bearer" {
+		t.Errorf("api.apiKey = %q", cfg.API.APIKey)
 	}
 }
 

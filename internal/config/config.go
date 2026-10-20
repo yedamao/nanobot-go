@@ -2,7 +2,7 @@
 // Its shape mirrors nanobot/config/schema.py where it makes sense:
 //
 //	{"agents": {"defaults": {...}}, "providers": {...}, "tools": {...},
-//	 "channels": {...}, "gateway": {...}}
+//	 "channels": {...}, "gateway": {...}, "api": {...}}
 //
 // Keys are camelCase like nanobot's JSON aliases. Fields missing from the
 // file keep their defaults.
@@ -69,6 +69,7 @@ type Config struct {
 	// enabled ones; each channel parses its own section.
 	Channels map[string]json.RawMessage `json:"channels"`
 	Gateway  GatewayConfig              `json:"gateway"`
+	API      APIConfig                  `json:"api"`
 }
 
 // AgentsConfig holds agent settings.
@@ -227,6 +228,7 @@ func Default() *Config {
 		},
 		Channels: map[string]json.RawMessage{},
 		Gateway:  defaultGateway(),
+		API:      defaultAPI(),
 	}
 }
 
@@ -333,6 +335,7 @@ func (c *Config) Save(path string) error {
 //
 //	NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE
 //	NANOBOT_GO_<PROVIDER>_API_KEY, NANOBOT_GO_<PROVIDER>_API_BASE
+//	NANOBOT_GO_API_KEY (api.apiKey)
 //
 // where <PROVIDER> is an upper-case preset name such as ANTHROPIC. Empty
 // values are ignored. Call Validate afterwards.
@@ -352,6 +355,7 @@ func (c *Config) ApplyEnv(getenv func(string) string) {
 		set(&pc.APIKey, up+"_API_KEY")
 		set(&pc.APIBase, up+"_API_BASE")
 	}
+	set(&c.API.APIKey, "API_KEY")
 }
 
 // EnvKeyName returns the environment variable that overrides a provider's
@@ -433,6 +437,7 @@ func (c *Config) Validate() error {
 	validateMCP(c.Tools.MCPServers, bad)
 	validateChannels(c.Channels, bad)
 	validateGateway(c.Gateway, bad)
+	validateAPI(c.API, bad)
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
 	}
