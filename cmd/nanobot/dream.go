@@ -10,8 +10,8 @@ import (
 )
 
 // dream runs one Dream pass: it folds unprocessed history.jsonl entries
-// into the long-term memory files. Until the cron package exists it is
-// meant to be scheduled externally (cron, launchd, systemd timers).
+// into the long-term memory files. The gateway also runs it on the
+// agents.defaults.dream schedule.
 func (a *app) dream(ctx context.Context, args []string) error {
 	fs := a.newFlagSet("dream", "dream [--config path] [--workspace dir] [--verbose]")
 	flags := addCommonFlags(fs)
@@ -22,24 +22,7 @@ func (a *app) dream(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	d := s.cfg.Agents.Defaults
-	maxHistory := d.Dream.MaxHistoryEntries
-	if maxHistory == 0 {
-		maxHistory = -1 // the config's 0 disables trimming
-	}
-	job, err := memory.NewDream(memory.DreamConfig{
-		Workspace: s.ws.Root,
-		Store:     memory.NewStore(s.ws.Root),
-		Run: agent.DreamRun(agent.NewRunner(s.provider), agent.NewContextBuilder(s.ws.Root), agent.RunSpec{
-			MaxIterations: d.MaxToolIterations,
-			MaxTokens:     d.MaxTokens,
-			Temperature:   &d.Temperature,
-			Hooks:         &toolHints{w: a.stderr},
-		}),
-		BatchEntries:      d.Dream.BatchEntries,
-		MaxHistoryEntries: maxHistory,
-		Logger:            s.logger,
-	})
+	job, err := newDream(s, &toolHints{w: a.stderr})
 	if err != nil {
 		return err
 	}
@@ -56,6 +39,28 @@ func (a *app) dream(ctx context.Context, args []string) error {
 	res, err := job.Run(ctx)
 	a.reportDream(res)
 	return err
+}
+
+// newDream builds the Dream job for s; hooks observe its runs.
+func newDream(s *setup, hooks agent.Hooks) (*memory.Dream, error) {
+	d := s.cfg.Agents.Defaults
+	maxHistory := d.Dream.MaxHistoryEntries
+	if maxHistory == 0 {
+		maxHistory = -1 // the config's 0 disables trimming
+	}
+	return memory.NewDream(memory.DreamConfig{
+		Workspace: s.ws.Root,
+		Store:     memory.NewStore(s.ws.Root),
+		Run: agent.DreamRun(agent.NewRunner(s.provider), agent.NewContextBuilder(s.ws.Root), agent.RunSpec{
+			MaxIterations: d.MaxToolIterations,
+			MaxTokens:     d.MaxTokens,
+			Temperature:   &d.Temperature,
+			Hooks:         hooks,
+		}),
+		BatchEntries:      d.Dream.BatchEntries,
+		MaxHistoryEntries: maxHistory,
+		Logger:            s.logger,
+	})
 }
 
 func (a *app) reportDream(res memory.DreamResult) {

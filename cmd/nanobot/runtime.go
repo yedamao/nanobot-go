@@ -1,16 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
@@ -110,10 +113,16 @@ type runtimeOptions struct {
 	bus *bus.MessageBus
 	// hooks observe every run.
 	hooks agent.Hooks
+	// cronDeliver sends the replies of cron jobs run by this process; nil
+	// when it runs none.
+	cronDeliver cron.DeliverFunc
+	// cronNote is appended to the cron tool's add results.
+	cronNote string
 }
 
-// agentRuntime is the agent as `agent` and `gateway` run it: the loaded
-// setup, the tools, sessions, MCP servers and loop.
+// agentRuntime is the agent as `agent`, `gateway` and `cron run` run
+// it: the loaded setup, the tools, sessions, MCP servers, loop and cron
+// service.
 type agentRuntime struct {
 	*setup
 	loop     *agent.Loop
@@ -121,6 +130,46 @@ type agentRuntime struct {
 	// mcp is not connected yet: the command connects it before the first
 	// turn, so it decides how long to wait and how to report.
 	mcp *mcp.Manager
+	// cron manages the workspace's jobs; its jobs run through runCronJob.
+	cron *cron.Service
+	// dream runs the Dream system job.
+	dream *memory.Dream
+	// runBound runs agent-turn jobs.
+	runBound cron.RunFunc
+}
+
+// runCronJob runs one cron job: the Dream system job, or an agent turn
+// in the job's chat.
+func (rt *agentRuntime) runCronJob(ctx context.Context, job cron.Job) error {
+	if job.System() && job.ID == cron.DreamJobID {
+		res, err := rt.dream.Run(ctx)
+		rt.logger.Info("cron: dream run", "pending", res.Pending, "processed", res.Processed,
+			"completed", res.Outcome.Completed, "commit", res.Commit)
+		return err
+	}
+	return rt.runBound(ctx, job)
+}
+
+// dreamSchedule returns the Dream system job's schedule, if Dream is
+// scheduled.
+func dreamSchedule(d config.DreamConfig) (cron.Schedule, bool) {
+	switch {
+	case strings.TrimSpace(d.Cron) != "":
+		return cron.Schedule{Kind: cron.KindCron, Expr: strings.TrimSpace(d.Cron)}, true
+	case d.IntervalH > 0:
+		return cron.Schedule{Kind: cron.KindEvery, Every: time.Duration(d.IntervalH) * time.Hour}, true
+	}
+	return cron.Schedule{}, false
+}
+
+// syncDreamJob registers the Dream system job when Dream is scheduled
+// and removes it otherwise, like nanobot's gateway startup.
+func (rt *agentRuntime) syncDreamJob() (cron.Schedule, bool, error) {
+	sched, ok := dreamSchedule(rt.cfg.Agents.Defaults.Dream)
+	if !ok {
+		return sched, false, rt.cron.RemoveSystemJob(cron.DreamJobID)
+	}
+	return sched, true, rt.cron.RegisterSystemJob(cron.Job{ID: cron.DreamJobID, Name: "dream", Schedule: sched})
 }
 
 // buildRuntime wires the tools, sessions, MCP servers and agent loop.
@@ -147,6 +196,17 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		},
 	})
 	if err != nil {
+		return nil, err
+	}
+	rt := &agentRuntime{setup: s}
+	rt.cron, err = cron.NewService(cron.ServiceConfig{Store: cron.NewStore(ws.Root), Run: rt.runCronJob, Logger: logger})
+	if err != nil {
+		return nil, err
+	}
+	if err := reg.Register(cron.NewTool(rt.cron, cron.ToolConfig{AddNote: opts.cronNote})); err != nil {
+		return nil, err
+	}
+	if rt.dream, err = newDream(s, nil); err != nil {
 		return nil, err
 	}
 
@@ -193,12 +253,17 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	}
 	// MCP tools join reg once the caller connects the servers; the loop
 	// reads the registry on every request.
-	return &agentRuntime{
-		setup:    s,
-		loop:     loop,
-		sessions: sessions,
-		mcp:      a.newMCP(cfg, reg, logger, f.verbose),
-	}, nil
+	rt.loop = loop
+	rt.sessions = sessions
+	rt.mcp = a.newMCP(cfg, reg, logger, f.verbose)
+	deliver := opts.cronDeliver
+	if deliver == nil {
+		deliver = func(context.Context, bus.OutboundMessage) error {
+			return errors.New("no chat channels run in this process")
+		}
+	}
+	rt.runBound = cron.BoundRunner(loop.ProcessMessage, deliver)
+	return rt, nil
 }
 
 // close releases the runtime in reverse order of use: it waits for the

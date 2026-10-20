@@ -13,10 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/cron"
 )
 
 const (
@@ -30,9 +30,12 @@ const (
 )
 
 // gateway runs the agent behind the enabled chat channels until SIGINT or
-// SIGTERM, with a health endpoint on gateway.host:gateway.port. On the
-// first signal it stops taking inbound messages, gives the turns in
-// flight gateway.shutdownTimeout seconds to finish (then cancels them),
+// SIGTERM, with a health endpoint on gateway.host:gateway.port, and runs
+// the workspace's cron jobs (and Dream, as the system job "dream") once
+// the loop is serving. On the first signal it stops taking inbound
+// messages and starting cron jobs, gives the turns in flight (a cron
+// job's included) gateway.shutdownTimeout seconds to finish (then
+// cancels them),
 // delivers their replies, and stops the channels, the health endpoint,
 // the MCP servers and the session store, in that order. A second signal
 // exits at once with status 1.
@@ -72,13 +75,20 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 				}
 			},
 		},
-		bus: b,
+		bus:         b,
+		cronDeliver: b.PublishOutbound,
 	})
 	if err != nil {
 		return err
 	}
 	defer rt.closeInto(&err)
 	log := rt.logger
+
+	// This also fails early on an unreadable job store.
+	dreamSched, dreamOn, err := rt.syncDreamJob()
+	if err != nil {
+		return err
+	}
 
 	reg, err := a.channelRegistry()
 	if err != nil {
@@ -119,18 +129,29 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	}
 	var runErr error
 	served := make(chan error, 1)
+	cronDone := make(chan struct{})
 	if runCtx.Err() == nil { // no signal while connecting
 		if err := mgr.Start(runCtx); err != nil {
 			runErr = err
 			stopRun()
 		}
 		go func() { served <- rt.loop.Serve(runCtx, turnCtx) }()
+		// Jobs run under turnCtx like inbound turns, so a shutdown lets
+		// the one in progress finish.
+		go func() {
+			defer close(cronDone)
+			if err := rt.cron.Serve(runCtx, turnCtx); err != nil && runCtx.Err() == nil {
+				log.Error("cron service stopped", "error", err)
+			}
+		}()
 		a.printGatewayBanner(ln.Addr().String(), mgr)
+		a.printCronBanner(rt.cron, dreamSched, dreamOn)
 		if a.gatewayReady != nil {
 			a.gatewayReady(ln.Addr().String())
 		}
 	} else {
 		served <- runCtx.Err()
+		close(cronDone)
 	}
 	select {
 	case <-runCtx.Done():
@@ -140,7 +161,13 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	}
 
 	<-served
-	waitForTurns(rt.loop, g.ShutdownWait(), cancelTurns, log)
+	// The cron service starts no job after runCtx ends; once it is done
+	// no new turn can start, and the loop's turns (the cron job's too)
+	// get the shutdown timeout.
+	waitForTurns(func() {
+		<-cronDone
+		rt.loop.Wait()
+	}, g.ShutdownWait(), cancelTurns, log)
 	stopCtx, cancelStop := context.WithTimeout(forceCtx, gatewayStopTimeout)
 	defer cancelStop()
 	if err := mgr.Stop(stopCtx); err != nil {
@@ -182,12 +209,12 @@ func (a *app) watchShutdown(ctx context.Context, stop, force context.CancelFunc,
 	exit(1)
 }
 
-// waitForTurns waits for the loop's in-flight turns, canceling them once
-// timeout has passed.
-func waitForTurns(loop *agent.Loop, timeout time.Duration, cancel context.CancelFunc, log *slog.Logger) {
+// waitForTurns runs wait (which returns once the in-flight turns are
+// done), canceling the turns once timeout has passed.
+func waitForTurns(wait func(), timeout time.Duration, cancel context.CancelFunc, log *slog.Logger) {
 	idle := make(chan struct{})
 	go func() {
-		loop.Wait()
+		wait()
 		close(idle)
 	}()
 	select {
@@ -228,6 +255,24 @@ func (a *app) printGatewayBanner(addr string, mgr *channels.Manager) {
 		fmt.Fprintln(a.stdout, "Channels: none running")
 	}
 	fmt.Fprintln(a.stdout, "Press Ctrl-C to stop.")
+}
+
+// printCronBanner reports the scheduled jobs and Dream's schedule.
+func (a *app) printCronBanner(svc *cron.Service, dream cron.Schedule, dreamOn bool) {
+	if jobs, err := svc.List(false); err == nil {
+		n := 0
+		for _, j := range jobs {
+			if !j.System() {
+				n++
+			}
+		}
+		fmt.Fprintf(a.stdout, "Cron: %d scheduled jobs (%s)\n", n, svc.Store().Path())
+	}
+	if dreamOn {
+		fmt.Fprintf(a.stdout, "Dream: %s\n", dream)
+	} else {
+		fmt.Fprintln(a.stdout, "Dream: not scheduled")
+	}
 }
 
 // healthHandler serves GET /healthz (and nanobot's /health) with

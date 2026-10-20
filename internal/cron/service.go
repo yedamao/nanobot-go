@@ -390,10 +390,9 @@ func (s *Service) runDue(ctx, jobCtx context.Context) {
 			return
 		}
 		// An earlier run may have removed, disabled or rescheduled it.
+		// Failures are logged where they happen.
 		stillDue := func(j Job) bool { return j.due(s.clock.Now()) }
-		if _, err := s.runIf(jobCtx, j.ID, stillDue); err != nil && !errors.Is(err, errNotRun) {
-			s.log.Error("cron: run job", "job", j.ID, "error", err)
-		}
+		_, _ = s.runIf(jobCtx, j.ID, stillDue)
 	}
 }
 
@@ -421,6 +420,7 @@ func (s *Service) runIf(ctx context.Context, id string, ok func(Job) bool) (Job,
 	defer s.runMu.Unlock()
 	jobs, err := s.store.Load()
 	if err != nil {
+		s.log.Error("cron: read jobs", "error", err)
 		return Job{}, err
 	}
 	i := find(jobs, id)
@@ -482,6 +482,9 @@ func (s *Service) execute(ctx context.Context, job Job) (Job, error) {
 		recorded = *j
 		return jobs, nil
 	})
+	if err != nil {
+		s.log.Error("cron: record run", "job", job.ID, "error", err)
+	}
 	return recorded, cmp.Or(err, runErr)
 }
 

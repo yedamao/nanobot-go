@@ -18,6 +18,11 @@ const (
 	defaultSessionKey = "cli:direct"
 	maxInputLine      = 1 << 20
 	toolHintChars     = 80
+	// agentCronNote follows every job the cron tool adds from `nanobot
+	// agent`: like nanobot, the job is stored, but only the gateway runs
+	// jobs, and it has no channel to deliver to this terminal.
+	agentCronNote = "Note: scheduled jobs only run while `nanobot gateway` is running. " +
+		"A job created here runs in this CLI session; its reply is saved to the session history but cannot be shown in the terminal."
 )
 
 // agent runs one message (-m) or an interactive session.
@@ -39,6 +44,7 @@ func (a *app) agent(ctx context.Context, args []string) (err error) {
 	rt, err := a.buildRuntime(flags, runtimeOptions{
 		loadOptions: loadOptions{level: slog.LevelWarn},
 		hooks:       &toolHints{w: a.stderr},
+		cronNote:    agentCronNote,
 	})
 	if err != nil {
 		return err

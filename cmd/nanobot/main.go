@@ -1,6 +1,7 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
-// one-shot agent, the long-running gateway, a Dream pass over archived
-// history, and status reporting.
+// one-shot agent, the long-running gateway (which also runs scheduled
+// jobs), managing those jobs, a Dream pass over archived history, and
+// status reporting.
 package main
 
 import (
@@ -33,7 +34,9 @@ Commands:
   agent     chat with the agent (interactive, or one-shot with -m)
   gateway   run the agent behind the configured chat channels until
             SIGINT/SIGTERM, with a health endpoint
-  dream     fold archived history into long-term memory (run on a schedule)
+  cron      list, remove or run the scheduled jobs (the gateway runs them)
+  dream     fold archived history into long-term memory (the gateway
+            also runs it on a schedule)
   status    show the configuration (API keys are never printed);
             --mcp also connects to the MCP servers
   version   print the version
@@ -123,6 +126,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.onboard(args[1:])
 	case "agent":
 		err = a.agent(ctx, args[1:])
+	case "cron":
+		err = a.cronCmd(ctx, args[1:])
 	case "dream":
 		err = a.dream(ctx, args[1:])
 	case "gateway":
