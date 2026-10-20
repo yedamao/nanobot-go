@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/yedamao/nanobot-go/internal/channels/telegram"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/session"
@@ -105,7 +106,7 @@ func (a *app) status(ctx context.Context, args []string) error {
 	}
 	mcpStatusRows(row, cfg.Tools.MCPServers, live)
 	row("Gateway:", "health http://%s/healthz, shutdown timeout %s", cfg.Gateway.Addr(), cfg.Gateway.ShutdownWait())
-	row("Channels:", "%s", channelSummary(cfg.Channels))
+	row("Channels:", "%s", channelSummary(cfg.Channels, a.getenv))
 	row("API:", "http://%s/v1, in the gateway %s, timeout %s, key %s", cfg.API.Addr(), onOff(cfg.API.Enabled),
 		cfg.API.TurnTimeout(), keySource(apiKeyInFile, a.getenv(config.EnvAPIKey) != ""))
 	row("API keys:", "")
@@ -115,22 +116,27 @@ func (a *app) status(ctx context.Context, args []string) error {
 	return w.Flush()
 }
 
-// channelSummary lists the configured channels and whether each is
-// enabled. Sections hold tokens, so nothing else of them is printed.
-func channelSummary(sections map[string]json.RawMessage) string {
+// channelSummary lists the configured channels, whether each is enabled
+// and, for Telegram, where its token comes from. Sections hold tokens,
+// so nothing else of them is printed.
+func channelSummary(sections map[string]json.RawMessage, getenv func(string) string) string {
 	if len(sections) == 0 {
 		return "none"
 	}
 	var parts []string
 	for _, name := range slices.Sorted(maps.Keys(sections)) {
 		var head struct {
-			Enabled bool `json:"enabled"`
+			Enabled bool   `json:"enabled"`
+			Token   string `json:"token"`
 		}
 		state := "disabled"
 		if err := json.Unmarshal(sections[name], &head); err != nil {
 			state = "invalid"
 		} else if head.Enabled {
 			state = "enabled"
+		}
+		if name == telegram.Name && state != "invalid" {
+			state += ", token " + keySource(head.Token != "", getenv(telegram.EnvToken) != "")
 		}
 		parts = append(parts, name+" ("+state+")")
 	}

@@ -1,7 +1,8 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
 // one-shot agent, the long-running gateway (which also runs scheduled
-// jobs), the OpenAI-compatible API, managing scheduled jobs, a Dream pass
-// over archived history, and status reporting.
+// jobs and the Telegram channel), the OpenAI-compatible API, managing
+// scheduled jobs and paired chat senders, a Dream pass over archived
+// history, and status reporting.
 package main
 
 import (
@@ -38,6 +39,7 @@ Commands:
   serve     run the OpenAI-compatible API (/v1/chat/completions) until
             SIGINT/SIGTERM
   cron      list, remove or run the scheduled jobs (the gateway runs them)
+  pairing   list, approve, deny or revoke chat senders paired by code
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
   status    show the configuration (API keys are never printed);
@@ -138,6 +140,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.dream(ctx, args[1:])
 	case "gateway":
 		err = a.gateway(ctx, args[1:])
+	case "pairing":
+		err = a.pairingCmd(args[1:])
 	case "serve":
 		err = a.serve(ctx, args[1:])
 	case "status":

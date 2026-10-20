@@ -16,8 +16,10 @@ import (
 	"github.com/yedamao/nanobot-go/internal/api"
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/channels/telegram"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/pairing"
 	"github.com/yedamao/nanobot-go/internal/security"
 )
 
@@ -93,7 +95,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		return err
 	}
 
-	reg, err := a.channelRegistry()
+	reg, err := a.channelRegistry(rt.configPath)
 	if err != nil {
 		return err
 	}
@@ -268,9 +270,24 @@ func waitForTurns(wait func(), timeout time.Duration, cancel context.CancelFunc,
 }
 
 // channelRegistry returns the channels the gateway can run: the built-in
-// ones (none yet) and a.channelFactories.
-func (a *app) channelRegistry() (*channels.Registry, error) {
+// ones (Telegram) and a.channelFactories, which replace a built-in of
+// the same name. Pairing approvals live next to the config file.
+func (a *app) channelRegistry(configPath string) (*channels.Registry, error) {
 	r := channels.NewRegistry()
+	builtins := map[string]channels.Factory{
+		telegram.Name: telegram.Factory(telegram.Options{
+			Getenv:  a.getenv,
+			Pairing: pairing.NewStore(pairing.PathFor(configPath)),
+		}),
+	}
+	for name, f := range builtins {
+		if _, override := a.channelFactories[name]; override {
+			continue
+		}
+		if err := r.Register(name, f); err != nil {
+			return nil, err
+		}
+	}
 	for _, name := range slices.Sorted(maps.Keys(a.channelFactories)) {
 		if err := r.Register(name, a.channelFactories[name]); err != nil {
 			return nil, err

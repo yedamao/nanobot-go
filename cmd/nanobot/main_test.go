@@ -210,11 +210,20 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	}
 	for _, want := range []string{e.configPath, e.workspace + " (missing)", db + " (not created yet)", config.DefaultModel,
 		"auto -> anthropic", "set (config)", "set (env)", "not set",
-		"health http://127.0.0.1:18790/healthz, shutdown timeout 30s", "slack (disabled), telegram (enabled)",
+		"health http://127.0.0.1:18790/healthz, shutdown timeout 30s", "slack (disabled), telegram (enabled, token set (config))",
 		"http://127.0.0.1:8900/v1, in the gateway off, timeout 2m0s, key set (env)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}
+	}
+
+	// The Telegram token from the environment wins and is not printed.
+	e.env["NANOBOT_GO_TELEGRAM_TOKEN"] = "456:secret-env-token"
+	if code := e.run(t, nil, "status"); code != 0 {
+		t.Fatalf("status exit = %d, stderr %s", code, e.stderr)
+	}
+	if out := e.stdout.String(); strings.Contains(out, "secret") || !strings.Contains(out, "telegram (enabled, token set (env))") {
+		t.Errorf("status with the Telegram env token:\n%s", out)
 	}
 }
 
