@@ -94,15 +94,65 @@ func TestStartGetMeFailures(t *testing.T) {
 	t.Run("unreachable server", func(t *testing.T) {
 		h := newHarness(t, nil)
 		h.f.srv.Close()
-		err := h.ch.Start(context.Background())
-		if err == nil {
-			t.Fatal("Start succeeded against a closed server")
+		h.ch.sleep = func(ctx context.Context, d time.Duration) error {
+			select {
+			case h.sleeps <- d:
+			default:
+			}
+			return sleepCtx(ctx, 5*time.Millisecond)
 		}
-		if strings.Contains(err.Error(), testToken) || strings.Contains(err.Error(), "TEST-secret") {
-			t.Errorf("error leaks the token: %v", err)
+		// Start succeeds and keeps trying in the background.
+		h.start(t)
+		<-h.sleeps
+		<-h.sleeps
+		logs := h.logs.String()
+		if !strings.Contains(logs, "/bot<redacted>/getMe") || strings.Contains(logs, "TEST-secret") {
+			t.Errorf("logs = %s, want the redacted URL and no token", logs)
 		}
-		if !strings.Contains(err.Error(), "/bot<redacted>/getMe") {
-			t.Errorf("error = %v, want the redacted URL", err)
+	})
+	t.Run("temporary failure", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.f.reply = func(method string, n int) (int, string, bool) {
+			return http.StatusBadGateway, `{"ok":false,"error_code":502,"description":"Bad Gateway"}`, method == "getMe" && n <= 3
+		}
+		h.start(t)
+		h.push(dm(1, alice, "made it"))
+		if msg := h.inbound(t); msg.Content != "made it" {
+			t.Errorf("inbound = %q", msg.Content)
+		}
+		var got []time.Duration
+		for len(h.sleeps) > 0 {
+			got = append(got, <-h.sleeps)
+		}
+		// Start's own attempt fails without a wait; then the background
+		// backs off 1s and 2s.
+		if want := []time.Duration{time.Second, 2 * time.Second}; !reflect.DeepEqual(got, want) {
+			t.Errorf("waits = %v, want %v", got, want)
+		}
+		if n := len(h.f.callsOf("getMe")); n != 3+1 {
+			t.Errorf("getMe calls = %d, want 4", n)
+		}
+	})
+	t.Run("rejected later", func(t *testing.T) {
+		h := newHarness(t, nil)
+		h.f.reply = func(method string, n int) (int, string, bool) {
+			if method != "getMe" {
+				return 0, "", false
+			}
+			if n == 1 {
+				return http.StatusBadGateway, `{"ok":false,"error_code":502,"description":"Bad Gateway"}`, true
+			}
+			return http.StatusUnauthorized, `{"ok":false,"error_code":401,"description":"Unauthorized"}`, true
+		}
+		h.start(t)
+		h.f.waitFor("getMe", 2)
+		// The channel gives up: no polling.
+		time.Sleep(50 * time.Millisecond)
+		if n := len(h.f.callsOf("getUpdates")); n != 0 {
+			t.Errorf("polled %d times with a rejected token", n)
+		}
+		if !strings.Contains(h.logs.String(), "rejected") {
+			t.Errorf("logs = %s", h.logs)
 		}
 	})
 }

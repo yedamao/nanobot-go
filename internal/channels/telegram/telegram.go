@@ -152,7 +152,10 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 func (c *Channel) Name() string { return Name }
 
 // Start checks the token with getMe, removes a webhook if one is set
-// (getUpdates fails while one is) and starts long polling.
+// (getUpdates fails while one is) and starts long polling. A rejected
+// token is an error; when Telegram cannot be reached (the network is not
+// up yet, a 5xx), Start succeeds and the channel keeps trying in the
+// background before it polls.
 func (c *Channel) Start(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -160,25 +163,80 @@ func (c *Channel) Start(ctx context.Context) error {
 		return errors.New("telegram: already started")
 	}
 	cctx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
+	err := c.connect(cctx)
+	cancel()
+	connected := err == nil
+	if err != nil {
+		if rejected(err) {
+			return err
+		}
+		if ctx.Err() != nil {
+			return fmt.Errorf("telegram: connect: %w", ctx.Err())
+		}
+		c.log.Warn("telegram: cannot reach the Bot API; retrying in the background", "error", err)
+	}
+	c.started = true
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	c.runCtx, c.cancel = runCtx, cancelRun
+	c.wg.Go(func() {
+		if !connected && !c.reconnect(runCtx) {
+			return
+		}
+		c.poll(runCtx)
+	})
+	return nil
+}
+
+// connect identifies the bot (getMe) and removes a webhook.
+func (c *Channel) connect(ctx context.Context) error {
 	var me user
-	if err := c.api.call(cctx, "getMe", struct{}{}, &me); err != nil {
-		var ae *apiError
-		if errors.As(err, &ae) && (ae.Code == http.StatusUnauthorized || ae.Code == http.StatusNotFound) {
+	if err := c.api.call(ctx, "getMe", struct{}{}, &me); err != nil {
+		if rejected(err) {
 			return fmt.Errorf("telegram: the bot token was rejected: %w", err)
 		}
 		return fmt.Errorf("telegram: connect: %w", err)
 	}
 	c.botID, c.botUsername = me.ID, me.Username
-	if err := c.api.call(cctx, "deleteWebhook", struct{}{}, nil); err != nil {
+	if err := c.api.call(ctx, "deleteWebhook", struct{}{}, nil); err != nil {
 		c.log.Warn("telegram: could not remove the webhook; polling may fail", "error", err)
 	}
-	c.started = true
-	runCtx, cancelRun := context.WithCancel(context.Background())
-	c.runCtx, c.cancel = runCtx, cancelRun
-	c.wg.Go(func() { c.poll(runCtx) })
 	c.log.Info("telegram bot connected", "bot", "@"+me.Username, "id", me.ID)
 	return nil
+}
+
+// reconnect retries connect with backoff until it succeeds (true), the
+// token is rejected or ctx ends (false).
+func (c *Channel) reconnect(ctx context.Context) bool {
+	backoff := c.minBackoff
+	for {
+		wait := backoff
+		var ae *apiError
+		err := c.connect(ctx)
+		switch {
+		case err == nil:
+			return true
+		case ctx.Err() != nil:
+			return false
+		case rejected(err):
+			c.log.Error("telegram: stopped", "error", err)
+			return false
+		case errors.As(err, &ae) && ae.RetryAfter > 0:
+			wait = ae.RetryAfter
+		default:
+			backoff = min(backoff*2, c.maxBackoff)
+		}
+		c.log.Warn("telegram: cannot reach the Bot API; retrying", "error", err, "delay", wait)
+		if c.sleep(ctx, wait) != nil {
+			return false
+		}
+	}
+}
+
+// rejected reports whether err says the token is invalid (getMe answers
+// 401, or 404 for a malformed token).
+func rejected(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && (ae.Code == http.StatusUnauthorized || ae.Code == http.StatusNotFound)
 }
 
 // Stop stops polling and the typing indicators and waits for them. An

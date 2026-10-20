@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -138,6 +139,24 @@ func (f *fakeAPI) waitFor(method string, n int) []apiCall {
 	}
 }
 
+// lockedBuffer collects log output from several goroutines.
+type lockedBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuffer) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *lockedBuffer) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
 // harness is a channel wired to a fake API and a bus.
 type harness struct {
 	f      *fakeAPI
@@ -145,6 +164,7 @@ type harness struct {
 	bus    *bus.MessageBus
 	store  *pairing.Store
 	sleeps chan time.Duration
+	logs   *lockedBuffer
 }
 
 // newHarness builds (but does not start) a channel. mutate adjusts the
@@ -159,11 +179,18 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 	}
 	b := bus.NewMessageBus(16)
 	store := pairing.NewStore(t.TempDir() + "/pairing.json")
-	ch, err := New(cfg, channels.Deps{Bus: b}, Options{Pairing: store, HTTPClient: f.srv.Client()})
+	logs := &lockedBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	ch, err := New(cfg, channels.Deps{Bus: b, Logger: log}, Options{Pairing: store, HTTPClient: f.srv.Client()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{f: f, ch: ch, bus: b, store: store, sleeps: make(chan time.Duration, 64)}
+	h := &harness{f: f, ch: ch, bus: b, store: store, sleeps: make(chan time.Duration, 64), logs: logs}
+	t.Cleanup(func() {
+		if strings.Contains(logs.String(), "secret_token") {
+			t.Errorf("the log leaks the token:\n%s", logs)
+		}
+	})
 	// Waits are recorded and skipped, but still end with ctx.
 	ch.sleep = func(ctx context.Context, d time.Duration) error {
 		select {
