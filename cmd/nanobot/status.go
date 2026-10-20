@@ -42,6 +42,7 @@ func (a *app) status(ctx context.Context, args []string) error {
 	for _, p := range config.Presets() {
 		keyInFile[p.Name] = cfg.Providers.Get(p.Name).APIKey != ""
 	}
+	apiKeyInFile := cfg.API.APIKey != ""
 	cfg.ApplyEnv(a.getenv)
 	if err := cfg.Validate(); err != nil {
 		return err
@@ -105,6 +106,8 @@ func (a *app) status(ctx context.Context, args []string) error {
 	mcpStatusRows(row, cfg.Tools.MCPServers, live)
 	row("Gateway:", "health http://%s/healthz, shutdown timeout %s", cfg.Gateway.Addr(), cfg.Gateway.ShutdownWait())
 	row("Channels:", "%s", channelSummary(cfg.Channels))
+	row("API:", "http://%s/v1, in the gateway %s, timeout %s, key %s", cfg.API.Addr(), onOff(cfg.API.Enabled),
+		cfg.API.TurnTimeout(), keySource(apiKeyInFile, a.getenv(config.EnvAPIKey) != ""))
 	row("API keys:", "")
 	for _, p := range config.Presets() {
 		row("  "+p.Name, "%s", keySource(keyInFile[p.Name], a.getenv(config.EnvKeyName(p.Name)) != ""))

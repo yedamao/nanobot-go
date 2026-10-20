@@ -1,7 +1,7 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
 // one-shot agent, the long-running gateway (which also runs scheduled
-// jobs), managing those jobs, a Dream pass over archived history, and
-// status reporting.
+// jobs), the OpenAI-compatible API, managing scheduled jobs, a Dream pass
+// over archived history, and status reporting.
 package main
 
 import (
@@ -33,7 +33,10 @@ Commands:
   onboard   write a default config file and workspace
   agent     chat with the agent (interactive, or one-shot with -m)
   gateway   run the agent behind the configured chat channels until
-            SIGINT/SIGTERM, with a health endpoint
+            SIGINT/SIGTERM, with a health endpoint (and the API when
+            api.enabled is set)
+  serve     run the OpenAI-compatible API (/v1/chat/completions) until
+            SIGINT/SIGTERM
   cron      list, remove or run the scheduled jobs (the gateway runs them)
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
@@ -112,6 +115,9 @@ type app struct {
 	// gatewayReady, when set, is called with the health endpoint's
 	// address once the gateway is serving (for tests).
 	gatewayReady func(healthAddr string)
+	// apiReady, when set, is called with the API's address once `serve`
+	// or the gateway serves it (for tests).
+	apiReady func(apiAddr string)
 }
 
 // run dispatches a subcommand and returns the exit code.
@@ -132,6 +138,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.dream(ctx, args[1:])
 	case "gateway":
 		err = a.gateway(ctx, args[1:])
+	case "serve":
+		err = a.serve(ctx, args[1:])
 	case "status":
 		err = a.status(ctx, args[1:])
 	case "version", "-v", "--version":

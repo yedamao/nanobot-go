@@ -191,10 +191,12 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	cfg.Providers.Anthropic.APIKey = "sk-ant-secret-file"
 	cfg.Channels["telegram"] = json.RawMessage(`{"enabled": true, "token": "123:secret-bot-token"}`)
 	cfg.Channels["slack"] = json.RawMessage(`{"botToken": "xoxb-secret"}`)
+	cfg.API.APIKey = "api-secret-file"
 	if err := cfg.Save(e.configPath); err != nil {
 		t.Fatal(err)
 	}
 	e.env["NANOBOT_GO_OPENAI_API_KEY"] = "sk-openai-secret-env"
+	e.env["NANOBOT_GO_API_KEY"] = "api-secret-env"
 	if code := e.run(t, nil, "status"); code != 0 {
 		t.Fatalf("status exit = %d, stderr %s", code, e.stderr)
 	}
@@ -208,7 +210,8 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	}
 	for _, want := range []string{e.configPath, e.workspace + " (missing)", db + " (not created yet)", config.DefaultModel,
 		"auto -> anthropic", "set (config)", "set (env)", "not set",
-		"health http://127.0.0.1:18790/healthz, shutdown timeout 30s", "slack (disabled), telegram (enabled)"} {
+		"health http://127.0.0.1:18790/healthz, shutdown timeout 30s", "slack (disabled), telegram (enabled)",
+		"http://127.0.0.1:8900/v1, in the gateway off, timeout 2m0s, key set (env)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}

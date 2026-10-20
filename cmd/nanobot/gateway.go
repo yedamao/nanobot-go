@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yedamao/nanobot-go/internal/api"
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
@@ -33,10 +34,11 @@ const (
 // gateway runs the agent behind the enabled chat channels until SIGINT or
 // SIGTERM, with a health endpoint on gateway.host:gateway.port, and runs
 // the workspace's cron jobs (and Dream, as the system job "dream") once
-// the loop is serving. On the first signal it stops taking inbound
-// messages and starting cron jobs, gives the turns in flight (a cron
-// job's included) gateway.shutdownTimeout seconds to finish (then
-// cancels them),
+// the loop is serving. With api.enabled it also serves the
+// OpenAI-compatible API on api.host:api.port. On the first signal it
+// stops taking inbound messages, API requests and starting cron jobs,
+// gives the turns in flight (a cron job's and API requests' included)
+// gateway.shutdownTimeout seconds to finish (then cancels them),
 // delivers their replies, and stops the channels, the health endpoint,
 // the MCP servers and the session store, in that order. A second signal
 // exits at once with status 1.
@@ -103,6 +105,13 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	// Built now so an unauthenticated non-loopback API fails right away.
+	var apiSrv *api.Server
+	if rt.cfg.API.Enabled {
+		if apiSrv, err = newAPIServer(rt); err != nil {
+			return err
+		}
+	}
 
 	// Listen before the slow parts so a taken port fails right away.
 	g := rt.cfg.Gateway
@@ -136,6 +145,14 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 			runErr = err
 			stopRun()
 		}
+		apiAddr := ""
+		if apiSrv != nil && runErr == nil {
+			// API turns run under turnCtx like inbound turns.
+			if apiAddr, err = apiSrv.Start(turnCtx); err != nil {
+				runErr = err
+				stopRun()
+			}
+		}
 		go func() { served <- rt.loop.Serve(runCtx, turnCtx) }()
 		// Jobs run under turnCtx like inbound turns, so a shutdown lets
 		// the one in progress finish.
@@ -147,6 +164,12 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		}()
 		a.printGatewayBanner(ln.Addr().String(), mgr)
 		a.printCronBanner(rt.cron, dreamSched, dreamOn)
+		if apiAddr != "" {
+			a.printAPIEndpoint(rt.cfg, apiAddr)
+			if a.apiReady != nil {
+				a.apiReady(apiAddr)
+			}
+		}
 		if a.gatewayReady != nil {
 			a.gatewayReady(ln.Addr().String())
 		}
@@ -162,11 +185,20 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	}
 
 	<-served
-	// The cron service starts no job after runCtx ends; once it is done
-	// no new turn can start, and the loop's turns (the cron job's too)
-	// get the shutdown timeout.
+	// The API stops accepting requests and waits for those in flight.
+	apiDone := make(chan struct{})
+	go func() {
+		defer close(apiDone)
+		if apiSrv != nil {
+			shutdownAPI(forceCtx, apiSrv, log)
+		}
+	}()
+	// The cron service starts no job after runCtx ends; once it and the
+	// API are done no new turn can start, and the loop's turns (the cron
+	// job's and the API requests' too) get the shutdown timeout.
 	waitForTurns(func() {
 		<-cronDone
+		<-apiDone
 		rt.loop.Wait()
 	}, g.ShutdownWait(), cancelTurns, log)
 	stopCtx, cancelStop := context.WithTimeout(forceCtx, gatewayStopTimeout)
