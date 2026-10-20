@@ -169,12 +169,14 @@ func (s *Server) handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case err == nil:
 		writeJSON(w, http.StatusOK, completion(s.cfg.Model, reply))
-	case r.Context().Err() != nil:
-		// The client is gone; nobody reads a response.
-		s.log.Info("api turn canceled: client disconnected", "session", req.sessionKey)
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		s.log.Warn("api turn timed out", "session", req.sessionKey, "timeout", s.cfg.Timeout)
 		writeError(w, http.StatusGatewayTimeout, fmt.Sprintf("Request timed out after %s", s.cfg.Timeout), errServer)
+	case r.Context().Err() != nil:
+		// The client went away (then nobody reads this) or the server is
+		// shutting down and canceled the turn.
+		s.log.Info("api turn canceled", "session", req.sessionKey)
+		writeError(w, http.StatusServiceUnavailable, "Request canceled: the client disconnected or the server is shutting down", errServer)
 	default:
 		s.log.Error("api turn failed", "session", req.sessionKey, "error", err)
 		writeError(w, http.StatusInternalServerError, "Internal server error", errServer)

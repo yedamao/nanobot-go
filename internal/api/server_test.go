@@ -772,11 +772,15 @@ func TestShutdownBaseContextCancelsTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	status := make(chan int, 1)
 	go func() {
 		resp, err := http.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(chatBody("hi", "")))
-		if err == nil {
-			resp.Body.Close()
+		if err != nil {
+			status <- 0
+			return
 		}
+		resp.Body.Close()
+		status <- resp.StatusCode
 	}()
 	<-started
 	cancel()
@@ -784,6 +788,10 @@ func TestShutdownBaseContextCancelsTurns(t *testing.T) {
 	defer stop()
 	if err := s.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown = %v", err)
+	}
+	// The canceled request still gets an answer.
+	if got := <-status; got != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503", got)
 	}
 }
 
