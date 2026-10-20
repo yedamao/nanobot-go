@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -94,6 +95,62 @@ func TestProcessDirectPersistsToolExchange(t *testing.T) {
 	want := []string{"user:use the tool", "assistant:[probe]", "tool:c1", "assistant:done"}
 	if got := summarize(sess.Messages); !slices.Equal(got, want) {
 		t.Errorf("persisted = %v, want %v", got, want)
+	}
+}
+
+// turnProbe records the turn its calls run in.
+type turnProbe struct {
+	mu    sync.Mutex
+	turns []tools.Turn
+	found []bool
+}
+
+func (p *turnProbe) Name() string               { return "turn_probe" }
+func (p *turnProbe) Description() string        { return "records the turn" }
+func (p *turnProbe) Parameters() map[string]any { return tools.Object(map[string]any{}) }
+func (p *turnProbe) ReadOnly() bool             { return true }
+func (p *turnProbe) Execute(ctx context.Context, _ json.RawMessage) tools.Result {
+	turn, ok := tools.TurnFrom(ctx)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.turns = append(p.turns, turn)
+	p.found = append(p.found, ok)
+	return tools.Text("ok")
+}
+
+func TestToolsSeeTheTurn(t *testing.T) {
+	probe := &turnProbe{}
+	p := &scripted{steps: []step{
+		callTools(call("c1", "turn_probe", `{}`)), reply("one"),
+		callTools(call("c2", "turn_probe", `{}`)), reply("two"),
+	}}
+	l, _, _ := newTestLoop(t, p, registry(t, probe), nil)
+
+	if _, err := l.ProcessDirect(context.Background(), "hi", "cli:direct"); err != nil {
+		t.Fatal(err)
+	}
+	msg := bus.InboundMessage{Channel: "chat", ChatID: "42", SenderID: "cron", Content: "go",
+		Metadata: map[string]any{"thread": "t1"}, SessionKeyOverride: "chat:42:t1"}
+	got, err := l.ProcessMessage(context.Background(), msg)
+	if err != nil || got != "two" {
+		t.Fatalf("ProcessMessage = %q, %v", got, err)
+	}
+
+	want := []tools.Turn{
+		{Channel: "cli", ChatID: "direct", SessionKey: "cli:direct"},
+		{Channel: "chat", ChatID: "42", SessionKey: "chat:42:t1", Metadata: map[string]any{"thread": "t1"}},
+	}
+	if !slices.Equal(probe.found, []bool{true, true}) {
+		t.Fatalf("turn found = %v", probe.found)
+	}
+	for i, w := range want {
+		g := probe.turns[i]
+		if g.Channel != w.Channel || g.ChatID != w.ChatID || g.SessionKey != w.SessionKey || fmt.Sprint(g.Metadata) != fmt.Sprint(w.Metadata) {
+			t.Errorf("turn %d = %+v, want %+v", i, g, w)
+		}
+	}
+	if _, ok := tools.TurnFrom(context.Background()); ok {
+		t.Error("TurnFrom found a turn in a bare context")
 	}
 }
 

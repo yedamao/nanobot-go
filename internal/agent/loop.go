@@ -165,12 +165,17 @@ func (l *Loop) ProcessDirect(ctx context.Context, content, sessionKey string) (s
 	if !ok {
 		channel, chatID = "direct", sessionKey
 	}
+	return l.ProcessMessage(ctx, bus.InboundMessage{Channel: channel, ChatID: chatID, SenderID: "user", Content: content, SessionKeyOverride: sessionKey})
+}
+
+// ProcessMessage runs one turn for msg in its session and returns the
+// reply instead of publishing it, like ProcessDirect but with the
+// caller's routing (channel, chat, metadata). Scheduled jobs use it to
+// run a turn in the chat they were created from and deliver the reply
+// themselves.
+func (l *Loop) ProcessMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
 	reply := make(chan result, 1)
-	l.enqueue(job{
-		ctx:   ctx,
-		msg:   bus.InboundMessage{Channel: channel, ChatID: chatID, SenderID: "user", Content: content, SessionKeyOverride: sessionKey},
-		reply: reply,
-	})
+	l.enqueue(job{ctx: ctx, msg: msg, reply: reply})
 	select {
 	case r := <-reply:
 		return r.content, r.err
@@ -263,6 +268,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error)
 	}
 
 	l.consolidate(ctx, sess, msg)
+	ctx = tools.WithTurn(ctx, tools.Turn{Channel: msg.Channel, ChatID: msg.ChatID, SessionKey: key, Metadata: msg.Metadata})
 	messages := l.cfg.Context.BuildMessages(sess.Summary, sess.History(l.cfg.MaxHistoryMessages), msg.Content, msg.Channel)
 	res, err := l.runner.Run(ctx, RunSpec{
 		Messages:      messages,
