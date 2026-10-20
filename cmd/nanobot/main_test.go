@@ -55,7 +55,7 @@ type testEnv struct {
 	dir, configPath, workspace string
 	env                        map[string]string
 	stdout, stderr             *syncBuffer
-	interrupts                 chan os.Signal
+	interrupts, terminations   chan os.Signal
 	provider                   *fakeProvider
 	mcpTransport               mcp.TransportFactory
 }
@@ -67,13 +67,14 @@ func newTestEnv(t *testing.T) *testEnv {
 	// real home directory.
 	t.Setenv("HOME", filepath.Join(dir, "fake-home"))
 	e := &testEnv{
-		dir:        dir,
-		configPath: filepath.Join(dir, "home", "config.json"),
-		workspace:  filepath.Join(dir, "ws"),
-		stdout:     &syncBuffer{},
-		stderr:     &syncBuffer{},
-		interrupts: make(chan os.Signal, 1),
-		provider:   &fakeProvider{},
+		dir:          dir,
+		configPath:   filepath.Join(dir, "home", "config.json"),
+		workspace:    filepath.Join(dir, "ws"),
+		stdout:       &syncBuffer{},
+		stderr:       &syncBuffer{},
+		interrupts:   make(chan os.Signal, 1),
+		terminations: make(chan os.Signal, 1),
+		provider:     &fakeProvider{},
 	}
 	e.env = map[string]string{config.EnvConfigPath: e.configPath}
 	return e
@@ -86,6 +87,7 @@ func (e *testEnv) app(stdin io.Reader) *app {
 		stderr:       e.stderr,
 		getenv:       func(k string) string { return e.env[k] },
 		interrupts:   e.interrupts,
+		terminations: e.terminations,
 		newProvider:  func(*config.Config) (providers.Provider, error) { return e.provider, nil },
 		mcpTransport: e.mcpTransport,
 	}
@@ -187,6 +189,8 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 	cfg := config.Default()
 	cfg.Agents.Defaults.Workspace = e.workspace
 	cfg.Providers.Anthropic.APIKey = "sk-ant-secret-file"
+	cfg.Channels["telegram"] = json.RawMessage(`{"enabled": true, "token": "123:secret-bot-token"}`)
+	cfg.Channels["slack"] = json.RawMessage(`{"botToken": "xoxb-secret"}`)
 	if err := cfg.Save(e.configPath); err != nil {
 		t.Fatal(err)
 	}
@@ -203,7 +207,8 @@ func TestStatusNeverPrintsKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{e.configPath, e.workspace + " (missing)", db + " (not created yet)", config.DefaultModel,
-		"auto -> anthropic", "set (config)", "set (env)", "not set"} {
+		"auto -> anthropic", "set (config)", "set (env)", "not set",
+		"health http://127.0.0.1:18790/healthz, shutdown timeout 30s", "slack (disabled), telegram (enabled)"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("status output missing %q:\n%s", want, out)
 		}

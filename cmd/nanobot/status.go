@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"text/tabwriter"
 
@@ -100,11 +103,35 @@ func (a *app) status(ctx context.Context, args []string) error {
 		}
 	}
 	mcpStatusRows(row, cfg.Tools.MCPServers, live)
+	row("Gateway:", "health http://%s/healthz, shutdown timeout %s", cfg.Gateway.Addr(), cfg.Gateway.ShutdownWait())
+	row("Channels:", "%s", channelSummary(cfg.Channels))
 	row("API keys:", "")
 	for _, p := range config.Presets() {
 		row("  "+p.Name, "%s", keySource(keyInFile[p.Name], a.getenv(config.EnvKeyName(p.Name)) != ""))
 	}
 	return w.Flush()
+}
+
+// channelSummary lists the configured channels and whether each is
+// enabled. Sections hold tokens, so nothing else of them is printed.
+func channelSummary(sections map[string]json.RawMessage) string {
+	if len(sections) == 0 {
+		return "none"
+	}
+	var parts []string
+	for _, name := range slices.Sorted(maps.Keys(sections)) {
+		var head struct {
+			Enabled bool `json:"enabled"`
+		}
+		state := "disabled"
+		if err := json.Unmarshal(sections[name], &head); err != nil {
+			state = "invalid"
+		} else if head.Enabled {
+			state = "enabled"
+		}
+		parts = append(parts, name+" ("+state+")")
+	}
+	return strings.Join(parts, ", ")
 }
 
 func keySource(inFile, inEnv bool) string {

@@ -1,6 +1,6 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
-// one-shot agent, a Dream pass over archived history, and status
-// reporting.
+// one-shot agent, the long-running gateway, a Dream pass over archived
+// history, and status reporting.
 package main
 
 import (
@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"syscall"
 
+	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/providers"
@@ -30,6 +31,8 @@ Usage:
 Commands:
   onboard   write a default config file and workspace
   agent     chat with the agent (interactive, or one-shot with -m)
+  gateway   run the agent behind the configured chat channels until
+            SIGINT/SIGTERM, with a health endpoint
   dream     fold archived history into long-term memory (run on a schedule)
   status    show the configuration (API keys are never printed);
             --mcp also connects to the MCP servers
@@ -39,19 +42,47 @@ Run 'nanobot <command> -h' for the command's flags.
 `
 
 func main() {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
 	interrupts := make(chan os.Signal, 1)
-	signal.Notify(interrupts, os.Interrupt)
+	terminations := make(chan os.Signal, 1)
+	go routeSignals(sigs, cancel, interrupts, terminations)
 	a := &app{
-		stdin:      os.Stdin,
-		stdout:     os.Stdout,
-		stderr:     os.Stderr,
-		getenv:     os.Getenv,
-		interrupts: interrupts,
+		stdin:        os.Stdin,
+		stdout:       os.Stdout,
+		stderr:       os.Stderr,
+		getenv:       os.Getenv,
+		interrupts:   interrupts,
+		terminations: terminations,
 	}
 	code := a.run(ctx, os.Args[1:])
-	stop()
+	signal.Stop(sigs)
+	cancel()
 	os.Exit(code)
+}
+
+// routeSignals forwards Ctrl-C to interrupts. The first SIGTERM cancels
+// the command's context; later ones go to terminations. Sends never
+// block: a signal nobody is waiting for is dropped, as with
+// signal.Notify. It returns when sigs is closed.
+func routeSignals(sigs <-chan os.Signal, cancel context.CancelFunc, interrupts, terminations chan<- os.Signal) {
+	terminated := false
+	for s := range sigs {
+		out := interrupts
+		if s == syscall.SIGTERM {
+			if !terminated {
+				terminated = true
+				cancel()
+				continue
+			}
+			out = terminations
+		}
+		select {
+		case out <- s:
+		default:
+		}
+	}
 }
 
 // app holds the CLI's dependencies so tests can replace them.
@@ -62,10 +93,22 @@ type app struct {
 	// interrupts delivers Ctrl-C: it cancels the running turn, or exits
 	// when idle.
 	interrupts <-chan os.Signal
+	// terminations delivers SIGTERMs after the first, which cancels the
+	// command's context.
+	terminations <-chan os.Signal
+	// exit ends the process at once (a forced gateway shutdown); nil
+	// uses os.Exit.
+	exit func(code int)
 	// newProvider builds the model provider; nil uses the config.
 	newProvider func(*config.Config) (providers.Provider, error)
 	// mcpTransport connects to MCP servers; nil uses mcp.DefaultTransport.
 	mcpTransport mcp.TransportFactory
+	// channelFactories are registered on top of the built-in channels
+	// (for tests).
+	channelFactories map[string]channels.Factory
+	// gatewayReady, when set, is called with the health endpoint's
+	// address once the gateway is serving (for tests).
+	gatewayReady func(healthAddr string)
 }
 
 // run dispatches a subcommand and returns the exit code.
@@ -82,6 +125,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.agent(ctx, args[1:])
 	case "dream":
 		err = a.dream(ctx, args[1:])
+	case "gateway":
+		err = a.gateway(ctx, args[1:])
 	case "status":
 		err = a.status(ctx, args[1:])
 	case "version", "-v", "--version":
