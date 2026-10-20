@@ -19,7 +19,7 @@ in which we port them.
 | `nanobot/providers`                      | `internal/providers`             | `Provider` interface, OpenAI-compatible + Anthropic over `net/http`, retry, `Fallback` |
 | `nanobot/session`                        | `internal/session`               | `Store` interface; SQLite (default) and JSONL |
 | `nanobot/config`                         | `internal/config`                | JSON config, defaults, validation |
-| `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `onboard` subcommands |
+| `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
@@ -121,6 +121,16 @@ Phase 2 is complete; phase 3 is in progress.
     local triggers, run records (`cron/runs/`), run history, the WebUI
     automation views and `change_binding`.
 - `internal/api`: an OpenAI-compatible API.
+  - Done: `api.Server` (`GET /health`, `GET /v1/models`,
+    `POST /v1/chat/completions` with SSE streaming, bearer token, refusal
+    of a non-loopback host without a key, body cap, per-turn timeout,
+    nanobot's error JSON, `X-Request-ID`), `Loop.Process` (the reply with
+    the turn's token usage), config `api` (`enabled`, `host`, `port`,
+    `timeout`, `apiKey`; `NANOBOT_GO_API_KEY`), `nanobot serve`
+    (`--host`/`--port`/`--timeout`), the API inside the gateway when
+    `api.enabled`, a `status` row; `security.IsLoopbackHost`.
+  - Not ported: file uploads (multipart and base64 images), token
+    streaming, the WebUI-managed API process (`nanobot/api/runtime.py`).
 
 ### Phase 4: hardening and UI
 
@@ -459,3 +469,56 @@ Phase 2 is complete; phase 3 is in progress.
 - **No heartbeat.** nanobot's `gateway.heartbeat` (a system job that reads
   `HEARTBEAT.md`, picks a recently active chat and posts the result after
   an evaluator pass) is not ported yet.
+
+### OpenAI-compatible API
+
+- **The last message is the input.** nanobot requires `messages` to be
+  exactly one user message. nanobot-go takes the last message (which must
+  be `role: "user"`) and ignores the ones before it, since the server
+  keeps the history; clients that resend the whole conversation work, but
+  their system prompts and earlier messages have no effect. An empty or
+  whitespace-only message is a 400 (nanobot runs it).
+- **Text only.** nanobot saves base64 `image_url` parts and multipart
+  uploads (images, PDF, Office, text; 10 MB per file) under its media
+  directory and passes them to the turn. The Go loop has no media input
+  yet, so image/audio/file parts and `multipart/form-data` are a 400, any
+  other Content-Type than JSON too, and the body cap is 4 MiB instead of
+  20 MiB. Remote image URLs are a 400 in both.
+- **Streaming sends the whole reply as one chunk.** nanobot forwards
+  token deltas as the model produces them. nanobot-go's providers do not
+  stream, so the reply is one `chat.completion.chunk` (with
+  `role: "assistant"`) when the turn is done, followed by the stop chunk
+  and `[DONE]`; `: keep-alive` SSE comments every 15 seconds keep proxies
+  from giving up meanwhile. As in nanobot, headers go out at once and a
+  failure ends the stream without the stop chunk and `[DONE]`.
+- **The timeout includes the session wait.** nanobot starts
+  `api.timeout` after taking the session lock. nanobot-go submits the turn
+  to the loop's per-session queue under the request's deadline, so time
+  spent behind earlier turns of the same session counts.
+- **Disconnecting cancels the turn.** nanobot only cancels a streaming
+  turn when a write fails; a non-streaming one runs on. nanobot-go runs
+  every turn under the request's context, so a client that goes away
+  cancels it in both modes (a canceled turn is not saved). A turn
+  canceled by shutdown answers 503 (new). 504 uses type `server_error`
+  (nanobot: `invalid_request_error`).
+- **Inside the gateway, with `api.enabled` (new).** nanobot runs the API
+  only as `nanobot serve` (or a WebUI-managed `serve` process, whose
+  process control in `nanobot/api/runtime.py` is not ported). The
+  gateway's API shares its loop, sessions and MCP servers, and its
+  requests get `gateway.shutdownTimeout` on shutdown like the channels'
+  turns (`serve` uses the same setting).
+- **Remote hosts are checked at startup only.** nanobot also fails config
+  validation for `0.0.0.0`/`::` without `api.apiKey`; nanobot-go checks
+  any non-loopback host when the API starts, so `nanobot agent` still runs
+  with such a config.
+- **Small additions.** Unknown routes and wrong methods answer 404/405 in
+  the error JSON; 401s carry `WWW-Authenticate: Bearer`; `session_id`
+  is at most 256 characters without control characters; the key is
+  compared as SHA-256 digests so its length does not leak through timing;
+  `--timeout` takes whole seconds. Request bodies are never logged
+  (nanobot logs the first 80 characters).
+- **Scheduled jobs from the API.** As in nanobot, the `cron` tool works in
+  API turns. A job is bound to channel `api`, which no channel serves, so
+  when the gateway runs it the turn lands in the API session and its
+  reply is dropped with a warning; `serve` adds a note saying so to the
+  tool's result.

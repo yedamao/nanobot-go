@@ -39,12 +39,16 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   expression in a time zone) bound to the chat they were created in; the
   gateway runs them and delivers the replies there. The gateway also runs
   Dream every two hours.
-- CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `cron`
-  (`list`, `remove`, `run`), `dream`, `status` (`--mcp` to probe MCP
-  servers), `version`.
+- OpenAI-compatible API (phase 3, part 3): `nanobot serve` (or the
+  gateway with `api.enabled`) answers `POST /v1/chat/completions` with a
+  full agent turn, tools included, in a server-side session; SSE
+  streaming, optional bearer token.
+- CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
+  `cron` (`list`, `remove`, `run`), `dream`, `status` (`--mcp` to probe
+  MCP servers), `version`.
 
 Not yet: chat channels (Telegram first, then others), heartbeat
-(`HEARTBEAT.md`), the OpenAI-compatible API, process sandboxing. See
+(`HEARTBEAT.md`), process sandboxing. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -73,7 +77,8 @@ API keys can also come from the environment, which overrides the file:
 ```sh
 export NANOBOT_GO_ANTHROPIC_API_KEY=sk-ant-...
 # also NANOBOT_GO_{OPENAI,DEEPSEEK,OPENROUTER}_API_KEY, NANOBOT_GO_<P>_API_BASE,
-# NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE
+# NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE,
+# NANOBOT_GO_API_KEY (the bearer token of the OpenAI-compatible API)
 ```
 
 nanobot-go deliberately does not read `ANTHROPIC_API_KEY` or
@@ -116,7 +121,8 @@ Missing fields keep their defaults; unknown keys are an error.
     "mcpServers": {}
   },
   "channels": {},
-  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30}
+  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30},
+  "api": {"enabled": false, "host": "127.0.0.1", "port": 8900, "timeout": 120, "apiKey": ""}
 }
 ```
 
@@ -362,10 +368,101 @@ Restart=on-failure
 TimeoutStopSec=45
 ```
 
+### OpenAI-compatible API
+
+nanobot-go can put the agent behind a minimal OpenAI-compatible endpoint,
+like nanobot's `nanobot serve`, so any OpenAI client library can talk to
+it. Each request is a full agent turn (tools, MCP servers, memory), not a
+bare model call.
+
+```sh
+nanobot serve                          # 127.0.0.1:8900
+nanobot serve --port 9000 --timeout 300
+```
+
+`nanobot serve` runs only the API (no chat channels, no scheduled jobs).
+To run it inside the gateway instead, set `"api": {"enabled": true}`;
+the gateway then serves it next to the channels and the health endpoint.
+
+```json
+{
+  "api": {"enabled": true, "host": "127.0.0.1", "port": 8900, "timeout": 120, "apiKey": ""}
+}
+```
+
+| Key | Meaning |
+|-----|---------|
+| `enabled` | Also run the API inside `nanobot gateway` (default `false`). `nanobot serve` ignores it. |
+| `host`, `port` | Where the API listens (default `127.0.0.1:8900`, nanobot's). `serve --host/--port` override them; port 0 picks a free port. |
+| `timeout` | Seconds one request's turn may take (default 120; `serve --timeout`). |
+| `apiKey` | When set, every route but `/health` requires `Authorization: Bearer <apiKey>`. `NANOBOT_GO_API_KEY` overrides it. |
+
+Endpoints:
+
+- `GET /health`: `{"status":"ok"}`, never authenticated.
+- `GET /v1/models`: one model, `agents.defaults.model`.
+- `POST /v1/chat/completions`: runs the **last** message (it must be
+  `role: "user"`; text, or text content parts) as one turn and answers
+  with a `chat.completion` including `usage` (tokens of every model
+  request in the turn). `model` may be omitted or must equal the listed
+  one. Other request fields (`temperature`, `tools`, ...) are ignored.
+
+```sh
+curl http://127.0.0.1:8900/v1/chat/completions \
+  -H "Authorization: Bearer $NANOBOT_GO_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"messages": [{"role": "user", "content": "hi"}], "session_id": "my-session"}'
+```
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://127.0.0.1:8900/v1", api_key="local-no-key", max_retries=0)
+model = client.models.list().data[0].id
+resp = client.chat.completions.create(
+    model=model,
+    messages=[{"role": "user", "content": "hi"}],
+    extra_body={"session_id": "my-session"},
+)
+print(resp.choices[0].message.content)
+```
+
+- **Sessions.** The server keeps the conversation: `"session_id": "x"`
+  selects the session `api:x`, and without it every request shares
+  `api:default`. Earlier messages in `messages` are ignored, so clients
+  that resend the whole history work, but their system prompts and edits
+  to old messages have no effect. A session ID only separates history;
+  every caller shares the workspace, memory and tools. Requests for one
+  session run one at a time, in order; the timeout includes the wait.
+  `/new`, `/compact` and `/help` work as messages.
+- **Streaming.** `"stream": true` answers with Server-Sent Events:
+  `chat.completion.chunk` events, then `data: [DONE]`. The agent does not
+  stream tokens, so the whole reply arrives in one chunk when the turn is
+  done; until then the server sends `: keep-alive` comments every 15
+  seconds. A failed or timed-out turn ends the stream without the final
+  chunk and `[DONE]`; treat a stream without `[DONE]` as incomplete.
+- **Errors** are `{"error": {"message", "type", "code"}}`: 400 for an
+  invalid request (bad JSON, no user message, empty text, images or file
+  uploads, another model), 401 for a missing or wrong key, 413 for a body
+  over 4 MiB, 504 when the turn times out, 503 when it is canceled (the
+  client disconnected or the server is shutting down), 500 when it
+  fails. A 200 can still describe a failed tool action in its text.
+- **Retries repeat actions.** There is no idempotency key; a retried
+  request runs its turn (and its tool calls) again, so turn off automatic
+  client retries (`max_retries=0` above). Disconnecting
+  cancels the turn, but tool actions already done stay done.
+- **Shutdown.** Like the gateway: on SIGINT/SIGTERM the API stops taking
+  requests, gives those in flight `gateway.shutdownTimeout` seconds, then
+  cancels them (503). A second signal exits at once.
+- Text only: image parts and multipart file uploads are rejected.
+  Scheduled jobs created through the API are bound to the `api` channel,
+  which has no chat to deliver to; their replies only land in the
+  session's history.
+
 ## Architecture
 
 ```
-   cmd/nanobot (onboard | agent | gateway | cron | dream | status | version)
+   cmd/nanobot (onboard | agent | gateway | serve | cron | dream | status | version)
                  |                       |
            internal/config         stdin / stdout (agent)
                  |                internal/cron Service (gateway): due job ->
@@ -409,7 +506,9 @@ MCP connections belong to the application, not the loop: the command
 creates an `mcp.Manager` on the shared registry, connects it before the
 first turn and closes it at exit. `agent` and `gateway` build all of this
 with the same code; the gateway adds the bus, the channels, the cron
-service and the health endpoint around it. Tools learn which chat a turn
+service and the health endpoint around it, and `internal/api` (in
+`serve`, or the gateway with `api.enabled`) turns HTTP requests into
+`Loop.Process` calls in `api:<session>` sessions. Tools learn which chat a turn
 belongs to from its context (`tools.TurnFrom`), which is how the `cron`
 tool binds a job to its chat.
 
@@ -456,6 +555,12 @@ behalf. Treat it like giving someone a shell.
   `127.0.0.1` unless `gateway.host` says otherwise. It reveals only that
   the process is up. Channel sections may hold bot tokens; `status` never
   prints them.
+- The OpenAI-compatible API gives every caller the agent's full tool set
+  in the workspace, so treat its key like a shell login. It listens on
+  `127.0.0.1` by default and refuses to start on any other host without
+  `api.apiKey`. The key is compared in constant time and never printed or
+  logged; nor are request bodies. Use a TLS-terminating reverse proxy if
+  it must cross a network.
 - Scheduled jobs run unattended with the agent's full tool set, as if
   their message had been sent in their chat. Anyone who can talk to the
   agent can schedule jobs (and list or remove anyone's), so only expose
