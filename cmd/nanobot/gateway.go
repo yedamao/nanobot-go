@@ -17,6 +17,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 const (
@@ -119,7 +120,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	}
 	healthErr := make(chan error, 1)
 	go func() { healthErr <- srv.Serve(ln) }()
-	if !isLoopbackHost(g.Host) {
+	if !security.IsLoopbackHost(g.Host) {
 		fmt.Fprintf(a.stderr, "Warning: the unauthenticated health endpoint listens on %s, beyond loopback. Keep port %d private.\n", g.Host, g.Port)
 	}
 
@@ -287,13 +288,4 @@ func healthHandler() http.Handler {
 	mux.HandleFunc("GET /healthz", ok)
 	mux.HandleFunc("GET /health", ok)
 	return mux
-}
-
-// isLoopbackHost reports whether host only accepts local connections.
-func isLoopbackHost(host string) bool {
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(strings.Trim(host, "[]"))
-	return ip != nil && ip.IsLoopback()
 }

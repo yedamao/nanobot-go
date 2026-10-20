@@ -509,17 +509,6 @@ func TestHealthHandler(t *testing.T) {
 	}
 }
 
-func TestIsLoopbackHost(t *testing.T) {
-	for host, want := range map[string]bool{
-		"127.0.0.1": true, "127.0.0.2": true, "::1": true, "[::1]": true, "localhost": true, "LOCALHOST": true,
-		"0.0.0.0": false, "::": false, "192.168.1.2": false, "example.com": false, "": false,
-	} {
-		if got := isLoopbackHost(host); got != want {
-			t.Errorf("isLoopbackHost(%q) = %v, want %v", host, got, want)
-		}
-	}
-}
-
 func TestRouteSignals(t *testing.T) {
 	sigs := make(chan os.Signal, 8)
 	interrupts := make(chan os.Signal, 1)

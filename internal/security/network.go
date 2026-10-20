@@ -22,6 +22,18 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64 can reach IPv4 internals
 }
 
+// IsLoopbackHost reports whether a bind host only accepts local
+// connections: "localhost" or a loopback IP, optionally in brackets or
+// with a trailing dot (nanobot's is_loopback_host).
+func IsLoopbackHost(host string) bool {
+	h := strings.TrimSuffix(strings.TrimSpace(host), ".")
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip, err := netip.ParseAddr(strings.TrimSuffix(strings.TrimPrefix(h, "["), "]"))
+	return err == nil && ip.Unmap().IsLoopback()
+}
+
 // IsBlockedIP reports whether ip is loopback, private, link-local (which
 // includes cloud metadata at 169.254.169.254), multicast, unspecified or in
 // another internal range.
