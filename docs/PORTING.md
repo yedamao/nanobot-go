@@ -23,7 +23,8 @@ in which we port them.
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
-| `nanobot/gateway`, `nanobot/api`         | `internal/gateway`, `internal/api` | Daemon wiring, OpenAI-compatible HTTP API |
+| `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
+| `nanobot/api`                            | `internal/api`                   | OpenAI-compatible HTTP API |
 | `webui/`                                 | `web/` (embedded via `embed`)    | Served by the gateway |
 
 ## Phased plan
@@ -83,14 +84,29 @@ in which we port them.
   - Not ported: OAuth (`auth: "oauth"`), resources and prompts as tools,
     hot reload (`MCPProvider.reload`), `tools/list_changed`.
 
-Phase 2 is complete; phase 3 starts next.
+Phase 2 is complete; phase 3 is in progress.
 
 ### Phase 3: reach
 
+- Gateway: long-running daemon.
+  - Done: `nanobot gateway` (config `gateway.host`/`port`/
+    `shutdownTimeout`, `--host`/`--port`), built by the same
+    `buildRuntime` as `agent`; `Loop.Serve` (stop accepting while
+    in-flight turns finish); `GET /healthz` (and `/health`); graceful
+    shutdown on SIGINT/SIGTERM with a forced exit on the second signal;
+    `status` rows for the gateway and channels.
+  - Not ported: local triggers (`nanobot/triggers`), heartbeat and Dream
+    as gateway jobs (they wait for `internal/cron`), the readiness payload
+    (`process`/`ready`/`websocket`), restart notices, config hot reload,
+    the on-demand gateway client lease, WebUI.
 - `internal/channels`: Telegram, Slack, and others, each self-contained.
+  - Done: the `Channel` interface, `Registry` (factories keyed by name,
+    built from config `channels.<name>` when `enabled`), `Manager`
+    (start, outbound dispatch by channel name with retries, drain, stop),
+    `Permanent` errors.
+  - Next: Telegram (`internal/channels/telegram`).
 - `internal/cron`: scheduler, heartbeat, automations bound to sessions.
-- `internal/gateway` and `internal/api`: long-running daemon and an
-  OpenAI-compatible API.
+- `internal/api`: an OpenAI-compatible API.
 
 ### Phase 4: hardening and UI
 
@@ -291,3 +307,58 @@ Phase 2 is complete; phase 3 starts next.
 - **Secrets are redacted from errors.** Configured env and header values,
   the URL query and password are replaced with `[redacted]` in connection
   and call errors, which `status --mcp` prints.
+
+### Gateway and channels
+
+- **Health at `/healthz`, plain liveness.** nanobot serves `GET /health`
+  with a readiness payload (`status`, `process`, `ready`, `websocket`) and
+  503 when the WebSocket channel is down. nanobot-go serves `/healthz`
+  and `/health` with `{"status":"ok"}` while the process is up; readiness
+  arrives with channels that need it. It uses `net/http` with 2-second
+  timeouts instead of nanobot's hand-written HTTP/1.0 server and its
+  64-connection cap. Port 0 (any free port) is accepted.
+- **In-flight turns get a deadline.** nanobot cancels running tasks on
+  shutdown (keeping checkpoints so a later gateway can offer to
+  continue). nanobot-go stops consuming inbound messages, lets the turns
+  in flight finish for `gateway.shutdownTimeout` seconds (new; default
+  30), then cancels them; their replies are still delivered before the
+  channels stop. Messages still queued on the bus are not processed.
+  Delivering the last replies and stopping the channels and health
+  endpoint is bounded by another 10 seconds. A second signal calls
+  `os.Exit(1)` at once (nanobot cancels the remaining tasks and still runs
+  its bounded cleanup).
+- **Signals.** The first SIGTERM cancels the command's context (as
+  before); `main` now forwards later SIGTERMs so the gateway can treat
+  them as "force", like a second Ctrl-C. `agent` and `dream` behave as
+  before.
+- **Channels start, then run in the background.** nanobot's
+  `BaseChannel.start` is a long-running coroutine. A Go `Channel.Start`
+  returns once the channel runs and the channel owns its goroutines
+  until `Stop`; `Send` takes a context. A channel that fails to start is
+  logged and skipped, like nanobot, but is not retried.
+- **One sender per channel.** nanobot schedules one task per message
+  with FIFO per `(channel, chat_id)` and global limits (32 sends, 256
+  pending). nanobot-go gives each channel one sender goroutine with a
+  256-message queue: FIFO per channel, and a channel that is slow or
+  retrying does not hold up the others (but does hold up its own chats).
+- **Fixed retry policy.** Sends are attempted four times, waiting 1s, 2s
+  and 4s in between (nanobot's delays). nanobot's default is three
+  attempts via `channels.sendMaxRetries`, which is not ported. A channel
+  marks errors not worth retrying with `channels.Permanent` (nanobot:
+  `DeliveryRejectedError`/`should_retry_send_error`).
+- **No delivery outbox, progress or streaming.** nanobot persists
+  scheduled deliveries in `delivery/outbox.sqlite3`, streams deltas,
+  sends progress/tool hints/reasoning, and suppresses duplicate replies.
+  nanobot-go delivers only final replies; on a forced or timed-out stop,
+  queued replies are dropped with a warning.
+- **Channel config is a raw object per channel.** nanobot's `channels`
+  section also has global keys (`sendProgress`, `sendToolHints`,
+  `sendMaxRetries`, ...) next to the channel sections; nanobot-go only
+  has channel sections, each a JSON object with `enabled`, decoded
+  strictly by the channel's factory. Multi-instance channels and plugin
+  discovery are not ported; channels register with a `channels.Registry`
+  at startup. An enabled section with no registered channel fails the
+  gateway's startup instead of logging a warning.
+- **No local triggers.** nanobot's file-based trigger queue
+  (`nanobot/triggers`) is skipped for now: it needs the trigger store,
+  session admission and its own runner, so it is not a small addition.

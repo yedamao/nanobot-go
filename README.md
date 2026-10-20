@@ -30,11 +30,16 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   commits the change to git and trims the archive.
 - MCP client (phase 2, part 3): tools of stdio, streamable HTTP and SSE
   servers appear as `mcp_<server>_<tool>`.
-- CLI: `onboard`, `agent` (interactive or one-shot), `dream`, `status`
-  (`--mcp` to probe MCP servers), `version`.
+- Gateway (phase 3, part 1): `nanobot gateway` runs the agent as a
+  long-running process behind the enabled chat channels, with a health
+  endpoint and graceful shutdown. The channel interface, registry and
+  outbound dispatcher are in place; no actual channel is implemented yet.
+- CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `dream`,
+  `status` (`--mcp` to probe MCP servers), `version`.
 
-Not yet: chat channels (Telegram, Slack, ...), cron, the gateway daemon,
-process sandboxing. See [docs/PORTING.md](docs/PORTING.md) for the roadmap.
+Not yet: chat channels (Telegram first, then others), cron, the
+OpenAI-compatible API, process sandboxing. See
+[docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
 
@@ -103,7 +108,9 @@ Missing fields keep their defaults; unknown keys are an error.
     "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": []},
     "web": {"enable": true, "fetchMaxBytes": 2097152},
     "mcpServers": {}
-  }
+  },
+  "channels": {},
+  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30}
 }
 ```
 
@@ -246,16 +253,72 @@ each server's state and tool count or error, and disconnects.
 MCP resources and prompts are not exposed yet, nor is OAuth; use a header
 with a token instead.
 
+### Gateway
+
+`nanobot gateway` is the always-on mode: it builds the agent exactly as
+`nanobot agent` does (same config, workspace, sessions and MCP servers),
+starts the chat channels enabled under `channels`, and answers their
+messages until it is stopped. Each chat is its own session
+(`<channel>:<chat id>`); chats run in parallel, messages within a chat in
+order.
+
+```json
+{
+  "channels": {
+    "telegram": {"enabled": true, "...": "channel-specific settings"}
+  },
+  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30}
+}
+```
+
+Each key of `channels` is a channel name with an object holding at least
+`"enabled"`; the channel itself checks the other keys. An enabled channel
+nanobot-go does not know is an error at startup. No channel is
+implemented yet (Telegram is next), so for now the gateway runs with
+none.
+
+- **Health endpoint.** `GET http://<host>:<port>/healthz` (also
+  `/health`, nanobot's path) returns `{"status":"ok"}` while the process
+  is up. It listens on loopback by default; a non-loopback `host` prints
+  a warning, since the endpoint is unauthenticated. `--host` and `--port`
+  override the config; port 0 picks a free port. A port already in use
+  fails at startup.
+- **Delivery.** Replies are routed to the channel named in the message.
+  A failed send is retried after 1, 2 and 4 seconds (four attempts in
+  all) unless the channel reports a permanent error; replies for a channel
+  that is not running are dropped with a warning. A channel that fails to
+  start is logged and skipped; the others keep running.
+- **Shutdown.** On SIGINT (Ctrl-C) or SIGTERM the gateway stops taking
+  new messages, gives the turns in flight up to `shutdownTimeout` seconds
+  to finish (0 cancels them at once), delivers their replies, then stops
+  the channels, the health endpoint, the MCP servers and the session store
+  in that order and exits with status 0. Sending the signal again exits
+  immediately with status 1.
+
+`nanobot status` shows the health address and which channels are
+enabled (never their settings, which hold tokens).
+
+A systemd unit, for example:
+
+```ini
+[Service]
+ExecStart=/usr/local/bin/nanobot gateway
+Restart=on-failure
+TimeoutStopSec=45
+```
+
 ## Architecture
 
 ```
-        cmd/nanobot (onboard | agent | dream | status | version)
+   cmd/nanobot (onboard | agent | gateway | dream | status | version)
                  |                       |
-           internal/config         stdin / stdout
+           internal/config         stdin / stdout (agent)
      (JSON, env, provider factory)       |
-                 |                       v
-                 |      +--------------------------------+   internal/bus
-                 |      |  agent.Loop                    |<-- (channels, later)
+                 |                       v                 internal/channels
+                 |      +--------------------------------+  Manager: start, route
+                 |      |  agent.Loop                    |<-> outbound by name,
+                 |      |                                |   retry, stop
+                 |      |                                |  (over internal/bus)
                  |      |  - one worker per session key  |
                  +----->|  - ContextBuilder: system      |
                         |    prompt + history + message  |
@@ -287,7 +350,9 @@ The split follows nanobot: the **Loop** owns the channel-facing turn
 (session, context, delivery) and the **Runner** owns the model/tool loop.
 MCP connections belong to the application, not the loop: the command
 creates an `mcp.Manager` on the shared registry, connects it before the
-first turn and closes it at exit.
+first turn and closes it at exit. `agent` and `gateway` build all of this
+with the same code; the gateway adds the bus, the channels and the
+health endpoint around it.
 
 ## Safety notes
 
@@ -328,6 +393,10 @@ behalf. Treat it like giving someone a shell.
   trusted as configured (localhost servers work); they are not subject to
   `web_fetch`'s private-address checks. Tool results from MCP servers go
   to the model like any other tool output.
+- The gateway's health endpoint has no authentication and listens on
+  `127.0.0.1` unless `gateway.host` says otherwise. It reveals only that
+  the process is up. Channel sections may hold bot tokens; `status` never
+  prints them.
 - A turn whose provider call fails or is canceled is not saved, so errors
   never poison the conversation history. A history summary is written to
   `memory/history.jsonl` (fsynced, refusing symlinks and special files)
