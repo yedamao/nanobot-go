@@ -59,8 +59,10 @@ in which we port them.
     `Store.DreamCursor`/`Compact`, `DreamTools` (the restricted
     registry), the `Dream` job with git commits, `agent.DreamRun`, the
     `nanobot dream` subcommand and config `dream`.
-  - Next: schedule Dream from `internal/cron` (phase 3); `/dream-log` and
-    `/dream-restore` style commands over the git history.
+  - Done (phase 3): the gateway schedules Dream as the cron system job
+    `dream` (`dream.intervalH`, `dream.cron`).
+  - Next: `/dream-log` and `/dream-restore` style commands over the git
+    history.
 - SQLite session store outside the workspace, with a generation check.
   - Done: the `session.Store` interface, `SQLiteStore` (one database per
     workspace at `<sessions>/<workspace id>/sessions.sqlite3`, WAL, a
@@ -95,8 +97,8 @@ Phase 2 is complete; phase 3 is in progress.
     in-flight turns finish); `GET /healthz` (and `/health`); graceful
     shutdown on SIGINT/SIGTERM with a forced exit on the second signal;
     `status` rows for the gateway and channels.
-  - Not ported: local triggers (`nanobot/triggers`), heartbeat and Dream
-    as gateway jobs (they wait for `internal/cron`), the readiness payload
+  - Not ported: local triggers (`nanobot/triggers`), heartbeat
+    (`HEARTBEAT.md`; Dream now runs as a gateway job), the readiness payload
     (`process`/`ready`/`websocket`), restart notices, config hot reload,
     the on-demand gateway client lease, WebUI.
 - `internal/channels`: Telegram, Slack, and others, each self-contained.
@@ -106,6 +108,18 @@ Phase 2 is complete; phase 3 is in progress.
     `Permanent` errors.
   - Next: Telegram (`internal/channels/telegram`).
 - `internal/cron`: scheduler, heartbeat, automations bound to sessions.
+  - Done: `Schedule` (`at`, `every`, 5-field `cron` + IANA `tz`, own
+    parser, embedded tzdata), `Store` (`<workspace>/cron/jobs.json`,
+    flock + atomic writes), `Service` (timer goroutine capped at 5
+    minutes and woken by changes, injectable clock, run bookkeeping,
+    delete-after-run, protected system jobs, `RunJob`), `BoundRunner`
+    (session-bound turns through `Loop.ProcessMessage`, reply to the
+    origin chat), the `cron` tool (add/list/remove) with the turn's chat
+    taken from `tools.TurnFrom`, gateway wiring (start after the loop,
+    stop with it, Dream system job), `nanobot cron list|remove|run`.
+  - Not ported: heartbeat (`HEARTBEAT.md` and its target-chat picker),
+    local triggers, run records (`cron/runs/`), run history, the WebUI
+    automation views and `change_binding`.
 - `internal/api`: an OpenAI-compatible API.
 
 ### Phase 4: hardening and UI
@@ -187,9 +201,9 @@ Phase 2 is complete; phase 3 is in progress.
   `memory/.history.lock` (Unix only), so an append can neither reuse a
   cursor nor land in a file compaction is replacing. The file is opened
   without following symlinks.
-- **Dream is a CLI command, not a cron callback.** nanobot runs Dream from
-  the gateway's cron service. Until `internal/cron` exists, `nanobot
-  dream` does one pass and is scheduled externally; a non-waiting flock on
+- **Dream is a CLI command and a gateway cron job.** Like nanobot, the
+  gateway runs Dream from its cron service (see Cron below); `nanobot
+  dream` also does one pass on demand. A non-waiting flock on
   `memory/.dream.lock` refuses overlapping runs. The turn goes straight to
   the `Runner` (`agent.DreamRun`) rather than through the `Loop`, so there
   is no `dream:<timestamp>` session to prune. The `memory` package takes
@@ -362,3 +376,86 @@ Phase 2 is complete; phase 3 is in progress.
 - **No local triggers.** nanobot's file-based trigger queue
   (`nanobot/triggers`) is skipped for now: it needs the trigger store,
   session admission and its own runner, so it is not a small addition.
+
+### Cron
+
+- **Own cron parser.** nanobot uses croniter; nanobot-go parses standard
+  5-field expressions itself (std lib only): `*`, values, ranges, lists,
+  steps, month/weekday names, `0`/`7` for Sunday, `@yearly`...`@hourly`,
+  and Vixie's rule that when both day fields are restricted either may
+  match. Not supported: a seconds or year field, `L`, `W`, `#`, `H`.
+  In a daylight-saving fall-back, times in the repeated hour match on both
+  passes; times skipped by a spring-forward never match that day.
+- **Times on disk are RFC 3339.** `jobs.json` keeps nanobot's shape
+  (`version`, `jobs[]` with `id`, `name`, `enabled`, `schedule`,
+  `payload`, `state`, `deleteAfterRun`) but stores times as RFC 3339
+  strings (`at`, `nextRun`, `lastRun`, `createdAt`, `updatedAt`) instead
+  of `*AtMs` epochs; intervals stay `everyMs`. The chat lives in a
+  `binding` object (`channel`, `chatId`, `sessionKey`, `metadata`) instead
+  of the payload's `sessionKey`/`originChannel`/`originChatId`/
+  `originMetadata`, and the legacy `deliver`/`channel`/`to` fields and
+  their migration are not ported. The file is not compatible with
+  nanobot's.
+- **No action log; a lock instead.** nanobot's live service owns the store
+  and other processes append to `cron/action.jsonl`, merged on the next
+  load. nanobot-go has no owner: every change (from the gateway, `nanobot
+  agent` or `nanobot cron`) re-reads `jobs.json`, edits it and replaces it
+  atomically under an in-process mutex and an flock on `cron/.jobs.lock`
+  (Unix; elsewhere only the mutex, so concurrent processes can lose an
+  update). The gateway notices other processes' changes when it next
+  wakes, within five minutes, as in nanobot. Nothing prevents two
+  gateways on one workspace from both running the jobs.
+- **A corrupt store stops the gateway.** nanobot renames an unreadable
+  `jobs.json` to `.corrupt-<ts>` and refuses to start. nanobot-go leaves
+  it in place, refuses to start the gateway (and every other change),
+  and asks for it to be fixed or removed. A newer `version` is refused too.
+- **Restarts keep the schedule.** nanobot recomputes every job's next run
+  when the service starts, so an `every` job is pushed back by a restart
+  and a one-time job missed while it was down never runs. nanobot-go keeps
+  next runs that are still ahead, recomputes those that passed (missed
+  `every`/`cron` runs are skipped, as in nanobot), and runs a missed `at`
+  job once at startup. Re-registering the Dream job with an unchanged
+  schedule keeps its next run.
+- **Less bookkeeping.** State is `nextRun`, `lastRun`, `lastStatus`,
+  `lastError` (500 characters) and `runCount`; there is no
+  `runHistory` and no per-run records under `cron/runs/`. A run cut short
+  by shutdown is not recorded, so the job stays due (nanobot re-raises the
+  cancellation, with the same effect).
+- **Unbound jobs are skipped when due**, recorded as `skipped`; nanobot
+  also disables them when it loads the store. The tool cannot create one.
+- **No defer-until-idle coordinator.** nanobot holds a cron turn back while
+  its session is busy. nanobot-go submits it through
+  `Loop.ProcessMessage`, which already queues it behind the session's
+  turns. The rendered reminder prompt is saved to the session as the
+  user message (nanobot saves "Scheduled cron job triggered: ..."), and
+  the prompt drops nanobot's line about the message tool, which does not
+  exist here. The trigger marker is `_cron_trigger` in the inbound
+  metadata; the tool refuses `add` in such a turn, like nanobot.
+- **Turn context through `context.Context`.** nanobot's tool reads a
+  request-context variable; nanobot-go's Loop attaches `tools.Turn`
+  (channel, chat, session key, metadata) to every turn's context. Dream's
+  turns have none, and Dream's registry has no cron tool anyway. Binding
+  metadata is copied through JSON, dropping values that do not encode.
+- **Default zone is the host's.** nanobot defaults naive `at` times and
+  `cron_expr` without `tz` to `agents.defaults.timezone` (UTC unless
+  set). nanobot-go has no timezone setting yet: it uses the gateway
+  host's local zone, stored as "no zone" so the job follows the host.
+  Explicit `tz` values are stored as given; `"Local"` is rejected.
+- **`at` parsing.** Accepted forms follow Python's `fromisoformat`
+  (date, `T` or space, optional seconds and fraction, `Z` or offset).
+- **Dream schedule.** `dream.intervalH` (default 2) and `dream.cron` as in
+  nanobot; nanobot's `dream.enabled` is `intervalH: 0` without `cron`, and
+  `dream.cron` uses the host's zone. `modelOverride` is not ported.
+- **`nanobot agent` stores jobs, with a note.** As in nanobot, the tool is
+  available outside the gateway and jobs land in the store for the
+  gateway to run; nanobot-go adds a note to the result saying so. A job
+  made in the CLI session is bound to channel `cli`, which the gateway
+  does not run: the turn still runs in `cli:direct` and its reply is
+  dropped with a warning.
+- **`nanobot cron` is new.** nanobot has no cron subcommand (jobs are
+  managed through the agent and the WebUI). `list` and `remove` need no
+  provider; `run` runs the job's turn in the CLI process and prints the
+  reply instead of delivering it.
+- **No heartbeat.** nanobot's `gateway.heartbeat` (a system job that reads
+  `HEARTBEAT.md`, picks a recently active chat and posts the result after
+  an evaluator pass) is not ported yet.

@@ -34,11 +34,17 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   long-running process behind the enabled chat channels, with a health
   endpoint and graceful shutdown. The channel interface, registry and
   outbound dispatcher are in place; no actual channel is implemented yet.
-- CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `dream`,
-  `status` (`--mcp` to probe MCP servers), `version`.
+- Scheduled jobs (phase 3, part 2): the agent's `cron` tool schedules
+  reminders and recurring tasks (once, every N seconds, or a cron
+  expression in a time zone) bound to the chat they were created in; the
+  gateway runs them and delivers the replies there. The gateway also runs
+  Dream every two hours.
+- CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `cron`
+  (`list`, `remove`, `run`), `dream`, `status` (`--mcp` to probe MCP
+  servers), `version`.
 
-Not yet: chat channels (Telegram first, then others), cron, the
-OpenAI-compatible API, process sandboxing. See
+Not yet: chat channels (Telegram first, then others), heartbeat
+(`HEARTBEAT.md`), the OpenAI-compatible API, process sandboxing. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -91,7 +97,7 @@ Missing fields keep their defaults; unknown keys are an error.
       "maxHistoryMessages": 100,
       "contextWindowTokens": 200000,
       "consolidation": {"enable": true, "summaryMaxTokens": 2048},
-      "dream": {"batchEntries": 20, "maxHistoryEntries": 1000},
+      "dream": {"batchEntries": 20, "maxHistoryEntries": 1000, "intervalH": 2, "cron": ""},
       "fallbackModels": [
         {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-5"}
       ]
@@ -177,15 +183,63 @@ instructions can be replaced by writing `<workspace>/prompts/dream.md`.
   `dream.maxHistoryEntries` entries (0 disables this). Entries Dream has
   not processed yet are always kept.
 
-Until the built-in scheduler exists, run it periodically yourself, for
-example every two hours (nanobot's default) from cron:
-
-```cron
-0 */2 * * * /path/to/nanobot dream >> ~/.nanobot-go/dream.log 2>&1
-```
+`nanobot gateway` runs Dream on a schedule, as the protected cron job
+`dream`: every `dream.intervalH` hours (default 2, like nanobot), or at
+the times of `dream.cron` (a 5-field cron expression in the host's local
+time zone) when that is set. `"intervalH": 0` with no `cron` turns the
+schedule off. A pass with no new history entries does not call the
+model. Without the gateway, run `nanobot dream` from your system's cron
+or a timer instead.
 
 Runs that overlap are refused, and history appends from a running agent
 are safe while Dream trims the file.
+
+### Scheduled jobs (cron)
+
+The agent has a `cron` tool, so you can just ask: "remind me to stretch
+every 90 minutes", "every weekday at 9:00 Berlin time, summarize my
+calendar file", "at 18:30 tell me to leave". The tool takes the same
+arguments as nanobot's:
+
+| Argument | Meaning |
+|----------|---------|
+| `action` | `add`, `list` or `remove`. |
+| `message` | What to do when the job fires (required for `add`). |
+| `every_seconds` | Run every N seconds, counted from the previous run. |
+| `cron_expr`, `tz` | Run at the times of a 5-field cron expression (`minute hour day month weekday`, with ranges, lists, steps, `jan`-`dec`, `sun`-`sat` and `@daily`-style macros) in the IANA zone `tz` (default: the gateway host's local zone). |
+| `at` | Run once at an ISO date-time (`2026-02-12T10:30:00`, optionally with an offset; without one it is local time). The job is deleted after it runs. |
+| `name` | A label (default: the start of the message). |
+| `job_id` | The job to `remove`. |
+
+`add` needs exactly one of `every_seconds`, `cron_expr` and `at`.
+
+A job belongs to the chat it was created in. When it fires, the gateway
+runs `message` as a turn in that chat's session (the model sees that it
+is a scheduled job, and cannot schedule new jobs from it) and sends the
+reply to the same chat, thread included. Jobs are stored in
+`<workspace>/cron/jobs.json`; the gateway checks it at least every five
+minutes, so jobs added by another process are picked up too. Jobs that
+came due while the gateway was down are skipped, except one-time (`at`)
+jobs, which run once at startup. If a run fails, the error is recorded
+on the job and nothing is sent.
+
+`nanobot agent` offers the tool as well, but only the gateway runs jobs.
+A job created from the CLI runs in the `cli:direct` session; there is no
+channel to send its reply to, so it only shows up in that session's
+history.
+
+Manage jobs from the shell:
+
+```sh
+nanobot cron list [--all]      # --all includes disabled jobs
+nanobot cron remove <id>
+nanobot cron run <id> [--force]
+```
+
+`list` and `remove` only read and write `jobs.json` and need no API key.
+`run` runs the job's turn right away in this process and prints the reply
+(it does not send it to the chat). The `dream` job cannot be removed;
+change `dream.intervalH`/`dream.cron` instead.
 
 ### MCP servers
 
@@ -289,8 +343,9 @@ none.
   that is not running are dropped with a warning. A channel that fails to
   start is logged and skipped; the others keep running.
 - **Shutdown.** On SIGINT (Ctrl-C) or SIGTERM the gateway stops taking
-  new messages, gives the turns in flight up to `shutdownTimeout` seconds
-  to finish (0 cancels them at once), delivers their replies, then stops
+  new messages and starting scheduled jobs, gives the turns in flight (a
+  running job's included) up to `shutdownTimeout` seconds to finish (0
+  cancels them at once), delivers their replies, then stops
   the channels, the health endpoint, the MCP servers and the session store
   in that order and exits with status 0. Sending the signal again exits
   immediately with status 1.
@@ -310,9 +365,11 @@ TimeoutStopSec=45
 ## Architecture
 
 ```
-   cmd/nanobot (onboard | agent | gateway | dream | status | version)
+   cmd/nanobot (onboard | agent | gateway | cron | dream | status | version)
                  |                       |
            internal/config         stdin / stdout (agent)
+                 |                internal/cron Service (gateway): due job ->
+                 |                Loop.ProcessMessage in the job's chat -> bus
      (JSON, env, provider factory)       |
                  |                       v                 internal/channels
                  |      +--------------------------------+  Manager: start, route
@@ -351,8 +408,10 @@ The split follows nanobot: the **Loop** owns the channel-facing turn
 MCP connections belong to the application, not the loop: the command
 creates an `mcp.Manager` on the shared registry, connects it before the
 first turn and closes it at exit. `agent` and `gateway` build all of this
-with the same code; the gateway adds the bus, the channels and the
-health endpoint around it.
+with the same code; the gateway adds the bus, the channels, the cron
+service and the health endpoint around it. Tools learn which chat a turn
+belongs to from its context (`tools.TurnFrom`), which is how the `cron`
+tool binds a job to its chat.
 
 ## Safety notes
 
@@ -397,6 +456,10 @@ behalf. Treat it like giving someone a shell.
   `127.0.0.1` unless `gateway.host` says otherwise. It reveals only that
   the process is up. Channel sections may hold bot tokens; `status` never
   prints them.
+- Scheduled jobs run unattended with the agent's full tool set, as if
+  their message had been sent in their chat. Anyone who can talk to the
+  agent can schedule jobs (and list or remove anyone's), so only expose
+  channels to people you trust. `jobs.json` is written with mode `0600`.
 - A turn whose provider call fails or is canceled is not saved, so errors
   never poison the conversation history. A history summary is written to
   `memory/history.jsonl` (fsynced, refusing symlinks and special files)
