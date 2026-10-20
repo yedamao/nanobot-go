@@ -20,6 +20,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/fsutil"
 )
 
@@ -41,8 +42,10 @@ const (
 	// nanobot's Dream batch and history.jsonl limits.
 	DefaultDreamBatchEntries = 20
 	DefaultMaxHistoryEntries = 1000
-	DefaultExecTimeout       = 60
-	DefaultFetchMaxBytes     = 2 << 20
+	// DefaultDreamIntervalH matches nanobot's dream.intervalH.
+	DefaultDreamIntervalH = 2
+	DefaultExecTimeout    = 60
+	DefaultFetchMaxBytes  = 2 << 20
 )
 
 // ProviderAuto picks the provider from the model name and configured keys.
@@ -93,8 +96,9 @@ type AgentDefaults struct {
 	ContextWindowTokens int `json:"contextWindowTokens"`
 	// Consolidation configures history summaries.
 	Consolidation ConsolidationConfig `json:"consolidation"`
-	// Dream configures `nanobot dream`, which folds the history summaries
-	// into the long-term memory files.
+	// Dream configures Dream, which folds the history summaries into the
+	// long-term memory files: `nanobot dream` runs it once, and the
+	// gateway runs it on a schedule.
 	Dream DreamConfig `json:"dream"`
 	// FallbackModels are tried in order when the primary provider fails
 	// with a failover-worthy error.
@@ -120,7 +124,16 @@ type DreamConfig struct {
 	// run; entries Dream has not processed are always kept. 0 disables
 	// trimming.
 	MaxHistoryEntries int `json:"maxHistoryEntries"`
+	// IntervalH is how many hours apart the gateway runs Dream, as the
+	// protected cron job "dream". 0 turns the scheduled run off.
+	IntervalH int `json:"intervalH"`
+	// Cron, when set, schedules Dream with a 5-field cron expression in
+	// the gateway's local time zone instead of IntervalH.
+	Cron string `json:"cron"`
 }
+
+// Scheduled reports whether the gateway should run Dream on a schedule.
+func (d DreamConfig) Scheduled() bool { return d.IntervalH > 0 || strings.TrimSpace(d.Cron) != "" }
 
 // FallbackModel names a fallback provider and model. An empty Provider
 // means "auto".
@@ -203,7 +216,7 @@ func Default() *Config {
 			MaxHistoryMessages:  DefaultMaxHistoryMessages,
 			ContextWindowTokens: DefaultContextWindowTokens,
 			Consolidation:       ConsolidationConfig{Enable: true, SummaryMaxTokens: DefaultSummaryMaxTokens},
-			Dream:               DreamConfig{BatchEntries: DefaultDreamBatchEntries, MaxHistoryEntries: DefaultMaxHistoryEntries},
+			Dream:               DreamConfig{BatchEntries: DefaultDreamBatchEntries, MaxHistoryEntries: DefaultMaxHistoryEntries, IntervalH: DefaultDreamIntervalH},
 			FallbackModels:      []FallbackModel{},
 		}},
 		Tools: ToolsConfig{
@@ -384,6 +397,14 @@ func (c *Config) Validate() error {
 	}
 	if d.Dream.MaxHistoryEntries < 0 {
 		bad("agents.defaults.dream.maxHistoryEntries must not be negative, got %d", d.Dream.MaxHistoryEntries)
+	}
+	if d.Dream.IntervalH < 0 {
+		bad("agents.defaults.dream.intervalH must not be negative, got %d", d.Dream.IntervalH)
+	}
+	if expr := strings.TrimSpace(d.Dream.Cron); expr != "" {
+		if _, err := cron.ParseExpr(expr); err != nil {
+			bad("agents.defaults.dream.cron: %v", err)
+		}
 	}
 	for i, fb := range d.FallbackModels {
 		if fb.Provider != "" && !validProvider(fb.Provider) {

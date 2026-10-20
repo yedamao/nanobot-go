@@ -69,7 +69,7 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	if d.ContextWindowTokens != 64000 || d.Consolidation.Enable || d.Consolidation.SummaryMaxTokens != DefaultSummaryMaxTokens {
 		t.Errorf("consolidation settings = %d %+v", d.ContextWindowTokens, d.Consolidation)
 	}
-	if d.Dream.BatchEntries != 5 || d.Dream.MaxHistoryEntries != DefaultMaxHistoryEntries {
+	if d.Dream.BatchEntries != 5 || d.Dream.MaxHistoryEntries != DefaultMaxHistoryEntries || d.Dream.IntervalH != DefaultDreamIntervalH || !d.Dream.Scheduled() {
 		t.Errorf("dream settings = %+v", d.Dream)
 	}
 	if !cfg.Tools.RestrictToWorkspace || !cfg.Tools.Exec.Enable || cfg.Tools.Exec.Timeout != 5 {
@@ -157,6 +157,10 @@ func TestValidate(t *testing.T) {
 		{"dream batch", func(c *Config) { c.Agents.Defaults.Dream.BatchEntries = 0 }, "dream.batchEntries"},
 		{"dream history", func(c *Config) { c.Agents.Defaults.Dream.MaxHistoryEntries = -1 }, "dream.maxHistoryEntries"},
 		{"dream no trimming", func(c *Config) { c.Agents.Defaults.Dream.MaxHistoryEntries = 0 }, ""},
+		{"dream interval", func(c *Config) { c.Agents.Defaults.Dream.IntervalH = -1 }, "dream.intervalH"},
+		{"dream unscheduled", func(c *Config) { c.Agents.Defaults.Dream.IntervalH = 0 }, ""},
+		{"dream cron", func(c *Config) { c.Agents.Defaults.Dream.Cron = "0 3 * * *" }, ""},
+		{"dream bad cron", func(c *Config) { c.Agents.Defaults.Dream.Cron = "nightly" }, "dream.cron"},
 		{"fallback provider", func(c *Config) {
 			c.Agents.Defaults.FallbackModels = []FallbackModel{{Provider: "x", Model: "m"}}
 		}, "fallbackModels[0].provider"},
