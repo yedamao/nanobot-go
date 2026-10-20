@@ -98,6 +98,27 @@ func TestProcessDirectPersistsToolExchange(t *testing.T) {
 	}
 }
 
+func TestProcessReportsTurnUsage(t *testing.T) {
+	tool := &fakeTool{name: "probe", readOnly: true, log: &execLog{}}
+	p := &scripted{steps: []step{callTools(call("c1", "probe", `{}`)), reply("done")}}
+	l, _, _ := newTestLoop(t, p, registry(t, tool), nil)
+	msg := bus.InboundMessage{Channel: "api", ChatID: "default", Content: "go"}
+
+	r, err := l.Process(context.Background(), msg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Both model requests count: 10+2 and 10+1 tokens.
+	if want := (providers.Usage{InputTokens: 20, OutputTokens: 3}); r.Content != "done" || r.Usage != want {
+		t.Errorf("Process = %+v, want done with usage %+v", r, want)
+	}
+	// Built-in commands do not call the model.
+	msg.Content = CommandHelp
+	if r, err := l.Process(context.Background(), msg); err != nil || r.Content != helpText || r.Usage != (providers.Usage{}) {
+		t.Errorf("Process(/help) = %+v, %v", r, err)
+	}
+}
+
 // turnProbe records the turn its calls run in.
 type turnProbe struct {
 	mu    sync.Mutex

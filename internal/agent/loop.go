@@ -97,8 +97,17 @@ type job struct {
 }
 
 type result struct {
-	content string
-	err     error
+	reply Reply
+	err   error
+}
+
+// Reply is the outcome of one turn.
+type Reply struct {
+	// Content is the final assistant text.
+	Content string
+	// Usage sums the tokens of the turn's model requests. It is zero for
+	// the built-in commands.
+	Usage providers.Usage
 }
 
 // NewLoop returns a Loop.
@@ -174,15 +183,21 @@ func (l *Loop) ProcessDirect(ctx context.Context, content, sessionKey string) (s
 // run a turn in the chat they were created from and deliver the reply
 // themselves.
 func (l *Loop) ProcessMessage(ctx context.Context, msg bus.InboundMessage) (string, error) {
+	r, err := l.Process(ctx, msg)
+	return r.Content, err
+}
+
+// Process is ProcessMessage that also returns the turn's token usage.
+func (l *Loop) Process(ctx context.Context, msg bus.InboundMessage) (Reply, error) {
 	reply := make(chan result, 1)
 	l.enqueue(job{ctx: ctx, msg: msg, reply: reply})
 	select {
 	case r := <-reply:
-		return r.content, r.err
+		return r.reply, r.err
 	case <-ctx.Done():
 		// The worker still finishes the job (and observes the same ctx);
 		// reply is buffered so it never blocks.
-		return "", ctx.Err()
+		return Reply{}, ctx.Err()
 	}
 }
 
@@ -223,11 +238,12 @@ func (l *Loop) work(key string, w *worker) {
 
 // handle runs one job and delivers its result.
 func (l *Loop) handle(j job) {
-	content, err := l.turn(j.ctx, j.msg)
+	r, err := l.turn(j.ctx, j.msg)
 	if j.reply != nil {
-		j.reply <- result{content: content, err: err}
+		j.reply <- result{reply: r, err: err}
 		return
 	}
+	content := r.Content
 	if err != nil {
 		if j.ctx.Err() != nil {
 			return // shutting down: nothing to deliver
@@ -244,27 +260,28 @@ func (l *Loop) handle(j job) {
 // turn processes one message and returns the reply. The session is only
 // updated after a successful run, so a failed provider call never leaves a
 // dangling user message or partial tool exchange in history.
-func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error) {
+func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (Reply, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return Reply{}, err
 	}
 	key := msg.SessionKey()
 	sess, err := l.cfg.Sessions.GetOrCreate(key)
 	if err != nil {
-		return "", fmt.Errorf("load session: %w", err)
+		return Reply{}, fmt.Errorf("load session: %w", err)
 	}
 
 	switch strings.ToLower(strings.TrimSpace(msg.Content)) {
 	case CommandNew:
 		sess.Clear()
 		if err := l.cfg.Sessions.Save(sess); err != nil {
-			return "", fmt.Errorf("reset session: %w", err)
+			return Reply{}, fmt.Errorf("reset session: %w", err)
 		}
-		return newSessionText, nil
+		return Reply{Content: newSessionText}, nil
 	case CommandCompact:
-		return l.compact(ctx, sess)
+		content, err := l.compact(ctx, sess)
+		return Reply{Content: content}, err
 	case CommandHelp:
-		return helpText, nil
+		return Reply{Content: helpText}, nil
 	}
 
 	l.consolidate(ctx, sess, msg)
@@ -280,7 +297,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error)
 		Hooks:         l.cfg.Hooks,
 	})
 	if err != nil {
-		return "", err
+		return Reply{}, err
 	}
 
 	// messages ends with the user message; persist it and everything the
@@ -293,7 +310,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (string, error)
 	}
 	l.log.Debug("agent turn done", "session", key, "iterations", res.Iterations, "stop", res.StopReason,
 		"input_tokens", res.Usage.InputTokens, "output_tokens", res.Usage.OutputTokens)
-	return res.FinalContent, nil
+	return Reply{Content: res.FinalContent, Usage: res.Usage}, nil
 }
 
 // consolidate summarizes the oldest unconsolidated messages of sess when
