@@ -1,0 +1,232 @@
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/pairing"
+)
+
+const (
+	testToken = "123456:TEST-secret_token_value"
+	botID     = 999
+	botName   = "nano_bot"
+)
+
+// apiCall is one request the fake Bot API received.
+type apiCall struct {
+	Method string
+	Body   map[string]any
+}
+
+// fakeAPI is an in-process Bot API. getUpdates long-polls: it answers
+// with the next queued batch, or blocks until the request ends.
+type fakeAPI struct {
+	t   *testing.T
+	srv *httptest.Server
+
+	updates chan []update
+
+	mu    sync.Mutex
+	calls []apiCall
+	// reply, when set, answers a method instead of the default; ok false
+	// falls through to the default.
+	reply func(method string, n int) (status int, body string, ok bool)
+	// counts per method
+	counts map[string]int
+	// notify gets every method name, never blocking.
+	notify chan string
+}
+
+func newFakeAPI(t *testing.T) *fakeAPI {
+	t.Helper()
+	f := &fakeAPI{t: t, updates: make(chan []update, 16), counts: map[string]int{}, notify: make(chan string, 1024)}
+	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
+	t.Cleanup(f.srv.Close)
+	return f
+}
+
+func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
+	rest, ok := strings.CutPrefix(r.URL.Path, "/bot")
+	token, method, _ := strings.Cut(rest, "/")
+	if !ok || token != testToken {
+		w.WriteHeader(http.StatusUnauthorized)
+		io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
+		return
+	}
+	var body map[string]any
+	data, _ := io.ReadAll(r.Body)
+	if len(data) > 0 {
+		if err := json.Unmarshal(data, &body); err != nil {
+			f.t.Errorf("%s: bad JSON body %q", method, data)
+		}
+	}
+	f.mu.Lock()
+	f.calls = append(f.calls, apiCall{Method: method, Body: body})
+	f.counts[method]++
+	n := f.counts[method]
+	reply := f.reply
+	f.mu.Unlock()
+	select {
+	case f.notify <- method:
+	default:
+	}
+	if reply != nil {
+		if status, resp, ok := reply(method, n); ok {
+			w.WriteHeader(status)
+			io.WriteString(w, resp)
+			return
+		}
+	}
+	switch method {
+	case "getMe":
+		writeOK(w, user{ID: botID, IsBot: true, FirstName: "Nano", Username: botName})
+	case "getUpdates":
+		select {
+		case batch := <-f.updates:
+			writeOK(w, batch)
+		case <-r.Context().Done():
+		}
+	case "sendMessage":
+		writeOK(w, map[string]any{"message_id": 1000 + n})
+	default:
+		writeOK(w, true)
+	}
+}
+
+func writeOK(w http.ResponseWriter, result any) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"ok": true, "result": result})
+}
+
+// callsOf returns the requests for method so far.
+func (f *fakeAPI) callsOf(method string) []apiCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out []apiCall
+	for _, c := range f.calls {
+		if c.Method == method {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// waitFor waits until method has been called n times.
+func (f *fakeAPI) waitFor(method string, n int) []apiCall {
+	f.t.Helper()
+	deadline := time.After(5 * time.Second)
+	for {
+		if calls := f.callsOf(method); len(calls) >= n {
+			return calls
+		}
+		select {
+		case <-f.notify:
+		case <-time.After(10 * time.Millisecond):
+		case <-deadline:
+			f.t.Fatalf("timed out waiting for %d %s calls; got %d", n, method, len(f.callsOf(method)))
+		}
+	}
+}
+
+// harness is a channel wired to a fake API and a bus.
+type harness struct {
+	f      *fakeAPI
+	ch     *Channel
+	bus    *bus.MessageBus
+	store  *pairing.Store
+	sleeps chan time.Duration
+}
+
+// newHarness builds (but does not start) a channel. mutate adjusts the
+// config section.
+func newHarness(t *testing.T, mutate func(*Config)) *harness {
+	t.Helper()
+	f := newFakeAPI(t)
+	cfg := Config{Enabled: true, Token: testToken, AllowFrom: allowList{"42"}, APIBase: f.srv.URL,
+		PollTimeout: 1, GroupPolicy: GroupPolicyMention}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	b := bus.NewMessageBus(16)
+	store := pairing.NewStore(t.TempDir() + "/pairing.json")
+	ch, err := New(cfg, channels.Deps{Bus: b}, Options{Pairing: store, HTTPClient: f.srv.Client()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := &harness{f: f, ch: ch, bus: b, store: store, sleeps: make(chan time.Duration, 64)}
+	// Waits are recorded and skipped, but still end with ctx.
+	ch.sleep = func(ctx context.Context, d time.Duration) error {
+		select {
+		case h.sleeps <- d:
+		default:
+		}
+		return ctx.Err()
+	}
+	ch.typingInterval = time.Hour
+	return h
+}
+
+func (h *harness) start(t *testing.T) {
+	t.Helper()
+	if err := h.ch.Start(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := h.ch.Stop(ctx); err != nil {
+			t.Error(err)
+		}
+	})
+}
+
+// push queues one getUpdates batch.
+func (h *harness) push(us ...update) { h.f.updates <- us }
+
+// inbound waits for the next inbound bus message.
+func (h *harness) inbound(t *testing.T) bus.InboundMessage {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	msg, err := h.bus.ConsumeInbound(ctx)
+	if err != nil {
+		t.Fatalf("no inbound message: %v", err)
+	}
+	return msg
+}
+
+// noInbound checks that nothing reaches the bus once the fake has served
+// the next getUpdates (so the batch before it was handled).
+func (h *harness) noInbound(t *testing.T) {
+	t.Helper()
+	n := len(h.f.callsOf("getUpdates"))
+	h.f.waitFor("getUpdates", n+1)
+	if got := h.bus.InboundLen(); got != 0 {
+		msg, _ := h.bus.ConsumeInbound(context.Background())
+		t.Fatalf("unexpected inbound message: %+v", msg)
+	}
+}
+
+// Message builders.
+
+var alice = &user{ID: 42, FirstName: "Alice", Username: "alice"}
+
+func dm(id int64, from *user, text string) update {
+	return update{UpdateID: id, Message: &message{MessageID: id * 10, From: from,
+		Chat: chat{ID: from.ID, Type: "private"}, Text: text}}
+}
+
+func groupMsg(id int64, from *user, text string) update {
+	return update{UpdateID: id, Message: &message{MessageID: id * 10, From: from,
+		Chat: chat{ID: -100500, Type: "supergroup"}, Text: text}}
+}

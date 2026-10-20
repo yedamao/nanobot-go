@@ -1,0 +1,619 @@
+// Package telegram is the Telegram chat channel (nanobot/channels/
+// telegram). It talks to the Bot API directly over net/http: getMe
+// checks the token at start, getUpdates long-polls for messages, and
+// sendMessage delivers replies as plain text in chunks of at most 4096
+// characters. Senders are checked against allowFrom and the pairing
+// store; an unknown sender in a private chat gets a pairing code.
+package telegram
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+	"unicode/utf16"
+
+	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/pairing"
+)
+
+const (
+	// minBackoff and maxBackoff bound the wait after a failed getUpdates.
+	minBackoff = time.Second
+	maxBackoff = time.Minute
+	// sendAttempts is how often a sendMessage is tried when Telegram
+	// answers 429 (nanobot: _SEND_MAX_RETRIES).
+	sendAttempts = 3
+	// typingInterval is how often "typing" is refreshed while a turn
+	// runs; Telegram shows it for about 5 seconds.
+	typingInterval = 4 * time.Second
+	// typingMax stops the indicator of a turn whose reply never comes.
+	typingMax = 10 * time.Minute
+	// emptyMessage is what nanobot sends for a message without text; it
+	// is never delivered.
+	emptyMessage = "[empty message]"
+	// replyContextMax caps the quoted text of a replied-to message.
+	replyContextMax = 4000
+)
+
+// Options are the channel's dependencies besides its config section.
+type Options struct {
+	// Getenv reads the token override; nil ignores the environment.
+	Getenv func(string) string
+	// Pairing approves senders by pairing code; nil disables pairing, so
+	// only allowFrom grants access.
+	Pairing *pairing.Store
+	// HTTPClient calls the Bot API; nil builds one from the proxy setting.
+	HTTPClient *http.Client
+}
+
+// Factory returns the channels.Factory for Telegram.
+func Factory(opts Options) channels.Factory {
+	return func(raw json.RawMessage, deps channels.Deps) (channels.Channel, error) {
+		cfg, err := ParseConfig(raw, opts.Getenv)
+		if err != nil {
+			return nil, err
+		}
+		return New(cfg, deps, opts)
+	}
+}
+
+// Channel is a Telegram bot connection.
+type Channel struct {
+	cfg     Config
+	api     *client
+	bus     *bus.MessageBus
+	log     *slog.Logger
+	pairing *pairing.Store
+	// allow holds the allowFrom entries; usernames are lower-cased and
+	// without "@".
+	allow    map[string]bool
+	allowAll bool
+
+	// sleep waits between attempts (replaced in tests); it returns
+	// ctx.Err() if ctx ends first.
+	sleep          func(ctx context.Context, d time.Duration) error
+	minBackoff     time.Duration
+	maxBackoff     time.Duration
+	typingInterval time.Duration
+
+	// botID and botUsername are set by Start before polling begins.
+	botID       int64
+	botUsername string
+
+	mu      sync.Mutex
+	started bool
+	stopped bool
+	runCtx  context.Context
+	cancel  context.CancelFunc
+	typing  map[int64]*typingTask
+	// wg tracks the poller and the typing indicators.
+	wg sync.WaitGroup
+}
+
+type typingTask struct{ cancel context.CancelFunc }
+
+// New returns a channel for a parsed config (see ParseConfig).
+func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
+	if deps.Bus == nil {
+		return nil, errors.New("telegram: bus is required")
+	}
+	if err := cfg.validate(); err != nil {
+		return nil, err
+	}
+	hc := opts.HTTPClient
+	if hc == nil {
+		tr := http.DefaultTransport.(*http.Transport).Clone()
+		if cfg.Proxy != "" {
+			u, err := proxyURL(cfg.Proxy)
+			if err != nil {
+				return nil, err
+			}
+			tr.Proxy = http.ProxyURL(u)
+		}
+		hc = &http.Client{Transport: tr}
+	}
+	log := deps.Logger
+	if log == nil {
+		log = slog.New(slog.DiscardHandler)
+	}
+	c := &Channel{
+		cfg:            cfg,
+		api:            &client{base: cfg.APIBase, token: cfg.Token, http: hc},
+		bus:            deps.Bus,
+		log:            log,
+		pairing:        opts.Pairing,
+		allow:          map[string]bool{},
+		sleep:          sleepCtx,
+		minBackoff:     minBackoff,
+		maxBackoff:     maxBackoff,
+		typingInterval: typingInterval,
+		typing:         map[int64]*typingTask{},
+	}
+	for _, a := range cfg.AllowFrom {
+		a = strings.TrimSpace(a)
+		if a == "*" {
+			c.allowAll = true
+		}
+		c.allow[a] = true
+		c.allow[strings.ToLower(strings.TrimPrefix(a, "@"))] = true
+	}
+	return c, nil
+}
+
+// Name implements channels.Channel.
+func (c *Channel) Name() string { return Name }
+
+// Start checks the token with getMe, removes a webhook if one is set
+// (getUpdates fails while one is) and starts long polling.
+func (c *Channel) Start(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.started {
+		return errors.New("telegram: already started")
+	}
+	cctx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+	var me user
+	if err := c.api.call(cctx, "getMe", struct{}{}, &me); err != nil {
+		var ae *apiError
+		if errors.As(err, &ae) && (ae.Code == http.StatusUnauthorized || ae.Code == http.StatusNotFound) {
+			return fmt.Errorf("telegram: the bot token was rejected: %w", err)
+		}
+		return fmt.Errorf("telegram: connect: %w", err)
+	}
+	c.botID, c.botUsername = me.ID, me.Username
+	if err := c.api.call(cctx, "deleteWebhook", struct{}{}, nil); err != nil {
+		c.log.Warn("telegram: could not remove the webhook; polling may fail", "error", err)
+	}
+	c.started = true
+	runCtx, cancelRun := context.WithCancel(context.Background())
+	c.runCtx, c.cancel = runCtx, cancelRun
+	c.wg.Go(func() { c.poll(runCtx) })
+	c.log.Info("telegram bot connected", "bot", "@"+me.Username, "id", me.ID)
+	return nil
+}
+
+// Stop stops polling and the typing indicators and waits for them. An
+// in-flight getUpdates is canceled, so it returns promptly.
+func (c *Channel) Stop(ctx context.Context) error {
+	c.mu.Lock()
+	if !c.started || c.stopped {
+		c.mu.Unlock()
+		return nil
+	}
+	c.stopped = true
+	c.cancel()
+	c.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("telegram: stop: %w", ctx.Err())
+	}
+}
+
+// poll long-polls getUpdates until ctx ends, backing off after failures
+// and waiting out flood control.
+func (c *Channel) poll(ctx context.Context) {
+	var offset int64
+	backoff := c.minBackoff
+	for ctx.Err() == nil {
+		var updates []update
+		rctx, cancel := context.WithTimeout(ctx, c.cfg.pollWait()+pollSlack)
+		err := c.api.call(rctx, "getUpdates", getUpdatesParams{
+			Offset:         offset,
+			Timeout:        c.cfg.PollTimeout,
+			AllowedUpdates: []string{"message"},
+		}, &updates)
+		cancel()
+		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
+			wait := backoff
+			var ae *apiError
+			if errors.As(err, &ae) && ae.RetryAfter > 0 {
+				wait = ae.RetryAfter
+			} else {
+				backoff = min(backoff*2, c.maxBackoff)
+			}
+			c.log.Warn("telegram: getUpdates failed; retrying", "error", err, "delay", wait)
+			if c.sleep(ctx, wait) != nil {
+				return
+			}
+			continue
+		}
+		backoff = c.minBackoff
+		for _, u := range updates {
+			offset = max(offset, u.UpdateID+1)
+			if u.Message != nil {
+				c.handle(ctx, u.Message)
+			}
+		}
+	}
+}
+
+// handle turns one incoming message into an inbound bus message, or
+// answers it directly (pairing codes, /start).
+func (c *Channel) handle(ctx context.Context, m *message) {
+	// No sender: a channel post or an anonymous admin. Bots never get
+	// other bots' messages through polling, but skip them anyway.
+	if m.From == nil || m.From.IsBot || m.Chat.Type == "channel" {
+		return
+	}
+	senderID := senderID(m.From)
+	chatID := strconv.FormatInt(m.Chat.ID, 10)
+	text := m.Text
+	if text == "" {
+		text = m.Caption
+	}
+	// Commands go through in groups without a mention, like nanobot's.
+	// Group chatter not meant for the bot is ignored before the access
+	// check, so it is not logged as denied.
+	isCommand := strings.HasPrefix(text, "/")
+	if isCommand {
+		var ok bool
+		if text, ok = c.commandText(text); !ok {
+			return // a command for another bot
+		}
+	} else if !c.addressedToBot(m) {
+		return
+	}
+	if !c.isAllowed(m.From) {
+		c.deny(ctx, m, senderID)
+		return
+	}
+	if strings.TrimSpace(text) == "" {
+		c.log.Debug("telegram: skipping a message without text", "chat_id", chatID, "sender", senderID)
+		return
+	}
+	if isCommand && strings.EqualFold(strings.Fields(text)[0], "/start") {
+		greeting := fmt.Sprintf("👋 Hi %s! I'm nanobot.\n\nSend me a message and I'll respond!\nType /help to see available commands.", m.From.FirstName)
+		if err := c.sendText(ctx, m.Chat.ID, topicID(m), nil, greeting); err != nil {
+			c.log.Warn("telegram: send /start greeting", "chat_id", chatID, "error", err)
+		}
+		return
+	}
+	if !isCommand && m.ReplyToMessage != nil {
+		if quote := c.replyContext(m.ReplyToMessage); quote != "" {
+			text = quote + "\n" + text
+		}
+	}
+
+	in := bus.InboundMessage{
+		Channel:   Name,
+		SenderID:  senderID,
+		ChatID:    chatID,
+		Content:   text,
+		Timestamp: time.Now(),
+		Metadata:  metadata(m),
+	}
+	if t := topicID(m); t != 0 {
+		in.SessionKeyOverride = fmt.Sprintf("%s:%s:topic:%d", Name, chatID, t)
+	}
+	c.startTyping(m.Chat.ID, topicID(m))
+	if err := c.bus.PublishInbound(ctx, in); err != nil {
+		c.stopTyping(m.Chat.ID)
+		c.log.Warn("telegram: drop inbound message", "chat_id", chatID, "error", err)
+	}
+}
+
+// deny answers a sender who is not allowed: a pairing code in a private
+// chat, nothing (but a log line) in a group.
+func (c *Channel) deny(ctx context.Context, m *message, senderID string) {
+	if m.Chat.Type != "private" || c.pairing == nil {
+		c.log.Warn("telegram: access denied; add the sender to channels.telegram.allowFrom to grant access",
+			"sender", senderID, "chat_id", m.Chat.ID)
+		return
+	}
+	code, err := c.pairing.Code(Name, strconv.FormatInt(m.From.ID, 10))
+	if err != nil {
+		c.log.Warn("telegram: pairing store unavailable; dropping the message", "sender", senderID, "error", err)
+		return
+	}
+	if err := c.sendText(ctx, m.Chat.ID, 0, nil, pairing.Reply(code)); err != nil {
+		c.log.Warn("telegram: send pairing code", "sender", senderID, "error", err)
+		return
+	}
+	c.log.Info("telegram: sent a pairing code; approve it with 'nanobot pairing approve <code>'",
+		"code", code, "sender", senderID, "chat_id", m.Chat.ID)
+}
+
+// isAllowed mirrors nanobot's TelegramChannel.is_allowed: "*", the user
+// ID, the username or the legacy "id|username" form in allowFrom, or an
+// approval in the pairing store.
+func (c *Channel) isAllowed(u *user) bool {
+	if c.allowAll {
+		return true
+	}
+	id := strconv.FormatInt(u.ID, 10)
+	if c.allow[id] {
+		return true
+	}
+	if u.Username != "" && (c.allow[strings.ToLower(u.Username)] || c.allow[id+"|"+u.Username]) {
+		return true
+	}
+	if c.pairing == nil {
+		return false
+	}
+	// Approvals are stored by user ID; nanobot stored "id|username".
+	keys := []string{id}
+	if u.Username != "" {
+		keys = append(keys, id+"|"+u.Username)
+	}
+	for _, k := range keys {
+		ok, err := c.pairing.IsApproved(Name, k)
+		if err != nil {
+			c.log.Warn("telegram: pairing store unavailable", "error", err)
+			return false
+		}
+		if ok {
+			return true
+		}
+	}
+	return false
+}
+
+// addressedToBot reports whether the bot should answer m: always in a
+// private chat or under the open group policy; in groups otherwise only
+// when m mentions the bot or replies to one of its messages.
+func (c *Channel) addressedToBot(m *message) bool {
+	if m.Chat.Type == "private" || c.cfg.GroupPolicy == GroupPolicyOpen {
+		return true
+	}
+	if c.mentions(m.Text, m.Entities) || c.mentions(m.Caption, m.CaptionEntities) {
+		return true
+	}
+	r := m.ReplyToMessage
+	return r != nil && r.From != nil && r.From.ID == c.botID
+}
+
+// mentions reports whether text (with its entities) mentions the bot.
+func (c *Channel) mentions(text string, entities []entity) bool {
+	if c.botUsername == "" {
+		return false
+	}
+	handle := "@" + strings.ToLower(c.botUsername)
+	var units []uint16
+	for _, e := range entities {
+		switch e.Type {
+		case "text_mention":
+			if e.User != nil && e.User.ID == c.botID {
+				return true
+			}
+		case "mention":
+			if units == nil {
+				units = utf16.Encode([]rune(text))
+			}
+			if e.Offset >= 0 && e.Length >= 0 && e.Offset+e.Length <= len(units) &&
+				strings.ToLower(string(utf16.Decode(units[e.Offset:e.Offset+e.Length]))) == handle {
+				return true
+			}
+		}
+	}
+	return strings.Contains(strings.ToLower(text), handle)
+}
+
+// commandText strips the "@bot" suffix of a command ("/new@my_bot" ->
+// "/new"). ok is false when the suffix names another bot.
+func (c *Channel) commandText(text string) (string, bool) {
+	cmd, rest, _ := strings.Cut(text, " ")
+	cmd, target, found := strings.Cut(cmd, "@")
+	if found && c.botUsername != "" && !strings.EqualFold(target, c.botUsername) {
+		return "", false
+	}
+	if rest != "" {
+		return cmd + " " + rest, true
+	}
+	return cmd, true
+}
+
+// replyContext quotes the message m replies to, like nanobot's
+// _extract_reply_context.
+func (c *Channel) replyContext(r *message) string {
+	text := r.Text
+	if text == "" {
+		text = r.Caption
+	}
+	if text == "" {
+		return ""
+	}
+	if runes := []rune(text); len(runes) > replyContextMax {
+		text = string(runes[:replyContextMax]) + "..."
+	}
+	switch {
+	case r.From != nil && r.From.ID == c.botID:
+		return "[Reply to bot: " + text + "]"
+	case r.From != nil && r.From.Username != "":
+		return "[Reply to @" + r.From.Username + ": " + text + "]"
+	case r.From != nil && r.From.FirstName != "":
+		return "[Reply to " + r.From.FirstName + ": " + text + "]"
+	}
+	return "[Reply to: " + text + "]"
+}
+
+// Send delivers msg as plain text, split into messages of at most 4096
+// characters, in the topic it came from. With replyToMessage (or an
+// explicit msg.ReplyTo) the messages reply to the inbound message.
+func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
+	chatID, err := strconv.ParseInt(msg.ChatID, 10, 64)
+	if err != nil {
+		return channels.Permanent(fmt.Errorf("telegram: invalid chat id %q", msg.ChatID))
+	}
+	c.stopTyping(chatID)
+	if len(msg.Media) > 0 {
+		c.log.Warn("telegram: sending media is not supported; sending the text only", "chat_id", chatID, "files", len(msg.Media))
+	}
+	if strings.TrimSpace(msg.Content) == "" || msg.Content == emptyMessage {
+		return nil
+	}
+	threadID, _ := metaInt(msg.Metadata, "message_thread_id")
+	var reply *replyParameters
+	if id, err := strconv.ParseInt(msg.ReplyTo, 10, 64); err == nil && id > 0 {
+		reply = &replyParameters{MessageID: id, AllowSendingWithoutReply: true}
+	} else if id, ok := metaInt(msg.Metadata, "message_id"); ok && c.cfg.ReplyToMessage {
+		reply = &replyParameters{MessageID: id, AllowSendingWithoutReply: true}
+	}
+	for _, chunk := range splitMessage(msg.Content, maxMessageLen) {
+		if err := c.sendText(ctx, chatID, threadID, reply, chunk); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// sendText sends one message, waiting out flood control (429
+// retry_after) up to sendAttempts times. Rejections (400, 403: chat not
+// found, bot blocked) are Permanent.
+func (c *Channel) sendText(ctx context.Context, chatID, threadID int64, reply *replyParameters, text string) error {
+	p := sendMessageParams{ChatID: chatID, Text: text, MessageThreadID: threadID, ReplyParameters: reply}
+	for attempt := 1; ; attempt++ {
+		cctx, cancel := context.WithTimeout(ctx, apiTimeout)
+		err := c.api.call(cctx, "sendMessage", p, nil)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		var ae *apiError
+		if !errors.As(err, &ae) {
+			return err
+		}
+		if ae.RetryAfter > 0 && attempt < sendAttempts {
+			c.log.Warn("telegram: flood control; waiting", "chat_id", chatID, "delay", ae.RetryAfter, "attempt", attempt)
+			if c.sleep(ctx, ae.RetryAfter) != nil {
+				return err
+			}
+			continue
+		}
+		if ae.Code == http.StatusBadRequest || ae.Code == http.StatusForbidden {
+			return channels.Permanent(err)
+		}
+		return err
+	}
+}
+
+// startTyping shows "typing…" in a chat until stopTyping, Stop or
+// typingMax.
+func (c *Channel) startTyping(chatID, threadID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.runCtx == nil || c.runCtx.Err() != nil {
+		return
+	}
+	if t := c.typing[chatID]; t != nil {
+		t.cancel()
+	}
+	ctx, cancel := context.WithTimeout(c.runCtx, typingMax)
+	t := &typingTask{cancel: cancel}
+	c.typing[chatID] = t
+	c.wg.Go(func() {
+		defer func() {
+			cancel()
+			c.mu.Lock()
+			if c.typing[chatID] == t {
+				delete(c.typing, chatID)
+			}
+			c.mu.Unlock()
+		}()
+		p := chatActionParams{ChatID: chatID, Action: "typing", MessageThreadID: threadID}
+		for {
+			if err := c.api.call(ctx, "sendChatAction", p, nil); err != nil && ctx.Err() == nil {
+				c.log.Debug("telegram: typing indicator", "chat_id", chatID, "error", err)
+			}
+			if sleepCtx(ctx, c.typingInterval) != nil {
+				return
+			}
+		}
+	})
+}
+
+func (c *Channel) stopTyping(chatID int64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if t := c.typing[chatID]; t != nil {
+		t.cancel()
+		delete(c.typing, chatID)
+	}
+}
+
+// senderID is nanobot's Telegram sender ID: "id|username", or the bare
+// ID for users without a username.
+func senderID(u *user) string {
+	id := strconv.FormatInt(u.ID, 10)
+	if u.Username != "" {
+		return id + "|" + u.Username
+	}
+	return id
+}
+
+// topicID returns the forum topic (or private-chat topic) of m, or 0.
+func topicID(m *message) int64 {
+	if m.IsTopicMessage {
+		return m.MessageThreadID
+	}
+	return 0
+}
+
+// metadata is nanobot's _build_message_metadata. It travels with the
+// turn and comes back on the reply.
+func metadata(m *message) map[string]any {
+	md := map[string]any{
+		"message_id": m.MessageID,
+		"user_id":    m.From.ID,
+		"username":   m.From.Username,
+		"first_name": m.From.FirstName,
+		"is_group":   m.Chat.Type != "private",
+		"is_forum":   m.Chat.IsForum,
+	}
+	if t := topicID(m); t != 0 {
+		md["message_thread_id"] = t
+	}
+	if m.ReplyToMessage != nil {
+		md["reply_to_message_id"] = m.ReplyToMessage.MessageID
+	}
+	return md
+}
+
+// metaInt reads an integer from metadata. Metadata that went through
+// JSON (a cron job's binding) holds float64 or a string instead of int64.
+func metaInt(md map[string]any, key string) (int64, bool) {
+	switch v := md[key].(type) {
+	case int64:
+		return v, true
+	case int:
+		return int64(v), true
+	case float64:
+		return int64(v), v == float64(int64(v))
+	case json.Number:
+		n, err := v.Int64()
+		return n, err == nil
+	case string:
+		n, err := strconv.ParseInt(v, 10, 64)
+		return n, err == nil
+	}
+	return 0, false
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
