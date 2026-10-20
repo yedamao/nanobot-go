@@ -1,11 +1,13 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDefaultIsValid(t *testing.T) {
@@ -84,6 +86,34 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadGatewayAndChannels(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := `{"gateway": {"port": 9000}, "channels": {"telegram": {"enabled": true, "token": "x"}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := cfg.Gateway
+	if g.Host != DefaultGatewayHost || g.Port != 9000 || g.ShutdownTimeout != DefaultGatewayShutdownTimeout {
+		t.Errorf("gateway = %+v", g)
+	}
+	if g.Addr() != "127.0.0.1:9000" || g.ShutdownWait() != 30*time.Second {
+		t.Errorf("Addr = %q, ShutdownWait = %v", g.Addr(), g.ShutdownWait())
+	}
+	if got := string(cfg.Channels["telegram"]); got != `{"enabled": true, "token": "x"}` {
+		t.Errorf("channels.telegram = %s", got)
+	}
+	if d := Default().Gateway; d.Addr() != "127.0.0.1:18790" {
+		t.Errorf("default gateway addr = %q", d.Addr())
+	}
+	if (GatewayConfig{Host: "::1", Port: 1}).Addr() != "[::1]:1" {
+		t.Error("IPv6 host not bracketed")
+	}
+}
+
 func TestLoadErrors(t *testing.T) {
 	tests := []struct {
 		name, data, want string
@@ -136,6 +166,15 @@ func TestValidate(t *testing.T) {
 		{"exec timeout", func(c *Config) { c.Tools.Exec.Timeout = -1 }, "tools.exec.timeout"},
 		{"bad pattern", func(c *Config) { c.Tools.Exec.DenyPatterns = []string{"("} }, "denyPatterns[0]"},
 		{"fetch bytes", func(c *Config) { c.Tools.Web.FetchMaxBytes = -1 }, "fetchMaxBytes"},
+		{"gateway host", func(c *Config) { c.Gateway.Host = " " }, "gateway.host"},
+		{"gateway port high", func(c *Config) { c.Gateway.Port = 65536 }, "gateway.port"},
+		{"gateway port negative", func(c *Config) { c.Gateway.Port = -1 }, "gateway.port"},
+		{"gateway port any", func(c *Config) { c.Gateway.Port = 0 }, ""},
+		{"gateway shutdown", func(c *Config) { c.Gateway.ShutdownTimeout = -1 }, "gateway.shutdownTimeout"},
+		{"gateway no wait", func(c *Config) { c.Gateway.ShutdownTimeout = 0 }, ""},
+		{"channel object", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`{"enabled": true}`) }, ""},
+		{"channel not object", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`true`) }, "channels.telegram must be a JSON object"},
+		{"channel null", func(c *Config) { c.Channels["telegram"] = json.RawMessage(`null`) }, "channels.telegram"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

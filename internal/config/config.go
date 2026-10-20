@@ -1,7 +1,8 @@
 // Package config loads, validates and saves nanobot-go's JSON config file.
 // Its shape mirrors nanobot/config/schema.py where it makes sense:
 //
-//	{"agents": {"defaults": {...}}, "providers": {...}, "tools": {...}}
+//	{"agents": {"defaults": {...}}, "providers": {...}, "tools": {...},
+//	 "channels": {...}, "gateway": {...}}
 //
 // Keys are camelCase like nanobot's JSON aliases. Fields missing from the
 // file keep their defaults.
@@ -60,6 +61,11 @@ type Config struct {
 	Agents    AgentsConfig    `json:"agents"`
 	Providers ProvidersConfig `json:"providers"`
 	Tools     ToolsConfig     `json:"tools"`
+	// Channels maps a channel name (such as "telegram") to its settings,
+	// a JSON object with at least "enabled". `nanobot gateway` runs the
+	// enabled ones; each channel parses its own section.
+	Channels map[string]json.RawMessage `json:"channels"`
+	Gateway  GatewayConfig              `json:"gateway"`
 }
 
 // AgentsConfig holds agent settings.
@@ -206,6 +212,8 @@ func Default() *Config {
 			Web:                 WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
 			MCPServers:          map[string]MCPServerConfig{},
 		},
+		Channels: map[string]json.RawMessage{},
+		Gateway:  defaultGateway(),
 	}
 }
 
@@ -402,6 +410,8 @@ func (c *Config) Validate() error {
 		bad("tools.web.fetchMaxBytes must not be negative, got %d", c.Tools.Web.FetchMaxBytes)
 	}
 	validateMCP(c.Tools.MCPServers, bad)
+	validateChannels(c.Channels, bad)
+	validateGateway(c.Gateway, bad)
 	if len(errs) > 0 {
 		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
 	}
