@@ -329,7 +329,7 @@ func (d *Dream) lock() (func(), error) {
 		}
 		return nil, fmt.Errorf("dream: %w", err)
 	}
-	if err := lockFileExclusive(f, false); err != nil {
+	if err := fsutil.LockExclusive(f, false); err != nil {
 		f.Close()
 		if errors.Is(err, errLocked) {
 			return nil, errors.New("dream: another Dream run is in progress")

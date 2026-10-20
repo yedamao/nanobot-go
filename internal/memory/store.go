@@ -40,7 +40,7 @@ const (
 )
 
 // errLocked is returned by a non-waiting lock attempt on a held lock.
-var errLocked = errors.New("locked by another process")
+var errLocked = fsutil.ErrLocked
 
 // maxEntryChars is an emergency cap on one history entry, like nanobot's
 // _HISTORY_ENTRY_HARD_CAP. Callers should bound their content well below
@@ -253,7 +253,7 @@ func (s *Store) lock() (unlock func(), err error) {
 		s.mu.Unlock()
 		return nil, err
 	}
-	if err := lockFileExclusive(f, true); err != nil {
+	if err := fsutil.LockExclusive(f, true); err != nil {
 		f.Close()
 		s.mu.Unlock()
 		return nil, fmt.Errorf("lock %s: %w", f.Name(), err)

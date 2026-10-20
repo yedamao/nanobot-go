@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/yedamao/nanobot-go/internal/fsutil"
 )
 
 // fakeGit writes a shell script standing in for git.
@@ -60,7 +62,7 @@ func TestDreamRefusesConcurrentRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lockFileExclusive(other, false); err != nil {
+	if err := fsutil.LockExclusive(other, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := d.Run(context.Background()); err == nil || !strings.Contains(err.Error(), "in progress") {

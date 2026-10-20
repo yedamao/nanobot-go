@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/yedamao/nanobot-go/internal/fsutil"
 )
 
 // The history lock is held across processes: another holder (simulated
@@ -20,7 +22,7 @@ func TestHistoryLockBlocksOtherHolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer other.Close()
-	if err := lockFileExclusive(other, false); err != nil {
+	if err := fsutil.LockExclusive(other, false); err != nil {
 		t.Fatal(err)
 	}
 	// While held, a non-waiting attempt fails with errLocked.
@@ -28,7 +30,7 @@ func TestHistoryLockBlocksOtherHolders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := lockFileExclusive(probe, false); !errors.Is(err, errLocked) {
+	if err := fsutil.LockExclusive(probe, false); !errors.Is(err, errLocked) {
 		t.Errorf("second lock = %v, want errLocked", err)
 	}
 	probe.Close()
