@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/memory"
@@ -13,13 +14,11 @@ import (
 // meant to be scheduled externally (cron, launchd, systemd timers).
 func (a *app) dream(ctx context.Context, args []string) error {
 	fs := a.newFlagSet("dream", "dream [--config path] [--workspace dir] [--verbose]")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
-	workspace := fs.String("workspace", "", "workspace directory (overrides the config)")
-	verbose := fs.Bool("verbose", false, "log debug output to stderr")
+	flags := addCommonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
-	s, err := a.load(*configFlag, *workspace, *verbose)
+	s, err := a.load(flags, loadOptions{level: slog.LevelWarn})
 	if err != nil {
 		return err
 	}

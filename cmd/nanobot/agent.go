@@ -7,20 +7,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/tools"
-	"github.com/yedamao/nanobot-go/internal/tools/builtin"
 )
 
 const (
@@ -37,9 +28,7 @@ func (a *app) agent(ctx context.Context, args []string) (err error) {
 	fs.StringVar(&message, "message", "", "same as -m")
 	fs.StringVar(&sessionKey, "s", defaultSessionKey, "session key")
 	fs.StringVar(&sessionKey, "session", defaultSessionKey, "same as -s")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
-	workspace := fs.String("workspace", "", "workspace directory (overrides the config)")
-	verbose := fs.Bool("verbose", false, "log debug output to stderr")
+	flags := addCommonFlags(fs)
 	if err := parse(fs, args); err != nil {
 		return err
 	}
@@ -47,156 +36,22 @@ func (a *app) agent(ctx context.Context, args []string) (err error) {
 		return errors.New("session key must not be empty")
 	}
 
-	loop, sessions, servers, err := a.buildLoop(*configFlag, *workspace, *verbose)
+	rt, err := a.buildRuntime(flags, runtimeOptions{
+		loadOptions: loadOptions{level: slog.LevelWarn},
+		hooks:       &toolHints{w: a.stderr},
+	})
 	if err != nil {
 		return err
 	}
-	// Defers run in reverse: wait for background work (consolidation),
-	// then stop the MCP servers, then close the store.
-	defer func() {
-		if cerr := sessions.Close(); cerr != nil {
-			err = errors.Join(err, fmt.Errorf("close sessions: %w", cerr))
-		}
-	}()
-	defer servers.Close()
-	defer loop.Wait()
+	defer rt.closeInto(&err)
 
-	if err := a.connectMCP(ctx, servers, message == "" || *verbose); err != nil {
+	if err := a.connectMCP(ctx, rt.mcp, message == "" || flags.verbose); err != nil {
 		return err
 	}
 	if message != "" {
-		return a.oneShot(ctx, loop, message, sessionKey)
+		return a.oneShot(ctx, rt.loop, message, sessionKey)
 	}
-	return a.repl(ctx, loop, sessionKey)
-}
-
-// setup is what every agent-running command needs.
-type setup struct {
-	cfg        *config.Config
-	configPath string
-	ws         *security.Workspace
-	provider   providers.Provider
-	logger     *slog.Logger
-}
-
-// load reads the config (file, then environment, then flags), creates the
-// workspace and builds the provider and logger.
-func (a *app) load(configFlag, workspaceFlag string, verbose bool) (*setup, error) {
-	path, err := config.ResolvePath(configFlag, a.getenv)
-	if err != nil {
-		return nil, err
-	}
-	cfg, err := config.Load(path)
-	if err != nil {
-		return nil, err
-	}
-	cfg.ApplyEnv(a.getenv)
-	if workspaceFlag != "" {
-		cfg.Agents.Defaults.Workspace = workspaceFlag
-	}
-	if err := cfg.Validate(); err != nil {
-		return nil, err
-	}
-
-	wsPath, err := cfg.WorkspacePath()
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(wsPath, 0o700); err != nil {
-		return nil, fmt.Errorf("create workspace: %w", err)
-	}
-	ws, err := security.NewWorkspace(wsPath, cfg.Tools.RestrictToWorkspace)
-	if err != nil {
-		return nil, err
-	}
-	var provider providers.Provider
-	if a.newProvider != nil {
-		provider, err = a.newProvider(cfg)
-	} else {
-		provider, _, err = cfg.BuildProvider(config.ProviderOptions{})
-	}
-	if err != nil {
-		return nil, err
-	}
-	level := slog.LevelWarn
-	if verbose {
-		level = slog.LevelDebug
-	}
-	logger := slog.New(slog.NewTextHandler(a.stderr, &slog.HandlerOptions{Level: level}))
-	return &setup{cfg: cfg, configPath: path, ws: ws, provider: provider, logger: logger}, nil
-}
-
-// buildLoop wires the tools, sessions, MCP servers and agent loop. The
-// caller connects the MCP manager, and closes it and the session manager
-// once the loop is done.
-func (a *app) buildLoop(configFlag, workspaceFlag string, verbose bool) (*agent.Loop, *session.Manager, *mcp.Manager, error) {
-	s, err := a.load(configFlag, workspaceFlag, verbose)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	cfg, ws, provider, logger := s.cfg, s.ws, s.provider, s.logger
-	reg := tools.NewRegistry()
-	err = builtin.RegisterAll(reg, builtin.Config{
-		Workspace: ws,
-		Exec: builtin.ExecConfig{
-			Disabled:      !cfg.Tools.Exec.Enable,
-			Timeout:       time.Duration(cfg.Tools.Exec.Timeout) * time.Second,
-			DenyPatterns:  cfg.Tools.Exec.DenyPatterns,
-			AllowPatterns: cfg.Tools.Exec.AllowPatterns,
-			AllowEnv:      cfg.Tools.Exec.AllowedEnvKeys,
-		},
-		Web: builtin.WebFetchConfig{
-			Disabled: !cfg.Tools.Web.Enable,
-			MaxBytes: cfg.Tools.Web.FetchMaxBytes,
-		},
-	})
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	d := cfg.Agents.Defaults
-	var consolidator *memory.Consolidator
-	if d.Consolidation.Enable {
-		consolidator, err = memory.NewConsolidator(memory.Config{
-			Provider:            provider,
-			Store:               memory.NewStore(ws.Root),
-			Temperature:         &d.Temperature,
-			ContextWindowTokens: d.ContextWindowTokens,
-			ReplyMaxTokens:      d.MaxTokens,
-			MaxMessages:         d.MaxHistoryMessages,
-			SummaryMaxTokens:    d.Consolidation.SummaryMaxTokens,
-			Logger:              logger,
-		})
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	}
-	// Opened last so no earlier failure leaves the database open.
-	store, err := session.Open(config.SessionsDir(s.configPath), ws.Root)
-	if err != nil {
-		return nil, nil, nil, err
-	}
-	sessions := session.NewManager(store)
-	loop, err := agent.NewLoop(agent.LoopConfig{
-		Provider:           provider,
-		Tools:              reg,
-		Sessions:           sessions,
-		Context:            agent.NewContextBuilder(ws.Root),
-		MaxIterations:      d.MaxToolIterations,
-		MaxTokens:          d.MaxTokens,
-		Temperature:        &d.Temperature,
-		MaxHistoryMessages: d.MaxHistoryMessages,
-		Consolidator:       consolidator,
-		Hooks:              &toolHints{w: a.stderr},
-		Logger:             logger,
-	})
-	if err != nil {
-		sessions.Close()
-		return nil, nil, nil, err
-	}
-	// MCP tools join reg once the caller connects the servers; the loop
-	// reads the registry on every request.
-	return loop, sessions, a.newMCP(cfg, reg, logger, verbose), nil
+	return a.repl(ctx, rt.loop, sessionKey)
 }
 
 // oneShot sends one message and prints the reply. Ctrl-C cancels it.
