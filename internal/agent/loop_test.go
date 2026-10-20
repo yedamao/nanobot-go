@@ -302,6 +302,56 @@ func TestRunShutdownCancelsInFlightTurn(t *testing.T) {
 	}
 }
 
+func TestServeLetsInFlightTurnFinish(t *testing.T) {
+	b := bus.NewMessageBus(4)
+	started, release := make(chan struct{}), make(chan struct{})
+	p := &scripted{steps: []step{func(ctx context.Context, _ providers.ChatRequest) (*providers.ChatResponse, error) {
+		close(started)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		return &providers.ChatResponse{Content: "done", FinishReason: providers.FinishStop}, nil
+	}}}
+	l, sessions, _ := newTestLoop(t, p, nil, b)
+	acceptCtx, stopAccepting := context.WithCancel(context.Background())
+	turnCtx, cancelTurns := context.WithCancel(context.Background())
+	defer cancelTurns()
+	done := make(chan error, 1)
+	go func() { done <- l.Serve(acceptCtx, turnCtx) }()
+
+	if err := b.PublishInbound(acceptCtx, bus.InboundMessage{Channel: "test", ChatID: "1", Content: "slow"}); err != nil {
+		t.Fatal(err)
+	}
+	<-started
+	stopAccepting()
+	select {
+	case err := <-done:
+		if !errors.Is(err, context.Canceled) {
+			t.Errorf("Serve = %v, want context.Canceled", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Serve did not return after cancel")
+	}
+	// Messages arriving after Serve returned are not consumed.
+	if err := b.PublishInbound(context.Background(), bus.InboundMessage{Channel: "test", ChatID: "2", Content: "late"}); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	l.Wait()
+	out, err := consumeWithTimeout(b)
+	if err != nil || out.Content != "done" {
+		t.Fatalf("outbound = %+v, %v", out, err)
+	}
+	if b.InboundLen() != 1 {
+		t.Errorf("InboundLen = %d, want the late message left queued", b.InboundLen())
+	}
+	if sess, _ := sessions.GetOrCreate("test:1"); len(sess.Messages) != 2 {
+		t.Errorf("finished turn persisted %d messages, want 2", len(sess.Messages))
+	}
+}
+
 func TestRunPublishesErrorReply(t *testing.T) {
 	b := bus.NewMessageBus(4)
 	p := &scripted{steps: []step{fail(errors.New("provider down"))}}

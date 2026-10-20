@@ -124,16 +124,25 @@ func NewLoop(cfg LoopConfig) (*Loop, error) {
 // in-flight turns to stop (they see the same ctx and are canceled) and
 // returns ctx.Err().
 func (l *Loop) Run(ctx context.Context) error {
+	defer l.Wait()
+	return l.Serve(ctx, ctx)
+}
+
+// Serve consumes inbound messages from the bus until ctx ends and returns
+// ctx.Err(). Each turn runs under turnCtx instead, so a caller can stop
+// accepting messages while the turns in flight finish: cancel ctx, Wait
+// (with whatever deadline it likes), then cancel turnCtx. Serve does not
+// wait for in-flight turns.
+func (l *Loop) Serve(ctx, turnCtx context.Context) error {
 	if l.cfg.Bus == nil {
 		return errors.New("agent loop: bus is required")
 	}
-	defer l.Wait()
 	for {
 		msg, err := l.cfg.Bus.ConsumeInbound(ctx)
 		if err != nil {
 			return err
 		}
-		l.enqueue(job{ctx: ctx, msg: msg})
+		l.enqueue(job{ctx: turnCtx, msg: msg})
 	}
 }
 
