@@ -22,6 +22,8 @@ in which we port them.
 | `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
+| `nanobot/channels/telegram`              | `internal/channels/telegram`     | Bot API over `net/http`: long polling, allowFrom, plain-text replies |
+| `nanobot/pairing`                        | `internal/pairing`               | Pairing codes and approved senders (`pairing.json`), `nanobot pairing` |
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
 | `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
 | `nanobot/api`                            | `internal/api`                   | OpenAI-compatible HTTP API |
@@ -106,7 +108,26 @@ Phase 2 is complete; phase 3 is in progress.
     built from config `channels.<name>` when `enabled`), `Manager`
     (start, outbound dispatch by channel name with retries, drain, stop),
     `Permanent` errors.
-  - Next: Telegram (`internal/channels/telegram`).
+  - Done: Telegram (`internal/channels/telegram`): Bot API client over
+    `net/http` (`getMe` at start, `deleteWebhook`, `getUpdates` long
+    polling with offset, backoff and 429 `retry_after`, `sendMessage`,
+    `sendChatAction`), nanobot's `is_allowed` (`*`, ID, username,
+    `id|username`, pairing store), DM pairing codes, `groupPolicy`
+    `mention|open` (mention entities, text mentions, replies to the bot,
+    commands), `/cmd@bot` normalization, reply context, forum-topic
+    sessions, plain-text chunking at 4096 UTF-16 units, typing indicator,
+    token redaction; config `channels.telegram` (`token` or
+    `NANOBOT_GO_TELEGRAM_TOKEN`, `allowFrom`, `apiBase`, `pollTimeout`,
+    `proxy`, `groupPolicy`, `replyToMessage`), a `status` token row.
+    `internal/pairing` (`pairing.json` next to the config, flock + atomic
+    writes) and `nanobot pairing list|approve|deny|revoke`.
+  - Not ported (Telegram): webhook mode, media in either direction
+    (download, transcription, media groups, sending files), Markdown to
+    HTML rendering, rich messages, streaming edits, reasoning/progress
+    messages, inline keyboards and callback queries, reactions, the bot
+    command menu (`setMyCommands`), the per-session reorder buffer,
+    polling-stall detection, the WebUI setup validator.
+  - Next: other channels, each in its own package.
 - `internal/cron`: scheduler, heartbeat, automations bound to sessions.
   - Done: `Schedule` (`at`, `every`, 5-field `cron` + IANA `tz`, own
     parser, embedded tzdata), `Store` (`<workspace>/cron/jobs.json`,
@@ -386,6 +407,93 @@ Phase 2 is complete; phase 3 is in progress.
 - **No local triggers.** nanobot's file-based trigger queue
   (`nanobot/triggers`) is skipped for now: it needs the trigger store,
   session admission and its own runner, so it is not a small addition.
+
+### Telegram and pairing
+
+- **No SDK.** nanobot uses python-telegram-bot; nanobot-go calls the Bot
+  API with `net/http` and JSON bodies. Only long polling is supported
+  (nanobot also has `mode: "webhook"`). Like PTB's `start_polling`, a
+  webhook still set on the bot is deleted at startup (pending updates are
+  kept). Polling asks only for `message` updates, so edits, channel posts
+  and callbacks are never received.
+- **Plain text out.** nanobot renders the model's Markdown to Telegram
+  HTML (with a plain-text fallback on a parse error) or to Bot API 10.1
+  rich messages. nanobot-go sends every reply as plain text with no
+  `parse_mode`: Markdown markers show literally, but no model output can
+  break delivery or inject markup. nanobot splits raw Markdown at 4000
+  characters with fence balancing; nanobot-go splits plain text at
+  Telegram's real limit, 4096 UTF-16 code units, at a newline, else a
+  space, else between characters (never inside a surrogate pair). If a
+  later chunk fails, the manager's retry resends the whole reply, so
+  earlier chunks can appear twice (as in nanobot).
+- **Text only in.** nanobot downloads photos, voice, audio, documents
+  and video (transcribing voice), forwards locations and merges media
+  groups. nanobot-go handles text and captions; a message with neither is
+  skipped (a stranger's still gets a pairing code). Outbound media is
+  not sent (logged).
+- **Access check.** As in nanobot: `"*"`, then the sender ID
+  (`id|username`, or `id`) and its ID or username parts in `allowFrom`,
+  then the pairing store; an empty list denies everyone not paired.
+  nanobot-go also accepts `@name` and matches usernames
+  case-insensitively (Telegram usernames are case-insensitive), and
+  accepts numbers in `allowFrom`. In groups the mention/reply check runs
+  before the access check, so chatter not meant for the bot is not logged
+  as "access denied" (nanobot checks access first; the outcome is the
+  same: no reply).
+- **Commands.** nanobot registers a command menu and handles `/start`
+  and `/help` itself, forwarding the rest. nanobot-go answers `/start`
+  with nanobot's greeting and forwards every other command (`/help`
+  included) to the loop, which knows `/new`, `/compact` and `/help`.
+  `/cmd@other_bot` is ignored instead of being treated as `/cmd`.
+  Telegram-safe aliases (`/dream_log`, ...) are not mapped, since those
+  commands are not ported.
+- **Topic sessions only in topics.** nanobot scopes the session to
+  `telegram:<chat>:topic:<thread>` whenever a message has a
+  `message_thread_id`, which in a regular supergroup also happens for
+  reply threads, splitting one group into many sessions. nanobot-go does
+  it only for topic messages (`is_topic_message`), and only then sends
+  replies with `message_thread_id`.
+- **Typing indicator, no reaction.** Both show "typing…" every 4 seconds
+  until the reply; nanobot-go also stops it after 10 minutes. nanobot's
+  👀 reaction on received messages (`reactEmoji`) is not ported.
+- **Retries.** `sendMessage` waits out 429 `retry_after` up to three
+  attempts (nanobot: `_SEND_MAX_RETRIES`, also on timeouts); 400 and 403
+  (chat not found, bot blocked) are `Permanent`, so the manager does not
+  retry them. A failed `getUpdates` backs off 1s to 60s, or waits
+  `retry_after`; nanobot restarts the whole application after a stall and
+  backs off 5s to 300s on startup errors. A token rejected at startup
+  (401/404 from `getMe`) fails the channel (logged, the gateway runs on),
+  like nanobot's `InvalidToken`; when Telegram cannot be reached at
+  startup, `Start` still succeeds and `getMe` is retried in the
+  background with the polling backoff before polling begins (a later
+  rejection stops the channel with an error in the log). There is no
+  stall watchdog: each `getUpdates` has a deadline of `pollTimeout` plus
+  15 seconds instead.
+- **Token handling.** The token is validated as `<digits>:<secret>` before
+  it is used in a URL, never logged, and replaced with `<redacted>` in
+  every error (including `*url.Error`, which quotes the URL, and error
+  descriptions). Errors returned by the client keep only context errors
+  in their chain. `NANOBOT_GO_TELEGRAM_TOKEN` is new; nanobot resolves
+  `${VAR}` references in the config instead.
+- **Pairing.** The store keeps nanobot's `pairing.json` layout
+  (`approved` per channel, `pending` by code with Unix-second times,
+  10-minute codes like `ABCD-EFGH`), next to the config file instead of
+  in `~/.nanobot`. Differences: approvals are stored by numeric user ID
+  rather than `id|username` (so a username change keeps access; old
+  `id|username` entries still match); codes match case-insensitively and
+  without the dash; a corrupt file is an error and is never overwritten
+  (nanobot resets it, losing approvals); updates take a file lock, so the
+  gateway and the CLI can use it at once. Approval is through `nanobot
+  pairing approve` on the host; nanobot's in-chat `/pairing` command (any
+  allowed user could approve) and WebUI page are not ported, nor is
+  `delivery_status` bookkeeping. The reply text points at the CLI.
+- **Config.** Ported keys: `enabled`, `token`, `allowFrom`, `proxy`,
+  `groupPolicy`, `replyToMessage`. New: `apiBase`, `pollTimeout`
+  (seconds; PTB's default is 10, nanobot-go's 30). Not ported: `mode`,
+  `webhook*`, `reactEmoji`, `connectionPoolSize`, `poolTimeout`,
+  `streaming`, `inlineKeyboards`, `richMessages`, `streamEditInterval`;
+  as everywhere, unknown keys are an error. Proxies are `http`, `https`
+  or `socks5` (nanobot also takes `socks5h`).
 
 ### Cron
 

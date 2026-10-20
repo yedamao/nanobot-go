@@ -32,8 +32,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   servers appear as `mcp_<server>_<tool>`.
 - Gateway (phase 3, part 1): `nanobot gateway` runs the agent as a
   long-running process behind the enabled chat channels, with a health
-  endpoint and graceful shutdown. The channel interface, registry and
-  outbound dispatcher are in place; no actual channel is implemented yet.
+  endpoint and graceful shutdown.
 - Scheduled jobs (phase 3, part 2): the agent's `cron` tool schedules
   reminders and recurring tasks (once, every N seconds, or a cron
   expression in a time zone) bound to the chat they were created in; the
@@ -43,11 +42,14 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   gateway with `api.enabled`) answers `POST /v1/chat/completions` with a
   full agent turn, tools included, in a server-side session; SSE
   streaming, optional bearer token.
+- Telegram (phase 3, part 4): the first chat channel. The gateway
+  long-polls the Bot API; senders are allowed by `allowFrom` or paired
+  with a one-time code approved through `nanobot pairing approve`.
 - CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
-  `cron` (`list`, `remove`, `run`), `dream`, `status` (`--mcp` to probe
-  MCP servers), `version`.
+  `cron` (`list`, `remove`, `run`), `pairing` (`list`, `approve`, `deny`,
+  `revoke`), `dream`, `status` (`--mcp` to probe MCP servers), `version`.
 
-Not yet: chat channels (Telegram first, then others), heartbeat
+Not yet: other chat channels (Slack, Discord, ...), heartbeat
 (`HEARTBEAT.md`), process sandboxing. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
@@ -78,7 +80,8 @@ API keys can also come from the environment, which overrides the file:
 export NANOBOT_GO_ANTHROPIC_API_KEY=sk-ant-...
 # also NANOBOT_GO_{OPENAI,DEEPSEEK,OPENROUTER}_API_KEY, NANOBOT_GO_<P>_API_BASE,
 # NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE,
-# NANOBOT_GO_API_KEY (the bearer token of the OpenAI-compatible API)
+# NANOBOT_GO_API_KEY (the bearer token of the OpenAI-compatible API),
+# NANOBOT_GO_TELEGRAM_TOKEN (the Telegram bot token)
 ```
 
 nanobot-go deliberately does not read `ANTHROPIC_API_KEY` or
@@ -333,9 +336,8 @@ order.
 
 Each key of `channels` is a channel name with an object holding at least
 `"enabled"`; the channel itself checks the other keys. An enabled channel
-nanobot-go does not know is an error at startup. No channel is
-implemented yet (Telegram is next), so for now the gateway runs with
-none.
+nanobot-go does not know is an error at startup. Telegram is the only
+channel so far ([below](#telegram)).
 
 - **Health endpoint.** `GET http://<host>:<port>/healthz` (also
   `/health`, nanobot's path) returns `{"status":"ok"}` while the process
@@ -357,7 +359,8 @@ none.
   immediately with status 1.
 
 `nanobot status` shows the health address and which channels are
-enabled (never their settings, which hold tokens).
+enabled (never their settings, which hold tokens; for Telegram it says
+whether the token is set and where from).
 
 A systemd unit, for example:
 
@@ -367,6 +370,76 @@ ExecStart=/usr/local/bin/nanobot gateway
 Restart=on-failure
 TimeoutStopSec=45
 ```
+
+### Telegram
+
+Create a bot with [@BotFather](https://t.me/BotFather), then enable the
+channel and run `nanobot gateway`:
+
+```json
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token": "123456:ABC-your-bot-token",
+      "allowFrom": ["123456789", "your_username"],
+      "groupPolicy": "mention",
+      "replyToMessage": false,
+      "pollTimeout": 30,
+      "proxy": ""
+    }
+  }
+}
+```
+
+Only `enabled` and the token are required. `NANOBOT_GO_TELEGRAM_TOKEN`
+overrides `token`, so the token can stay out of the file. `apiBase`
+(default `https://api.telegram.org`) points at another Bot API server.
+`proxy` takes an `http://`, `https://` or `socks5://` URL (a bare
+`host:port` means http); without it the usual `HTTPS_PROXY` variables
+apply.
+
+- **Who may talk to the bot.** `allowFrom` lists numeric user IDs and/or
+  usernames (with or without `@`, any case); `"*"` allows everyone. With
+  an empty list nobody is allowed until paired: a stranger who writes to
+  the bot in a private chat gets a pairing code (valid 10 minutes, the
+  same code if they write again), and the code is also logged by the
+  gateway. Approve it on the host:
+
+  ```sh
+  nanobot pairing list            # pending codes and approved senders
+  nanobot pairing approve ABCD-EFGH
+  nanobot pairing deny ABCD-EFGH
+  nanobot pairing revoke telegram 123456789
+  ```
+
+  Approvals are stored by user ID in `pairing.json` next to the config
+  file and take effect at once, without restarting the gateway. Strangers
+  in groups get no code; their messages are dropped with a log line.
+- **Groups.** With `groupPolicy: "mention"` (default) the bot answers in
+  groups only when it is @-mentioned, when someone replies to one of its
+  messages, or for a `/command`; `"open"` answers every message from an
+  allowed sender. In privacy mode (BotFather's default) Telegram delivers
+  only some group messages to bots, such as commands and replies to
+  them; turn it off with `/setprivacy` for `"open"` and @-mentions to
+  work reliably.
+- **Sessions.** Each chat is a session `telegram:<chat id>`; a forum topic
+  is its own session `telegram:<chat id>:topic:<thread id>`, and replies
+  go back to the topic. `/new`, `/compact` and `/help` work as in the CLI
+  (`/new@your_bot` too); `/start` answers with a greeting.
+- **Messages.** Text messages and captions are handled; a reply quotes
+  the message it answers (`[Reply to bot: ...]`). Photos, voice and other
+  media without a caption are ignored. Replies are sent as **plain
+  text**, so Markdown from the model shows literally but can never break
+  delivery; long replies are split at newlines or spaces into messages of
+  at most 4096 characters. "typing…" shows while the agent works.
+- **Reliability.** The bot token is checked with `getMe` at startup (a
+  rejected token keeps Telegram from starting; the gateway runs on
+  without it; if Telegram cannot be reached yet, the channel keeps
+  trying in the background) and a webhook left over from another
+  deployment is removed. Polling backs off from 1 second to a minute after errors and
+  waits out Telegram's flood control (`retry_after`), which sending also
+  honors.
 
 ### OpenAI-compatible API
 
@@ -462,7 +535,7 @@ print(resp.choices[0].message.content)
 ## Architecture
 
 ```
-   cmd/nanobot (onboard | agent | gateway | serve | cron | dream | status | version)
+   cmd/nanobot (onboard | agent | gateway | serve | cron | pairing | dream | status | version)
                  |                       |
            internal/config         stdin / stdout (agent)
                  |                internal/cron Service (gateway): due job ->
@@ -472,7 +545,10 @@ print(resp.choices[0].message.content)
                  |      +--------------------------------+  Manager: start, route
                  |      |  agent.Loop                    |<-> outbound by name,
                  |      |                                |   retry, stop
-                 |      |                                |  (over internal/bus)
+                 |      |                                |  (over internal/bus);
+                 |      |                                |  telegram: Bot API
+                 |      |                                |  polling, allowFrom +
+                 |      |                                |  internal/pairing
                  |      |  - one worker per session key  |
                  +----->|  - ContextBuilder: system      |
                         |    prompt + history + message  |
@@ -555,6 +631,13 @@ behalf. Treat it like giving someone a shell.
   `127.0.0.1` unless `gateway.host` says otherwise. It reveals only that
   the process is up. Channel sections may hold bot tokens; `status` never
   prints them.
+- The Telegram bot token is part of every Bot API URL. nanobot-go never
+  logs request URLs and replaces the token with `<redacted>` in every
+  error, so it does not show up in the gateway's log. Anyone allowed to
+  talk to the bot (by `allowFrom`, `"*"` or an approved pairing) gets the
+  agent's full tool set in your workspace; keep `allowFrom` narrow and
+  approve only codes you expect. `pairing.json` is written with mode
+  `0600`.
 - The OpenAI-compatible API gives every caller the agent's full tool set
   in the workspace, so treat its key like a shell login. It listens on
   `127.0.0.1` by default and refuses to start on any other host without
