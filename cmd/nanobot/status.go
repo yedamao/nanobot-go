@@ -10,6 +10,7 @@ import (
 	"text/tabwriter"
 
 	"github.com/yedamao/nanobot-go/internal/channels/telegram"
+	"github.com/yedamao/nanobot-go/internal/channels/weixin"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/session"
@@ -106,7 +107,7 @@ func (a *app) status(ctx context.Context, args []string) error {
 	}
 	mcpStatusRows(row, cfg.Tools.MCPServers, live)
 	row("Gateway:", "health http://%s/healthz, shutdown timeout %s", cfg.Gateway.Addr(), cfg.Gateway.ShutdownWait())
-	row("Channels:", "%s", channelSummary(cfg.Channels, a.getenv))
+	row("Channels:", "%s", channelSummary(cfg.Channels, a.getenv, path))
 	row("API:", "http://%s/v1, in the gateway %s, timeout %s, key %s", cfg.API.Addr(), onOff(cfg.API.Enabled),
 		cfg.API.TurnTimeout(), keySource(apiKeyInFile, a.getenv(config.EnvAPIKey) != ""))
 	row("API keys:", "")
@@ -117,9 +118,10 @@ func (a *app) status(ctx context.Context, args []string) error {
 }
 
 // channelSummary lists the configured channels, whether each is enabled
-// and, for Telegram, where its token comes from. Sections hold tokens,
+// and, for Telegram, where its token comes from; for WeChat, whether a
+// login is saved (or where the token comes from). Sections hold tokens,
 // so nothing else of them is printed.
-func channelSummary(sections map[string]json.RawMessage, getenv func(string) string) string {
+func channelSummary(sections map[string]json.RawMessage, getenv func(string) string, configPath string) string {
 	if len(sections) == 0 {
 		return "none"
 	}
@@ -138,9 +140,36 @@ func channelSummary(sections map[string]json.RawMessage, getenv func(string) str
 		if name == telegram.Name && state != "invalid" {
 			state += ", token " + keySource(head.Token != "", getenv(telegram.EnvToken) != "")
 		}
+		if name == weixin.Name && state != "invalid" {
+			state += ", " + weixinLogin(sections[name], getenv, configPath)
+		}
 		parts = append(parts, name+" ("+state+")")
 	}
 	return strings.Join(parts, ", ")
+}
+
+// weixinLogin says where the WeChat channel's token comes from: a token
+// in the config or the environment, or the login saved by `nanobot
+// channels login weixin`.
+func weixinLogin(raw json.RawMessage, getenv func(string) string, configPath string) string {
+	var head struct {
+		Token string `json:"token"`
+	}
+	json.Unmarshal(raw, &head)
+	if getenv(weixin.EnvToken) != "" || strings.TrimSpace(head.Token) != "" {
+		return "token " + keySource(head.Token != "", getenv(weixin.EnvToken) != "")
+	}
+	cfg, err := weixin.ParseConfig(raw, nil)
+	if err != nil {
+		return "invalid config"
+	}
+	switch ok, err := weixin.HasSavedLogin(cfg.StatePath(weixin.DefaultStateDir(configPath))); {
+	case err != nil:
+		return "saved login unreadable"
+	case ok:
+		return "logged in"
+	}
+	return "not logged in (run 'nanobot channels login weixin')"
 }
 
 func keySource(inFile, inEnv bool) string {

@@ -1,8 +1,8 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
 // one-shot agent, the long-running gateway (which also runs scheduled
-// jobs and the Telegram channel), the OpenAI-compatible API, managing
-// scheduled jobs and paired chat senders, a Dream pass over archived
-// history, and status reporting.
+// jobs and the Telegram and WeChat channels), the OpenAI-compatible API,
+// managing scheduled jobs and paired chat senders, the WeChat QR login, a
+// Dream pass over archived history, and status reporting.
 package main
 
 import (
@@ -40,6 +40,8 @@ Commands:
             SIGINT/SIGTERM
   cron      list, remove or run the scheduled jobs (the gateway runs them)
   pairing   list, approve, deny or revoke chat senders paired by code
+  channels  log in to a chat channel ('channels login weixin' scans a
+            WeChat QR code)
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
   status    show the configuration (API keys are never printed);
@@ -134,6 +136,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.onboard(args[1:])
 	case "agent":
 		err = a.agent(ctx, args[1:])
+	case "channels":
+		err = a.channelsCmd(ctx, args[1:])
 	case "cron":
 		err = a.cronCmd(ctx, args[1:])
 	case "dream":

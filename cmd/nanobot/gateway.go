@@ -17,6 +17,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/channels/telegram"
+	"github.com/yedamao/nanobot-go/internal/channels/weixin"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/pairing"
@@ -270,14 +271,22 @@ func waitForTurns(wait func(), timeout time.Duration, cancel context.CancelFunc,
 }
 
 // channelRegistry returns the channels the gateway can run: the built-in
-// ones (Telegram) and a.channelFactories, which replace a built-in of
-// the same name. Pairing approvals live next to the config file.
+// ones (Telegram, WeChat) and a.channelFactories, which replace a
+// built-in of the same name. Pairing approvals live next to the config
+// file, and so does the WeChat login (state/weixin).
 func (a *app) channelRegistry(configPath string) (*channels.Registry, error) {
 	r := channels.NewRegistry()
+	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
 		telegram.Name: telegram.Factory(telegram.Options{
 			Getenv:  a.getenv,
-			Pairing: pairing.NewStore(pairing.PathFor(configPath)),
+			Pairing: store,
+		}),
+		weixin.Name: weixin.Factory(weixin.Options{
+			Getenv:          a.getenv,
+			Pairing:         store,
+			DefaultStateDir: weixin.DefaultStateDir(configPath),
+			Version:         version,
 		}),
 	}
 	for name, f := range builtins {
