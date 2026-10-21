@@ -45,11 +45,16 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - Telegram (phase 3, part 4): the first chat channel. The gateway
   long-polls the Bot API; senders are allowed by `allowFrom` or paired
   with a one-time code approved through `nanobot pairing approve`.
+- WeChat (phase 3, part 5): personal WeChat through Tencent's iLink bot
+  API. `nanobot channels login weixin` logs in with a QR code; the
+  gateway long-polls for messages and replies as text, with the same
+  `allowFrom`/pairing access control as Telegram.
 - CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
   `cron` (`list`, `remove`, `run`), `pairing` (`list`, `approve`, `deny`,
-  `revoke`), `dream`, `status` (`--mcp` to probe MCP servers), `version`.
+  `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
+  MCP servers), `version`.
 
-Not yet: other chat channels (Slack, Discord, ...), heartbeat
+Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), process sandboxing. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
@@ -81,7 +86,8 @@ export NANOBOT_GO_ANTHROPIC_API_KEY=sk-ant-...
 # also NANOBOT_GO_{OPENAI,DEEPSEEK,OPENROUTER}_API_KEY, NANOBOT_GO_<P>_API_BASE,
 # NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE,
 # NANOBOT_GO_API_KEY (the bearer token of the OpenAI-compatible API),
-# NANOBOT_GO_TELEGRAM_TOKEN (the Telegram bot token)
+# NANOBOT_GO_TELEGRAM_TOKEN (the Telegram bot token),
+# NANOBOT_GO_WEIXIN_TOKEN (a WeChat bot token, instead of the QR login)
 ```
 
 nanobot-go deliberately does not read `ANTHROPIC_API_KEY` or
@@ -336,8 +342,8 @@ order.
 
 Each key of `channels` is a channel name with an object holding at least
 `"enabled"`; the channel itself checks the other keys. An enabled channel
-nanobot-go does not know is an error at startup. Telegram is the only
-channel so far ([below](#telegram)).
+nanobot-go does not know is an error at startup. The channels so far are
+[Telegram](#telegram) and [WeChat](#wechat).
 
 - **Health endpoint.** `GET http://<host>:<port>/healthz` (also
   `/health`, nanobot's path) returns `{"status":"ok"}` while the process
@@ -360,7 +366,8 @@ channel so far ([below](#telegram)).
 
 `nanobot status` shows the health address and which channels are
 enabled (never their settings, which hold tokens; for Telegram it says
-whether the token is set and where from).
+whether the token is set and where from, for WeChat whether it is logged
+in).
 
 A systemd unit, for example:
 
@@ -440,6 +447,82 @@ apply.
   deployment is removed. Polling backs off from 1 second to a minute after errors and
   waits out Telegram's flood control (`retry_after`), which sending also
   honors.
+
+### WeChat
+
+The `weixin` channel connects a personal WeChat account through Tencent's
+iLink bot API (`https://ilinkai.weixin.qq.com`), the same way nanobot's
+does: HTTP long polling, no WeChat client on the host, and a bot token
+obtained by scanning a QR code. (WeCom, the enterprise variant, is not
+supported.)
+
+Enable the channel, log in, then run the gateway:
+
+```json
+{
+  "channels": {
+    "weixin": {
+      "enabled": true,
+      "allowFrom": []
+    }
+  }
+}
+```
+
+```sh
+nanobot channels login weixin    # prints a QR code link; scan it with WeChat
+nanobot gateway
+```
+
+The login prints the link of a QR code. nanobot-go does not draw QR codes
+in the terminal; turn the link into one (for example
+`qrencode -t ansiutf8 '<link>'`) and scan it with WeChat, then confirm on
+the phone. If WeChat shows a number to type in, the command asks for it.
+An expired code is replaced up to three times. The bot token and the API
+host WeChat assigned to the account are saved to
+`state/weixin/account.json` next to the config file (mode `0600`, so
+`~/.nanobot-go/state/weixin/account.json` by default), never to
+`config.json`. Running the login again does nothing while a login is
+saved; `--force` logs in anew and keeps the saved login until the new one
+is confirmed.
+
+All settings are optional: `token` (a bot token to use instead of the
+saved login; `NANOBOT_GO_WEIXIN_TOKEN` overrides it), `allowFrom`,
+`baseUrl` (default `https://ilinkai.weixin.qq.com`), `routeTag` (sent as
+the `SKRouteTag` header), `stateDir` (where `account.json` lives) and
+`pollTimeout` (seconds, default 35; the server may suggest another). A
+configured token wins over the saved login, unless a later QR login
+replaced exactly that token.
+
+- **Who may talk to the bot.** As for Telegram: `allowFrom` lists iLink
+  user IDs (as the gateway logs them, `sender=...`) or `"*"`; with an
+  empty list a stranger who writes in a private chat gets
+  a pairing code to approve with `nanobot pairing approve <code>`
+  (`nanobot pairing revoke weixin <user id>` undoes it). Group chats
+  (`...@chatroom`) get no code.
+- **Sessions.** Each user is a session `weixin:<user id>`.
+- **Messages.** Text is handled, with quoted messages prefixed as
+  `[引用: ...]` like nanobot; voice messages pass WeChat's own transcript
+  (`[voice] ...`). Images, files, video and voice without a transcript
+  arrive as placeholders (`[image]`, `[file: name]`, ...): media are not
+  downloaded or sent. Replies go out as text, with Markdown WeChat
+  renders badly (images, strikethrough, bare `<`) cleaned up, in messages
+  of at most 1800 characters with code fences kept balanced. "typing…"
+  shows while the agent works.
+- **Replying needs a fresh message.** iLink accepts a reply only with the
+  `context_token` of the user's latest message, which expires after a few
+  minutes of inactivity and allows only a few messages. The channel keeps
+  each user's latest token (also in `account.json`), refreshes it before
+  sending once it is a minute old, and sends at most 8 messages per
+  token. A reply it cannot send that way (a scheduled job for a user who
+  has not written yet, or a long answer that used up the quota) is held,
+  up to three per user, and delivered when the user writes again.
+- **Reliability.** Without a token the channel does not start (the
+  gateway runs on without it). Polling resumes where it left off after a
+  restart, waits 2 seconds after an error and 30 seconds after three in a
+  row. When WeChat reports the login expired, sending fails, the log says
+  to run `nanobot channels login weixin --force`, and polling resumes by
+  itself once that login is saved.
 
 ### OpenAI-compatible API
 
@@ -535,7 +618,7 @@ print(resp.choices[0].message.content)
 ## Architecture
 
 ```
-   cmd/nanobot (onboard | agent | gateway | serve | cron | pairing | dream | status | version)
+   cmd/nanobot (onboard | agent | gateway | serve | cron | pairing | channels | dream | status | version)
                  |                       |
            internal/config         stdin / stdout (agent)
                  |                internal/cron Service (gateway): due job ->
@@ -548,7 +631,9 @@ print(resp.choices[0].message.content)
                  |      |                                |  (over internal/bus);
                  |      |                                |  telegram: Bot API
                  |      |                                |  polling, allowFrom +
-                 |      |                                |  internal/pairing
+                 |      |                                |  internal/pairing;
+                 |      |                                |  weixin: iLink polling,
+                 |      |                                |  QR login state
                  |      |  - one worker per session key  |
                  +----->|  - ContextBuilder: system      |
                         |    prompt + history + message  |
@@ -638,6 +723,12 @@ behalf. Treat it like giving someone a shell.
   agent's full tool set in your workspace; keep `allowFrom` narrow and
   approve only codes you expect. `pairing.json` is written with mode
   `0600`.
+- The WeChat bot token is account access: it goes only into the
+  `Authorization` header and `state/weixin/account.json` (mode `0600`, in
+  a `0700` directory), never into `config.json`, the log, `status` or the
+  login's output, and errors have it replaced with `<redacted>`. Like
+  nanobot, the iLink client ignores `HTTPS_PROXY` and the other proxy
+  variables.
 - The OpenAI-compatible API gives every caller the agent's full tool set
   in the workspace, so treat its key like a shell login. It listens on
   `127.0.0.1` by default and refuses to start on any other host without

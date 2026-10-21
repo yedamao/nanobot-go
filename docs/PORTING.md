@@ -23,6 +23,7 @@ in which we port them.
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
 | `nanobot/channels/telegram`              | `internal/channels/telegram`     | Bot API over `net/http`: long polling, allowFrom, plain-text replies |
+| `nanobot/channels/weixin`                | `internal/channels/weixin`       | iLink bot API over `net/http`: QR login, long polling, context tokens, text replies |
 | `nanobot/pairing`                        | `internal/pairing`               | Pairing codes and approved senders (`pairing.json`), `nanobot pairing` |
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
 | `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
@@ -127,6 +128,31 @@ Phase 2 is complete; phase 3 is in progress.
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,
     polling-stall detection, the WebUI setup validator.
+  - Done: WeChat (`internal/channels/weixin`, personal WeChat through
+    Tencent's iLink bot API, protocol of `@tencent-weixin/openclaw-weixin`
+    2.4.6 as in nanobot): client with nanobot's headers (`X-WECHAT-UIN`,
+    `iLink-App-*`, `SKRouteTag`) and `base_info`, `getupdates` long
+    polling with the `get_updates_buf` cursor and the server-suggested
+    timeout, `sendmessage` text replies (Markdown sanitizing, 1800-character
+    chunks with balanced fences, deterministic `client_id`s), cached
+    `context_token`s refreshed through `getconfig` after 60s, the local
+    budget of 8 messages per token and held replies (3 per user) until
+    the user writes again, typing tickets and `sendtyping`,
+    `notifystart`/`notifystop`, message dedup, stale-token (-14)
+    handling, `account.json` state (nanobot's layout, 0600, file lock,
+    never overwriting a newer login), allowFrom + pairing; the QR login
+    (`nanobot channels login weixin [--force]`: `get_bot_qrcode` with
+    `local_token_list`, `get_qrcode_status` with redirect host,
+    verification code, refresh and binding statuses); config
+    `channels.weixin` (`token` or `NANOBOT_GO_WEIXIN_TOKEN`, `allowFrom`,
+    `baseUrl`, `routeTag`, `stateDir`, `pollTimeout`) and a `status` login
+    row.
+  - Not ported (WeChat): media in either direction (CDN download and
+    upload, AES-128-ECB, voice transcription), progress/tool-hint
+    messages and structured progress items, block streaming, the WebUI
+    connect flow, typing tickets in `account.json`, terminal QR rendering.
+    WeCom (`nanobot/channels/wecom`, the enterprise WebSocket SDK) is a
+    separate channel and not ported.
   - Next: other channels, each in its own package.
 - `internal/cron`: scheduler, heartbeat, automations bound to sessions.
   - Done: `Schedule` (`at`, `every`, 5-field `cron` + IANA `tz`, own
@@ -494,6 +520,80 @@ Phase 2 is complete; phase 3 is in progress.
   `streaming`, `inlineKeyboards`, `richMessages`, `streamEditInterval`;
   as everywhere, unknown keys are an error. Proxies are `http`, `https`
   or `socks5` (nanobot also takes `socks5h`).
+
+### WeChat (weixin)
+
+- **No QR code in the gateway.** nanobot's channel starts an interactive
+  QR login when it has no token, from inside `start()`. A gateway is
+  unattended, so nanobot-go's channel fails to start instead (logged, the
+  gateway runs on) and points at `nanobot channels login weixin`. The
+  login is a CLI command only; nanobot's WebUI connect flow
+  (`connect.py`) is not ported.
+- **The login is printed as a link.** nanobot draws the QR code with the
+  `qrcode` package and falls back to printing the URL; nanobot-go always
+  prints the link (with a `qrencode` example), since a QR encoder is not
+  a small std-lib addition. The flow is nanobot's: `local_token_list`
+  with the known tokens (empty with `--force`) and a retry without them on
+  -3, `scaned_but_redirect` switching the polling host, `need_verifycode`
+  prompting on stdin, `verify_code_blocked` and `expired` replacing the
+  code up to three times, `binded_redirect` succeeding only without
+  `--force` and with a local token (nanobot-go also counts a configured
+  token). It also prints "Scanned" once for the `scaned` status.
+- **Token only in account.json.** nanobot also writes the QR token and
+  base URL back into `config.json` (`_persist_connect_credentials`, for
+  the WebUI). nanobot-go keeps it only in `account.json`, under
+  `state/weixin` next to the config file (nanobot: `~/.nanobot/weixin`),
+  in nanobot's layout (`token`, `get_updates_buf`, `context_tokens`,
+  `base_url`, `replaced_config_token_sha256`, plus `ilink_bot_id` and
+  `ilink_user_id`). The file is written atomically with mode 0600 under a
+  file lock; a corrupt file is an error, not an empty state. The guard
+  against overwriting a newer login (`_save_state`) is kept. A configured
+  token also restores the cursor and context tokens saved for that same
+  token (nanobot starts it with empty state). `typing_tickets` are not
+  persisted, and are dropped from a file nanobot wrote.
+- **Stale token.** nanobot stops the channel on -14 unless a replacement
+  login is already saved. nanobot-go keeps the channel up: sends fail
+  with a `Permanent` error, and the saved state is checked every 30
+  seconds, so a `nanobot channels login weixin --force` takes effect
+  without restarting the gateway.
+- **Held replies are kept by the channel.** As in nanobot, a reply that
+  has no context token, hits iLink's -2 or the local budget (8 messages
+  per token, nanobot's `contextMessageBudget` default, not configurable)
+  is held, up to three per user, and sent after the user's next message.
+  nanobot raises as well (its manager retries, and its durable outbox owns
+  scheduled results); nanobot-go's `Send` returns nil, since retrying
+  within seconds cannot help. A held reply that then fails otherwise is
+  dropped, like nanobot's.
+- **Partial deliveries.** nanobot tracks the chunks of each delivery
+  already sent so a retry skips them, with `client_id`s derived from the
+  delivery. nanobot-go does the same keyed by chat and content for two
+  minutes, since bus messages carry no delivery ID.
+- **Typing.** "typing…" starts when a message arrives (ticket from
+  `getconfig`, cached for a random part of a day with backoff on failure,
+  as nanobot), is refreshed every 5 seconds and cancelled after the reply,
+  or after 10 minutes. nanobot also restarts it around each send; that
+  extra `sendtyping` traffic is skipped.
+- **Text only.** Inbound images, files, video and voice without WeChat's
+  transcript become placeholders (`[image]`, `[file: name]`, ...), the
+  same text nanobot produces when a download fails; nothing is
+  downloaded or decrypted. Outbound media are not sent (logged). Progress
+  messages, tool hints, structured progress items, block streaming and
+  run IDs are not ported, since the loop does not emit progress.
+- **Errors.** Business errors (non-zero `ret` or `errcode`) and 4xx other
+  than 408/425/429 are `Permanent`; network errors, 5xx, 408/425/429 and
+  invalid JSON are retried by the manager. A `getupdates` timeout polls
+  again at once; other failures wait 2s, and 30s after three in a row
+  (nanobot's `monitor.ts` constants). Like nanobot, the client ignores
+  the proxy environment. The token goes only in the `Authorization`
+  header and is replaced with `<redacted>` in errors and error messages.
+- **Config.** Ported keys: `enabled`, `token`, `allowFrom`, `baseUrl`,
+  `routeTag` (string or number), `stateDir`, `pollTimeout`. New:
+  `NANOBOT_GO_WEIXIN_TOKEN`. Not ported (an error, like every unknown
+  key): `cdnBaseUrl` (no media), `sendProgress`, `sendToolHints`,
+  `replyProgressMessages`, `replyProgressMaxMessages`,
+  `contextMessageBudget`, `streaming`, `blockStreaming*`.
+- **Not ported: WeCom.** `nanobot/channels/wecom` (enterprise WeChat over
+  the WeCom WebSocket SDK) is a different channel and remains a gap.
 
 ### Cron
 
