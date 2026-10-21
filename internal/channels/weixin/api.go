@@ -126,7 +126,7 @@ func (e *httpError) retryable() bool {
 	return e.Status >= 500
 }
 
-// isAPIError returns err's apiError when it has code.
+// isAPIError reports whether err is an apiError with code.
 func isAPIError(err error, code int) bool {
 	var ae *apiError
 	return errors.As(err, &ae) && ae.is(code)
@@ -358,7 +358,15 @@ type getUpdatesRequest struct {
 type getUpdatesResponse struct {
 	Msgs                 []wireMessage `json:"msgs"`
 	GetUpdatesBuf        string        `json:"get_updates_buf"`
-	LongPollingTimeoutMS int64         `json:"longpolling_timeout_ms"`
+	LongPollingTimeoutMS flexInt       `json:"longpolling_timeout_ms"`
+}
+
+// qrCodeRequest asks for a login QR code. LocalTokenList holds the bot
+// tokens this host already has (nanobot: _local_token_list), so the
+// server can recognize an existing binding; it must encode as [] when
+// empty.
+type qrCodeRequest struct {
+	LocalTokenList []string `json:"local_token_list"`
 }
 
 // wireMessage is a WeixinMessage.
