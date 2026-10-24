@@ -91,6 +91,7 @@ body[data-state="connecting"] #messages:empty::before {
 .msg.assistant { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); }
 .msg.error { align-self: flex-start; color: var(--error); border: 1px solid var(--error); }
 .msg.pending { align-self: flex-start; color: var(--muted); font-style: italic; }
+.msg.pending code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; font-style: normal; }
 #composer {
   display: flex;
   gap: 8px;

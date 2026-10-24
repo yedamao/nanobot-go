@@ -2,6 +2,7 @@
 // Client → server: {"type":"chat","content":"..."}
 // Server → client: {"type":"hello","chat_id":"..."},
 //                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
+//                  {"type":"progress","content":"..."},  (transient status)
 //                  {"type":"message","role":"assistant","content":"..."},
 //                  {"type":"error","content":"..."}
 "use strict";
@@ -19,6 +20,8 @@ let retryDelay = 1000;
 let retryTimer = null;
 let pending = null; // the "thinking" bubble while replies are due
 let waiting = 0; // messages sent and not answered yet
+
+const THINKING = "nanobot is thinking…";
 
 function setStatus(state, text) {
   statusEl.dataset.state = state;
@@ -52,13 +55,26 @@ function setWaiting(n) {
   if (waiting > 0 && !pending) {
     pending = document.createElement("div");
     pending.className = "msg pending";
-    pending.textContent = "nanobot is thinking…";
+    pending.textContent = THINKING;
     messages.appendChild(pending);
     messages.scrollTop = messages.scrollHeight;
   } else if (waiting === 0 && pending) {
     pending.remove();
     pending = null;
   }
+}
+
+// showProgress puts the running turn's status (such as the tool it runs)
+// in the thinking bubble. Progress is never stored: the next message
+// frame, or a reconnect's history frame, clears it.
+function showProgress(text) {
+  // A turn started from another tab of this chat has no bubble here yet.
+  if (waiting === 0) setWaiting(1);
+  pending.replaceChildren("nanobot is working: ");
+  const hint = document.createElement("code");
+  hint.textContent = text;
+  pending.appendChild(hint);
+  messages.scrollTop = messages.scrollHeight;
 }
 
 function connect() {
@@ -90,8 +106,12 @@ function connect() {
         showHistory(frame.messages);
         setStatus("open", "Connected");
         break;
+      case "progress":
+        showProgress(frame.content || "");
+        break;
       case "message":
         setWaiting(waiting - 1);
+        if (pending) pending.textContent = THINKING; // the next reply is due
         append("assistant", frame.content);
         break;
       case "error":
