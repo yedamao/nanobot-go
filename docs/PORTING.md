@@ -680,12 +680,12 @@ Phase 2 is complete; phase 3 is in progress.
 
 ### OpenAI-compatible API
 
-- **The last message is the input.** nanobot requires `messages` to be
-  exactly one user message. nanobot-go takes the last message (which must
-  be `role: "user"`) and ignores the ones before it, since the server
-  keeps the history; clients that resend the whole conversation work, but
-  their system prompts and earlier messages have no effect. An empty or
-  whitespace-only message is a 400 (nanobot runs it).
+- **Exactly one user message (same as nanobot).** Like nanobot, each
+  request must contain exactly one user message, since the server keeps
+  the history: any other `messages` (none, several, or a lone system or
+  assistant message) is a 400 "Only a single user message is supported".
+  Unlike nanobot, an empty or whitespace-only message is a 400 too
+  (nanobot runs it).
 - **Text only.** nanobot saves base64 `image_url` parts and multipart
   uploads (images, PDF, Office, text; 10 MB per file) under its media
   directory and passes them to the turn. The Go loop has no media input

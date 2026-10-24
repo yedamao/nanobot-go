@@ -585,9 +585,10 @@ print(resp.choices[0].message.content)
 
 - **Sessions.** The server keeps the conversation: `"session_id": "x"`
   selects the session `api:x`, and without it every request shares
-  `api:default`. Earlier messages in `messages` are ignored, so clients
-  that resend the whole history work, but their system prompts and edits
-  to old messages have no effect. A session ID only separates history;
+  `api:default`. As in nanobot, each request must contain exactly one
+  user message: `messages` with any other message (a system prompt, the
+  resent conversation) is a 400 "Only a single user message is
+  supported". A session ID only separates history;
   every caller shares the workspace, memory and tools. Requests for one
   session run one at a time, in order; the timeout includes the wait.
   `/new`, `/compact` and `/help` work as messages.
@@ -598,8 +599,9 @@ print(resp.choices[0].message.content)
   seconds. A failed or timed-out turn ends the stream without the final
   chunk and `[DONE]`; treat a stream without `[DONE]` as incomplete.
 - **Errors** are `{"error": {"message", "type", "code"}}`: 400 for an
-  invalid request (bad JSON, no user message, empty text, images or file
-  uploads, another model), 401 for a missing or wrong key, 413 for a body
+  invalid request (bad JSON, not exactly one user message, empty text,
+  images or file uploads, another model), 401 for a missing or wrong key,
+  413 for a body
   over 4 MiB, 504 when the turn times out, 503 when it is canceled (the
   client disconnected or the server is shutting down), 500 when it
   fails. A 200 can still describe a failed tool action in its text.

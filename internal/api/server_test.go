@@ -400,7 +400,6 @@ func TestChatCompletionMessageForms(t *testing.T) {
 		name, body, want string
 	}{
 		{"content parts", `{"messages":[{"role":"user","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}]}]}`, "echo a b (1)"},
-		{"history is ignored", `{"messages":[{"role":"system","content":"be terse"},{"role":"user","content":"old"},{"role":"assistant","content":"x"},{"role":"user","content":"new"}],"session_id":"forms"}`, "echo new (1)"},
 		{"unknown fields ignored", `{"messages":[{"role":"user","content":"t"}],"temperature":0.5,"max_tokens":3,"session_id":"forms2"}`, "echo t (1)"},
 	}
 	for _, tt := range tests {
@@ -422,9 +421,18 @@ func TestChatCompletionBadRequests(t *testing.T) {
 		{"invalid json", "application/json", `{"messages":`, 400, "Invalid JSON body"},
 		{"not an object", "application/json", `[1]`, 400, "Invalid JSON body"},
 		{"empty body", "application/json", ``, 400, "Invalid JSON body"},
-		{"no messages", "application/json", `{"messages":[]}`, 400, "user message"},
-		{"missing messages", "application/json", `{}`, 400, "user message"},
-		{"last not user", "application/json", `{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"}]}`, 400, "role 'user'"},
+		{"no messages", "application/json", `{"messages":[]}`, 400, errSingleUserMessage},
+		{"missing messages", "application/json", `{}`, 400, errSingleUserMessage},
+		{"null messages", "application/json", `{"messages":null}`, 400, errSingleUserMessage},
+		{"messages not a list", "application/json", `{"messages":{"role":"user","content":"a"}}`, 400, errSingleUserMessage},
+		{"message not an object", "application/json", `{"messages":["a"]}`, 400, errSingleUserMessage},
+		{"role not a string", "application/json", `{"messages":[{"role":5,"content":"a"}]}`, 400, errSingleUserMessage},
+		{"two user messages", "application/json", `{"messages":[{"role":"user","content":"a"},{"role":"user","content":"b"}]}`, 400, errSingleUserMessage},
+		{"history before user", "application/json", `{"messages":[{"role":"system","content":"be terse"},{"role":"user","content":"old"},{"role":"assistant","content":"x"},{"role":"user","content":"new"}]}`, 400, errSingleUserMessage},
+		{"last not user", "application/json", `{"messages":[{"role":"user","content":"a"},{"role":"assistant","content":"b"}]}`, 400, errSingleUserMessage},
+		{"two messages streaming", "application/json", `{"stream":true,"messages":[{"role":"user","content":"a"},{"role":"user","content":"b"}]}`, 400, errSingleUserMessage},
+		{"lone system", "application/json", `{"messages":[{"role":"system","content":"a"}]}`, 400, errSingleUserMessage},
+		{"lone assistant", "application/json", `{"messages":[{"role":"assistant","content":"a"}]}`, 400, errSingleUserMessage},
 		{"empty content", "application/json", chatBody("   ", ""), 400, "must not be empty"},
 		{"null content", "application/json", `{"messages":[{"role":"user","content":null}]}`, 400, "must not be empty"},
 		{"bad content", "application/json", `{"messages":[{"role":"user","content":5}]}`, 400, "Invalid content format"},

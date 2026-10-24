@@ -37,6 +37,10 @@ type contentPart struct {
 	Text string `json:"text"`
 }
 
+// errSingleUserMessage is nanobot's error for any messages value other than
+// a list holding exactly one user message.
+const errSingleUserMessage = "Only a single user message is supported"
+
 // requestError is a client error with its HTTP status.
 type requestError struct {
 	status  int
@@ -77,6 +81,9 @@ func (s *Server) parseChatRequest(w http.ResponseWriter, r *http.Request) (*pars
 	var req chatRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		if te := (*json.UnmarshalTypeError)(nil); errors.As(err, &te) && te.Field != "" {
+			if te.Field == "messages" || strings.HasPrefix(te.Field, "messages.") {
+				return nil, badRequest(errSingleUserMessage)
+			}
 			return nil, badRequest("Invalid type for %s", te.Field)
 		}
 		return nil, badRequest("Invalid JSON body")
@@ -85,14 +92,12 @@ func (s *Server) parseChatRequest(w http.ResponseWriter, r *http.Request) (*pars
 	if req.Model != "" && req.Model != s.cfg.Model {
 		return nil, badRequest("Only configured model '%s' is available", s.cfg.Model)
 	}
-	if len(req.Messages) == 0 {
-		return nil, badRequest("messages must contain a user message")
+	// Like nanobot, a request carries exactly one user message: the server
+	// keeps the history itself.
+	if len(req.Messages) != 1 || req.Messages[0].Role != "user" {
+		return nil, badRequest(errSingleUserMessage)
 	}
-	last := req.Messages[len(req.Messages)-1]
-	if last.Role != "user" {
-		return nil, badRequest("The last message must have role 'user'")
-	}
-	text, rerr := messageText(last.Content)
+	text, rerr := messageText(req.Messages[0].Content)
 	if rerr != nil {
 		return nil, rerr
 	}

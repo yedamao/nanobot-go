@@ -6,8 +6,8 @@
 //	POST /v1/chat/completions  one agent turn (tools included)
 //
 // Each request is one turn in a server-side session ("api:<session_id>",
-// or "api:default"): the server keeps the history, so only the last user
-// message of a request is used. Turns of one session run in order.
+// or "api:default"): the server keeps the history, so a request must carry
+// exactly one user message. Turns of one session run in order.
 package api
 
 import (
