@@ -1,6 +1,7 @@
 // nanobot-go chat page: one WebSocket to /ws on this origin.
 // Client → server: {"type":"chat","content":"..."}
 // Server → client: {"type":"hello","chat_id":"..."},
+//                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
 //                  {"type":"message","role":"assistant","content":"..."},
 //                  {"type":"error","content":"..."}
 "use strict";
@@ -22,7 +23,19 @@ let waiting = 0; // messages sent and not answered yet
 function setStatus(state, text) {
   statusEl.dataset.state = state;
   statusEl.textContent = text;
+  document.body.dataset.state = state; // drives the empty-state hint
   sendButton.disabled = state !== "open";
+}
+
+// showHistory replaces the message list with the chat's stored turns.
+// The server sends it after every (re)connect, so it also drops anything
+// shown before the connection dropped and any reply that raced it.
+function showHistory(list) {
+  setWaiting(0);
+  messages.replaceChildren();
+  for (const m of list || []) {
+    if (m.role === "user" || m.role === "assistant") append(m.role, m.content);
+  }
 }
 
 function append(kind, text) {
@@ -53,14 +66,14 @@ function connect() {
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
   const id = localStorage.getItem(CHAT_KEY);
   const url = scheme + "//" + location.host + "/ws" + (id ? "?chat_id=" + encodeURIComponent(id) : "");
-  setStatus("connecting", "connecting…");
+  setStatus("connecting", "Connecting…");
   const sock = new WebSocket(url);
   ws = sock;
   sock.onopen = () => {
     retryDelay = 1000;
-    setStatus("open", "connected");
   };
   sock.onmessage = (ev) => {
+    if (ws !== sock) return; // a frame from a socket "New chat" replaced
     let frame;
     try {
       frame = JSON.parse(ev.data);
@@ -70,6 +83,12 @@ function connect() {
     switch (frame.type) {
       case "hello":
         localStorage.setItem(CHAT_KEY, frame.chat_id);
+        break;
+      case "history":
+        // Sending is enabled only now, so nothing typed meanwhile is
+        // wiped by the replaced list.
+        showHistory(frame.messages);
+        setStatus("open", "Connected");
         break;
       case "message":
         setWaiting(waiting - 1);
@@ -83,7 +102,7 @@ function connect() {
   sock.onclose = () => {
     if (ws !== sock) return; // replaced by "New chat"
     setWaiting(0);
-    setStatus("closed", "disconnected; retrying…");
+    setStatus("closed", "Disconnected; reconnecting in " + Math.round(retryDelay / 1000) + "s…");
     retryTimer = setTimeout(connect, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 10000);
   };
@@ -91,7 +110,7 @@ function connect() {
 
 function send() {
   const text = input.value.trim();
-  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (!text || sendButton.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
   ws.send(JSON.stringify({ type: "chat", content: text }));
   append("user", text);
   setWaiting(waiting + 1);
@@ -117,9 +136,9 @@ input.addEventListener("keydown", (ev) => {
 input.addEventListener("input", resize);
 newChat.addEventListener("click", () => {
   localStorage.removeItem(CHAT_KEY);
-  setWaiting(0);
-  messages.replaceChildren();
-  append("info", "New chat started.");
+  // The new chat's (empty) history frame clears the list too; clearing
+  // now avoids showing the old chat while connecting.
+  showHistory([]);
   const old = ws;
   ws = null;
   if (old) old.close();

@@ -16,6 +16,7 @@ func TestHandler(t *testing.T) {
 	}{
 		{"/ui/", http.StatusOK, "<title>nanobot-go</title>"},
 		{"/ui/app.js", http.StatusOK, `"/ws"`},
+		{"/ui/app.js", http.StatusOK, `case "history":`},
 		{"/ui/style.css", http.StatusOK, "#composer"},
 		{"/ui/missing.js", http.StatusNotFound, ""},
 		{"/", http.StatusFound, ""},

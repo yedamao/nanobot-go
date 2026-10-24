@@ -70,6 +70,16 @@ button:disabled { opacity: 0.5; cursor: default; }
   flex-direction: column;
   gap: 10px;
 }
+body[data-state="open"] #messages:empty::before {
+  content: "No messages yet. Say hello to start the conversation.";
+  margin: auto;
+  color: var(--muted);
+}
+body[data-state="connecting"] #messages:empty::before {
+  content: "Loading the conversation…";
+  margin: auto;
+  color: var(--muted);
+}
 .msg {
   max-width: min(760px, 85%);
   padding: 8px 12px;
@@ -80,7 +90,6 @@ button:disabled { opacity: 0.5; cursor: default; }
 .msg.user { align-self: flex-end; background: var(--user); color: var(--user-text); }
 .msg.assistant { align-self: flex-start; background: var(--bot); border: 1px solid var(--border); }
 .msg.error { align-self: flex-start; color: var(--error); border: 1px solid var(--error); }
-.msg.info { align-self: center; color: var(--muted); font-size: 13px; }
 .msg.pending { align-self: flex-start; color: var(--muted); font-style: italic; }
 #composer {
   display: flex;
