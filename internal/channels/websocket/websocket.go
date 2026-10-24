@@ -76,7 +76,10 @@ const (
 	TypeHistory = "history"
 	TypeChat    = "chat"
 	TypeMessage = "message"
-	TypeError   = "error"
+	// TypeProgress carries a transient status of the running turn, such
+	// as the tool being run; the next message frame supersedes it.
+	TypeProgress = "progress"
+	TypeError    = "error"
 )
 
 // Frame is one JSON message on the socket, in either direction.
@@ -236,16 +239,25 @@ func (c *Channel) Stop(ctx context.Context) error {
 	}
 }
 
-// Send writes msg as a "message" frame to every connection of its chat.
+// Send writes msg as a "message" frame to every connection of its chat,
+// or as a "progress" frame when it is a progress update (bus.IsProgress).
 // A chat with no open connection (the tab was closed) is a Permanent
-// error: the reply is dropped with a log line instead of being retried,
-// which would hold up the other chats' replies.
+// error for a reply: it is dropped with a log line instead of being
+// retried, which would hold up the other chats' replies. A progress
+// update for such a chat is dropped silently.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
+	progress := bus.IsProgress(msg)
 	conns := c.connsFor(msg.ChatID)
 	if len(conns) == 0 {
+		if progress {
+			return nil
+		}
 		return channels.Permanent(fmt.Errorf("websocket: no open connection for chat %q", msg.ChatID))
 	}
 	frame := Frame{Type: TypeMessage, Role: "assistant", Content: msg.Content}
+	if progress {
+		frame = Frame{Type: TypeProgress, Content: msg.Content}
+	}
 	var errs []error
 	for _, conn := range conns {
 		if err := writeFrame(ctx, conn, frame); err != nil {

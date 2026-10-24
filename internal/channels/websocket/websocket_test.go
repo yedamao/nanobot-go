@@ -147,6 +147,28 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestProgressFrames(t *testing.T) {
+	h := newHarness(t, true)
+	conn, chatID := h.dial(t, "")
+	progress := map[string]any{bus.MetaProgress: true}
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "read notes.md", Metadata: progress}); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeProgress || f.Content != "read notes.md" || f.Role != "" {
+		t.Errorf("progress frame = %+v", f)
+	}
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeMessage || f.Content != "done" {
+		t.Errorf("reply frame = %+v", f)
+	}
+	// Progress for a closed tab is not worth an error.
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: "nobody", Content: "x", Metadata: progress}); err != nil {
+		t.Errorf("Send(progress) to unknown chat = %v", err)
+	}
+}
+
 func TestClientFrames(t *testing.T) {
 	h := newHarness(t, true)
 	conn, _ := h.dial(t, "")
