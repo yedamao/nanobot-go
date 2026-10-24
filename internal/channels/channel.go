@@ -15,6 +15,7 @@ import (
 	"io"
 	"log/slog"
 	"maps"
+	"net/http"
 	"slices"
 
 	"github.com/yedamao/nanobot-go/internal/bus"
@@ -37,6 +38,15 @@ type Channel interface {
 	// Send delivers one message. It returns an error when delivery
 	// failed; the Manager retries it unless the error is Permanent.
 	Send(ctx context.Context, msg bus.OutboundMessage) error
+}
+
+// Mounter is a Channel that serves HTTP on the gateway's own server
+// instead of opening a listener (the websocket channel and its WebUI).
+// The gateway calls Mount before it starts serving and before Start, so
+// the handlers must cope with requests that arrive before Start or
+// after Stop.
+type Mounter interface {
+	Mount(mux *http.ServeMux)
 }
 
 // Permanent marks a delivery error that retrying cannot fix (a rejected
