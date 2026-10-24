@@ -486,6 +486,18 @@ func TestSendEdgeCases(t *testing.T) {
 	}
 }
 
+func TestSendSkipsProgress(t *testing.T) {
+	h := newHarness(t, nil)
+	h.start(t)
+	msg := bus.OutboundMessage{Channel: Name, ChatID: "42", Content: "read notes.md", Metadata: map[string]any{bus.MetaProgress: true}}
+	if err := h.ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("Send(progress) = %v", err)
+	}
+	if n := len(h.f.callsOf("sendMessage")); n != 0 {
+		t.Errorf("progress sent as %d Telegram messages", n)
+	}
+}
+
 func TestSendFloodControlAndRejections(t *testing.T) {
 	tooMany := `{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 3","parameters":{"retry_after":3}}`
 	tests := []struct {

@@ -569,7 +569,11 @@ func (c *Channel) cacheContext(user, token string) {
 // when it is old). A reply that cannot be sent for lack of a usable
 // context_token is held back, up to three per user, and sent when the
 // user writes again; Send then returns nil. Media are not supported.
+// Progress updates (bus.IsProgress) are dropped.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
+	if bus.IsProgress(msg) {
+		return nil // no status display; the typing indicator keeps running
+	}
 	if msg.ChatID == "" {
 		return channels.Permanent(errors.New("weixin: empty chat id"))
 	}

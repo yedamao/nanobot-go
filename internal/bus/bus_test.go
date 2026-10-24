@@ -8,6 +8,25 @@ import (
 	"time"
 )
 
+func TestIsProgress(t *testing.T) {
+	tests := []struct {
+		name string
+		meta map[string]any
+		want bool
+	}{
+		{"nil metadata", nil, false},
+		{"unmarked", map[string]any{"message_id": 7}, false},
+		{"marked", map[string]any{MetaProgress: true}, true},
+		{"false", map[string]any{MetaProgress: false}, false},
+		{"not a bool", map[string]any{MetaProgress: "yes"}, false},
+	}
+	for _, tt := range tests {
+		if got := IsProgress(OutboundMessage{Metadata: tt.meta}); got != tt.want {
+			t.Errorf("%s: IsProgress = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestSessionKey(t *testing.T) {
 	tests := []struct {
 		name string

@@ -208,10 +208,14 @@ func (m *Manager) dispatch(ctx context.Context) {
 }
 
 // route queues msg for its channel, or drops it if no such channel is
-// running.
+// running. Progress updates for such a channel are dropped quietly.
 func (m *Manager) route(msg bus.OutboundMessage) {
 	s, ok := m.running[msg.Channel]
 	if !ok {
+		if bus.IsProgress(msg) {
+			m.log.Debug("drop progress update for unknown channel", "channel", msg.Channel, "chat_id", msg.ChatID)
+			return
+		}
 		m.log.Warn("drop outbound message for unknown channel", "channel", msg.Channel, "chat_id", msg.ChatID)
 		return
 	}
@@ -229,7 +233,9 @@ func (m *Manager) sendLoop(s *sender) {
 }
 
 // deliver sends msg, retrying after each delay unless the error is
-// Permanent or the Manager is giving up on pending deliveries.
+// Permanent or the Manager is giving up on pending deliveries. A progress
+// update is tried once: a retried status would be stale and would hold up
+// the reply behind it.
 func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 	ctx := m.sendCtx
 	for attempt := 1; ; attempt++ {
@@ -239,6 +245,9 @@ func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 		}
 		log := m.log.With("channel", msg.Channel, "chat_id", msg.ChatID, "attempt", attempt, "error", err)
 		switch {
+		case bus.IsProgress(msg):
+			log.Debug("drop progress update")
+			return
 		case ctx.Err() != nil:
 			log.Warn("drop outbound message: shutting down")
 			return

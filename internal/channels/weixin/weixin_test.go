@@ -317,6 +317,24 @@ func TestSendChunksLongReplies(t *testing.T) {
 	}
 }
 
+func TestSendSkipsProgress(t *testing.T) {
+	h := newHarness(t, nil)
+	h.start(t)
+	h.greet(t, "m1", "ctx-1")
+	h.f.waitFor("sendtyping", 1)
+	msg := bus.OutboundMessage{Channel: Name, ChatID: alice, Content: "read notes.md", Metadata: map[string]any{bus.MetaProgress: true}}
+	if err := h.ch.Send(context.Background(), msg); err != nil {
+		t.Fatalf("Send(progress) = %v", err)
+	}
+	if n := len(h.f.callsOf("sendmessage")); n != 0 {
+		t.Errorf("progress sent as %d WeChat messages", n)
+	}
+	// The typing indicator is left running for the reply.
+	if n := len(h.f.callsOf("sendtyping")); n != 1 {
+		t.Errorf("%d sendtyping calls, want only the greeting's", n)
+	}
+}
+
 func TestSendRefreshesOldContextToken(t *testing.T) {
 	h := newHarness(t, nil)
 	h.start(t)

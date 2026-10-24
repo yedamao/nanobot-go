@@ -38,3 +38,16 @@ type OutboundMessage struct {
 	Media    []string
 	Metadata map[string]any // channel routing context (message ids, threads, ...)
 }
+
+// MetaProgress is the Metadata key that marks an OutboundMessage as a
+// progress update (a short status such as the tool being run) rather than
+// a chat message. Channels that cannot show a transient status must
+// ignore such messages; see IsProgress.
+const MetaProgress = "_progress"
+
+// IsProgress reports whether msg is a progress update rather than a
+// reply. Channels without a status display drop these.
+func IsProgress(msg OutboundMessage) bool {
+	v, _ := msg.Metadata[MetaProgress].(bool)
+	return v
+}

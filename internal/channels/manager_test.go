@@ -258,6 +258,44 @@ func TestManagerRetries(t *testing.T) {
 	}
 }
 
+func TestManagerProgressIsBestEffort(t *testing.T) {
+	b := bus.NewMessageBus(16)
+	f := newFake("alpha", nil)
+	f.send = func(_ context.Context, _ int, msg bus.OutboundMessage) error {
+		if bus.IsProgress(msg) {
+			return errors.New("flaky")
+		}
+		return nil
+	}
+	s := &sleeps{}
+	log, buf := testLogger()
+	startManager(t, b, []Channel{f}, WithSleep(s.sleep), WithLogger(log))
+	progress := map[string]any{bus.MetaProgress: true}
+	for _, msg := range []bus.OutboundMessage{
+		{Channel: "nowhere", ChatID: "c1", Content: "lost", Metadata: progress},
+		{Channel: "alpha", ChatID: "c1", Content: "status", Metadata: progress},
+		{Channel: "alpha", ChatID: "c1", Content: "reply"},
+	} {
+		if err := b.PublishOutbound(context.Background(), msg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	waitSent(t, f)
+	// The failed progress update was tried once, not retried.
+	if got := f.attemptCount(); got != 2 {
+		t.Errorf("attempts = %d, want 2", got)
+	}
+	if got := s.list(); len(got) != 0 {
+		t.Errorf("sleeps = %v, want none", got)
+	}
+	if got := f.contents(); !slices.Equal(got, []string{"reply"}) {
+		t.Errorf("alpha got %v", got)
+	}
+	if out := buf.String(); strings.Contains(out, "level=WARN") {
+		t.Errorf("log = %q, want no warnings for progress", out)
+	}
+}
+
 func TestManagerSlowChannelDoesNotBlockOthers(t *testing.T) {
 	b := bus.NewMessageBus(16)
 	release := make(chan struct{})
