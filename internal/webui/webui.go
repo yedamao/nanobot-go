@@ -1,0 +1,44 @@
+// Package webui is the browser chat page the gateway serves when the
+// websocket channel is enabled: plain HTML, CSS and JavaScript embedded
+// in the binary, with no build step. The page talks to the channel's
+// WebSocket endpoint (/ws) on the same origin. It is a first slice of
+// nanobot's React WebUI (webui/), not a port of it.
+package webui
+
+import (
+	"embed"
+	"io/fs"
+	"net/http"
+)
+
+// Prefix is the path the page is served under.
+const Prefix = "/ui/"
+
+//go:embed static
+var files embed.FS
+
+// Handler serves the embedded files under Prefix (GET /ui/ is the page;
+// GET / redirects to it) with headers that keep the page from being
+// framed or loading anything but its own files and WebSocket.
+func Handler() http.Handler {
+	static, err := fs.Sub(files, "static")
+	if err != nil {
+		panic(err) // the embed directive guarantees the directory
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET "+Prefix, http.StripPrefix(Prefix[:len(Prefix)-1], http.FileServerFS(static)))
+	mux.Handle("GET /{$}", http.RedirectHandler(Prefix, http.StatusFound))
+	return secureHeaders(mux)
+}
+
+func secureHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Cache-Control", "no-cache")
+		next.ServeHTTP(w, r)
+	})
+}

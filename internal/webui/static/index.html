@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>nanobot-go</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>nanobot-go</h1>
+  <span id="status" class="status" data-state="connecting">connecting…</span>
+  <button id="new-chat" type="button" title="Start a new session">New chat</button>
+</header>
+<main id="messages" aria-live="polite"></main>
+<form id="composer" autocomplete="off">
+  <textarea id="input" rows="1" placeholder="Message nanobot (Enter to send, Shift+Enter for a new line)" required></textarea>
+  <button id="send" type="submit" disabled>Send</button>
+</form>
+<script src="app.js"></script>
+</body>
+</html>
