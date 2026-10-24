@@ -57,7 +57,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
   gateway serves a plain browser chat page and a WebSocket on its own
-  loopback address; each chat runs a full agent turn.
+  loopback address; each chat runs a full agent turn, and a reload shows
+  the chat's earlier messages again.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
@@ -596,9 +597,21 @@ and press Enter. Each reply is a full agent turn, tools included.
   default) those paths are 404 and the server is health-only, as before.
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
   keeps its chat id in the browser's `localStorage` and reconnects with
-  it, so a reload continues the same session (earlier messages are not
-  shown again); **New chat** starts a new id. Two tabs on the same id
-  both get the replies.
+  it, so a reload continues the same session; **New chat** starts a new
+  id (and an empty page). Two tabs on the same id both get the replies.
+- **History on reload.** On every connect, after `hello`, the server
+  sends a `history` frame with the chat's stored transcript and the page
+  redraws from it, so a reload or reconnect shows the earlier messages
+  without duplicates. It holds only user and assistant texts, in stored
+  order: tool calls, tool results and system messages are left out, as
+  are assistant messages with no text. It is the full transcript,
+  including turns that consolidation has summarized for the model, cut
+  to the newest 200 messages and 256 KiB of text. A message still being
+  answered when the socket dropped appears once its turn is saved (on
+  the next reload); its reply arrives as usual if the page is connected.
+- **Status.** The header shows Connecting… / Connected / Disconnected
+  (with the retry delay); sending is enabled once the history has
+  arrived.
 - **Loopback only.** There is no browser login yet, so the gateway
   refuses to start with the channel enabled unless `gateway.host` (or
   `--host`) is a loopback address. The channel also refuses requests
@@ -612,13 +625,15 @@ and press Enter. Each reply is a full agent turn, tools included.
   pings each socket every 30 seconds and bounds each write to 10 seconds.
   Health-only gateways keep the 2-second read and write timeouts.
 - **Delivery.** A reply for a chat with no open socket (the tab was
-  closed) is dropped with a log line, not retried.
+  closed) is dropped with a log line, not retried; it is in the session,
+  so the next connect's history shows it.
 
 Wire protocol (JSON text frames; any other frame type gets an `error`):
 
 | Direction | Frame |
 |-----------|-------|
 | server → client, on connect | `{"type":"hello","chat_id":"..."}` |
+| server → client, right after `hello` | `{"type":"history","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}` (`[]` for a new chat) |
 | client → server | `{"type":"chat","content":"..."}`, or plain text |
 | server → client | `{"type":"message","role":"assistant","content":"..."}` |
 | server → client | `{"type":"error","content":"..."}` (bad frame) |

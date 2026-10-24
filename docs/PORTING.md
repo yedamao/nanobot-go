@@ -225,9 +225,15 @@ Phase 2 is complete; phase 3 is in progress.
     `websocket:<chat id>`, replies fanned out to every socket of the
     chat; loopback-only (startup refusal, `Host` check, same-origin
     upgrades); WebUI-aware server timeouts; a `WebUI:` banner line.
+  - Done: history on reload/reconnect. After `hello` the channel sends a
+    `history` frame (user and assistant texts of the stored session,
+    newest 200 messages / 256 KiB), loaded through
+    `websocket.Options.Sessions` (the gateway's `session.Store`); the
+    page redraws from it and shows connection status and an empty
+    state.
   - Not ported: the React/Vite app and its build, settings/models/
     channels/skills/apps/automations/cron/pairing pages, topics list,
-    history replay on reconnect, temporary chats, conversation groups,
+    temporary chats, conversation groups,
     token streaming, progress/tool activity, reasoning, media and
     uploads, file previews, `/stop` and restart control, the
     `nanobot webui` launcher and on-demand gateway, LAN access, `token`/
@@ -871,19 +877,29 @@ Phase 2 is complete; phase 3 is in progress.
   `webui`).
 - **Own, small protocol.** nanobot's envelope (topics, `chat_id`
   attach/new, streaming deltas, progress and tool events, media, control
-  commands, session lists) is not used. Frames are `hello`, `chat` (or
-  plain text), `message` and `error`; see README. Only final replies are
-  sent, as on the other channels.
+  commands, session lists) is not used. Frames are `hello`, `history`,
+  `chat` (or plain text), `message` and `error`; see README. Only final
+  replies are sent, as on the other channels.
 - **Chat ids.** nanobot clients pick topics and attach to chats by id;
   nanobot-go gives each connection a random id (`crypto/rand.Text`) or
   the `?chat_id=` it asks for, and the page stores it in
-  `localStorage`. History is not replayed on reconnect.
+  `localStorage`.
+- **History is pushed, not fetched.** nanobot's WebUI reads a chat's
+  messages from the saved session. nanobot-go pushes them as one
+  `history` frame after every `hello` and the page replaces its list, so
+  a reply that raced the reconnect is not shown twice (in a narrow race
+  it can still appear twice until the next reload). The frame carries the
+  full transcript filtered to user/assistant text (not
+  `Session.History`'s replay window, which starts after the
+  consolidation marker), capped to the newest 200 messages and 256 KiB.
+  It is read from the `session.Store`, not the `Manager`, whose cached
+  `*Session` belongs to the agent loop's worker. Tool calls, progress
+  and media are not replayed.
 - **Undeliverable replies are dropped.** A reply for a chat with no open
   socket is a `channels.Permanent` error, so the manager logs it instead
   of retrying (a retrying reply would hold up every other chat's replies
-  for 7 seconds). nanobot's WebUI shows completed replies from the saved
-  session after it reconnects; this page does not (the reply is still in
-  the session, so the agent remembers it).
+  for 7 seconds). It is still in the session, so the next connect's
+  `history` frame shows it.
 - **Timeouts.** The shared server keeps `ReadHeaderTimeout` at 2 seconds
   but drops `ReadTimeout`/`WriteTimeout` while the WebUI is mounted (they
   would cut sockets after the upgrade), sets a 2-minute `IdleTimeout` and
