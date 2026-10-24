@@ -65,6 +65,9 @@ func (f *fakeChat) Stop(context.Context) error {
 	return nil
 }
 func (f *fakeChat) Send(_ context.Context, msg bus.OutboundMessage) error {
+	if bus.IsProgress(msg) {
+		return nil // like Telegram: no status display
+	}
 	f.log.add("send " + msg.Content)
 	f.sent <- msg
 	return nil

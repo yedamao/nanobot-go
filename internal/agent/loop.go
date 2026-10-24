@@ -238,7 +238,13 @@ func (l *Loop) work(key string, w *worker) {
 
 // handle runs one job and delivers its result.
 func (l *Loop) handle(j job) {
-	r, err := l.turn(j.ctx, j.msg)
+	// Progress follows the reply: bus-driven turns report to their chat,
+	// while Process callers deliver (or not) themselves.
+	var progress Hooks
+	if j.reply == nil {
+		progress = newProgressHooks(l.cfg.Bus, j.msg)
+	}
+	r, err := l.turn(j.ctx, j.msg, progress)
 	if j.reply != nil {
 		j.reply <- result{reply: r, err: err}
 		return
@@ -259,8 +265,9 @@ func (l *Loop) handle(j job) {
 
 // turn processes one message and returns the reply. The session is only
 // updated after a successful run, so a failed provider call never leaves a
-// dangling user message or partial tool exchange in history.
-func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (Reply, error) {
+// dangling user message or partial tool exchange in history. progress, if
+// not nil, observes the run alongside LoopConfig.Hooks.
+func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks) (Reply, error) {
 	if err := ctx.Err(); err != nil {
 		return Reply{}, err
 	}
@@ -294,7 +301,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage) (Reply, error) 
 		MaxIterations: l.cfg.MaxIterations,
 		MaxTokens:     l.cfg.MaxTokens,
 		Temperature:   l.cfg.Temperature,
-		Hooks:         l.cfg.Hooks,
+		Hooks:         joinHooks(l.cfg.Hooks, progress),
 	})
 	if err != nil {
 		return Reply{}, err
