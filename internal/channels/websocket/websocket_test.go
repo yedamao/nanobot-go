@@ -179,6 +179,7 @@ func TestClientFrames(t *testing.T) {
 	}{
 		{"json chat", `{"type":"chat","content":"a"}`, "a", ""},
 		{"plain text", "  just text \n", "just text", ""},
+		{"stop", `{"type":"stop"}`, "/stop", ""},
 		{"unknown type", `{"type":"ping"}`, "", "unsupported frame type"},
 		{"malformed json", `{"type":`, "", "malformed JSON"},
 		{"empty content", `{"type":"chat","content":"  "}`, "", "empty message"},

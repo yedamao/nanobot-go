@@ -1,5 +1,5 @@
 // nanobot-go chat page: one WebSocket to /ws on this origin.
-// Client → server: {"type":"chat","content":"..."}
+// Client → server: {"type":"chat","content":"..."}, {"type":"stop"}
 // Server → client: {"type":"hello","chat_id":"..."},
 //                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
 //                  {"type":"progress","content":"..."},  (transient status)
@@ -12,6 +12,7 @@ const messages = document.getElementById("messages");
 const form = document.getElementById("composer");
 const input = document.getElementById("input");
 const sendButton = document.getElementById("send");
+const stopButton = document.getElementById("stop");
 const statusEl = document.getElementById("status");
 const newChat = document.getElementById("new-chat");
 
@@ -28,6 +29,7 @@ function setStatus(state, text) {
   statusEl.textContent = text;
   document.body.dataset.state = state; // drives the empty-state hint
   sendButton.disabled = state !== "open";
+  stopButton.disabled = state !== "open";
 }
 
 // showHistory replaces the message list with the chat's stored turns.
@@ -52,6 +54,7 @@ function append(kind, text) {
 
 function setWaiting(n) {
   waiting = Math.max(0, n);
+  stopButton.hidden = waiting === 0;
   if (waiting > 0 && !pending) {
     pending = document.createElement("div");
     pending.className = "msg pending";
@@ -131,6 +134,13 @@ function connect() {
 function send() {
   const text = input.value.trim();
   if (!text || sendButton.disabled || !ws || ws.readyState !== WebSocket.OPEN) return;
+  if (text.toLowerCase() === "/stop") {
+    // Not a turn of its own: only the stopped turn is answered.
+    ws.send(JSON.stringify({ type: "stop" }));
+    input.value = "";
+    resize();
+    return;
+  }
   ws.send(JSON.stringify({ type: "chat", content: text }));
   append("user", text);
   setWaiting(waiting + 1);
@@ -154,6 +164,10 @@ input.addEventListener("keydown", (ev) => {
   }
 });
 input.addEventListener("input", resize);
+// The stopped turn is answered "Stopped.", which settles its bubble.
+stopButton.addEventListener("click", () => {
+  if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" }));
+});
 newChat.addEventListener("click", () => {
   localStorage.removeItem(CHAT_KEY);
   // The new chat's (empty) history frame clears the list too; clearing

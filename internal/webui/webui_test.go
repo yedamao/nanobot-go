@@ -18,6 +18,7 @@ func TestHandler(t *testing.T) {
 		{"/ui/app.js", http.StatusOK, `"/ws"`},
 		{"/ui/app.js", http.StatusOK, `case "history":`},
 		{"/ui/app.js", http.StatusOK, `case "progress":`},
+		{"/ui/app.js", http.StatusOK, `{ type: "stop" }`},
 		{"/ui/style.css", http.StatusOK, "#composer"},
 		{"/ui/missing.js", http.StatusNotFound, ""},
 		{"/", http.StatusFound, ""},

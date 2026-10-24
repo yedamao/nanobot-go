@@ -111,3 +111,5 @@ body[data-state="connecting"] #messages:empty::before {
   border-radius: 8px;
 }
 #send { background: var(--user); color: var(--user-text); border-color: var(--user); }
+#stop { color: var(--error); border-color: var(--error); }
+#stop[hidden] { display: none; }

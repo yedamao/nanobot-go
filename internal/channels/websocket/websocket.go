@@ -67,6 +67,10 @@ const (
 	MaxHistoryBytes = 256 << 10
 )
 
+// stopCommand is the agent loop's command for a stop frame
+// (agent.CommandStop).
+const stopCommand = "/stop"
+
 // chatIDRE is the shape of a client-supplied chat id.
 var chatIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 
@@ -75,6 +79,9 @@ const (
 	TypeHello   = "hello"
 	TypeHistory = "history"
 	TypeChat    = "chat"
+	// TypeStop asks to stop the chat's reply in progress; it reaches the
+	// agent as the /stop command.
+	TypeStop    = "stop"
 	TypeMessage = "message"
 	// TypeProgress carries a transient status of the running turn, such
 	// as the tool being run; the next message frame supersedes it.
@@ -433,7 +440,8 @@ func (c *Channel) unregister(chatID string, conn *websocket.Conn) {
 }
 
 // parseChat returns a client frame's chat text, or why it was rejected.
-// A frame that is not a JSON object is taken as plain text.
+// A frame that is not a JSON object is taken as plain text; a stop frame
+// becomes stopCommand.
 func parseChat(data []byte) (content, problem string) {
 	text := strings.TrimSpace(string(data))
 	if !strings.HasPrefix(text, "{") {
@@ -446,8 +454,12 @@ func parseChat(data []byte) (content, problem string) {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return "", "malformed JSON frame"
 	}
-	if f.Type != TypeChat {
-		return "", fmt.Sprintf("unsupported frame type %q (want %q)", f.Type, TypeChat)
+	switch f.Type {
+	case TypeChat:
+	case TypeStop:
+		return stopCommand, ""
+	default:
+		return "", fmt.Sprintf("unsupported frame type %q (want %q or %q)", f.Type, TypeChat, TypeStop)
 	}
 	if strings.TrimSpace(f.Content) == "" {
 		return "", "empty message"
