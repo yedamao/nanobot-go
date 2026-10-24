@@ -17,6 +17,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/channels/telegram"
+	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/channels/weixin"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
@@ -30,6 +31,13 @@ const (
 	gatewayStopTimeout = 10 * time.Second
 	// healthReadTimeout matches nanobot's health server read timeout.
 	healthReadTimeout = 2 * time.Second
+	// webIdleTimeout closes idle keep-alive connections when the WebUI
+	// is mounted (which drops the read and write timeouts; see
+	// newGatewayServer).
+	webIdleTimeout = 2 * time.Minute
+	// webMaxHeaderBytes leaves room for the cookies a browser sends to
+	// localhost.
+	webMaxHeaderBytes = 64 << 10
 	// healthBody is the health endpoint's response.
 	healthBody = `{"status":"ok"}` + "\n"
 )
@@ -96,7 +104,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		return err
 	}
 
-	reg, err := a.channelRegistry(rt.configPath)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host)
 	if err != nil {
 		return err
 	}
@@ -122,14 +130,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("health endpoint: %w", err)
 	}
-	srv := &http.Server{
-		Handler:           healthHandler(),
-		ReadHeaderTimeout: healthReadTimeout,
-		ReadTimeout:       healthReadTimeout,
-		WriteTimeout:      healthReadTimeout,
-		MaxHeaderBytes:    4 << 10,
-		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
-	}
+	srv, webUI := newGatewayServer(chans, log)
 	healthErr := make(chan error, 1)
 	go func() { healthErr <- srv.Serve(ln) }()
 	if !security.IsLoopbackHost(g.Host) {
@@ -165,7 +166,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 				log.Error("cron service stopped", "error", err)
 			}
 		}()
-		a.printGatewayBanner(ln.Addr().String(), mgr)
+		a.printGatewayBanner(ln.Addr().String(), mgr, webUI)
 		a.printCronBanner(rt.cron, dreamSched, dreamOn)
 		if apiAddr != "" {
 			a.printAPIEndpoint(rt.cfg, apiAddr)
@@ -270,11 +271,47 @@ func waitForTurns(wait func(), timeout time.Duration, cancel context.CancelFunc,
 	<-idle
 }
 
+// newGatewayServer returns the gateway's HTTP server: the health endpoint
+// plus whatever the channels mount (channels.Mounter; the websocket
+// channel mounts /ws and the WebUI). webUI reports whether anything was
+// mounted. Health alone keeps nanobot's short read and write timeouts. A
+// WebSocket stays open for whole agent turns, and the server's
+// ReadTimeout and WriteTimeout would still apply to it after the
+// upgrade, so with mounted handlers only the header read is bounded
+// (ReadHeaderTimeout), idle keep-alive connections are closed after
+// webIdleTimeout, and the websocket channel bounds its own writes and
+// pings its connections.
+func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Server, webUI bool) {
+	mux := healthHandler()
+	for _, ch := range chans {
+		if m, ok := ch.(channels.Mounter); ok {
+			m.Mount(mux)
+			webUI = true
+		}
+	}
+	srv = &http.Server{
+		Handler:           mux,
+		ReadHeaderTimeout: healthReadTimeout,
+		MaxHeaderBytes:    4 << 10,
+		ErrorLog:          slog.NewLogLogger(log.Handler(), slog.LevelDebug),
+	}
+	if webUI {
+		srv.IdleTimeout = webIdleTimeout
+		srv.MaxHeaderBytes = webMaxHeaderBytes
+	} else {
+		srv.ReadTimeout = healthReadTimeout
+		srv.WriteTimeout = healthReadTimeout
+	}
+	return srv, webUI
+}
+
 // channelRegistry returns the channels the gateway can run: the built-in
-// ones (Telegram, WeChat) and a.channelFactories, which replace a
-// built-in of the same name. Pairing approvals live next to the config
-// file, and so does the WeChat login (state/weixin).
-func (a *app) channelRegistry(configPath string) (*channels.Registry, error) {
+// ones (Telegram, WeChat, websocket) and a.channelFactories, which
+// replace a built-in of the same name. Pairing approvals live next to the
+// config file, and so does the WeChat login (state/weixin). host is the
+// gateway's listen address, which the websocket channel requires to be
+// loopback.
+func (a *app) channelRegistry(configPath, host string) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -288,6 +325,7 @@ func (a *app) channelRegistry(configPath string) (*channels.Registry, error) {
 			DefaultStateDir: weixin.DefaultStateDir(configPath),
 			Version:         version,
 		}),
+		websocket.Name: websocket.Factory(websocket.Options{Host: host}),
 	}
 	for name, f := range builtins {
 		if _, override := a.channelFactories[name]; override {
@@ -305,9 +343,12 @@ func (a *app) channelRegistry(configPath string) (*channels.Registry, error) {
 	return r, nil
 }
 
-func (a *app) printGatewayBanner(addr string, mgr *channels.Manager) {
+func (a *app) printGatewayBanner(addr string, mgr *channels.Manager, webUI bool) {
 	fmt.Fprintf(a.stdout, "nanobot-go gateway %s\n", version)
 	fmt.Fprintf(a.stdout, "Health endpoint: http://%s/healthz\n", addr)
+	if webUI && slices.Contains(mgr.Running(), websocket.Name) {
+		fmt.Fprintf(a.stdout, "WebUI: http://%s/\n", addr)
+	}
 	if running := mgr.Running(); len(running) > 0 {
 		fmt.Fprintf(a.stdout, "Channels: %s\n", strings.Join(running, ", "))
 	} else {
@@ -335,8 +376,8 @@ func (a *app) printCronBanner(svc *cron.Service, dream cron.Schedule, dreamOn bo
 }
 
 // healthHandler serves GET /healthz (and nanobot's /health) with
-// {"status":"ok"}.
-func healthHandler() http.Handler {
+// {"status":"ok"}. Channels may mount more routes on the returned mux.
+func healthHandler() *http.ServeMux {
 	ok := func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")

@@ -413,6 +413,16 @@ func TestGatewayStartupErrors(t *testing.T) {
 	}{
 		{"unknown channel", func(c *config.Config) { c.Channels["nope"] = json.RawMessage(`{"enabled": true}`) }, nil, 1, "channels.nope: unknown channel"},
 		{"bad channel config", func(c *config.Config) { c.Channels["fake"] = json.RawMessage(`{"enabled": true, "tokn": "x"}`) }, nil, 1, "tokn"},
+		{"webui beyond loopback", func(c *config.Config) {
+			c.Channels["websocket"] = json.RawMessage(`{"enabled": true}`)
+			c.Gateway.Host = "0.0.0.0"
+		}, nil, 1, "gateway.host must be a loopback address"},
+		{"webui host flag beyond loopback", func(c *config.Config) {
+			c.Channels["websocket"] = json.RawMessage(`{"enabled": true}`)
+		}, []string{"--host", "0.0.0.0"}, 1, "refusing to serve the WebUI"},
+		{"webui own port", func(c *config.Config) {
+			c.Channels["websocket"] = json.RawMessage(`{"enabled": true, "port": 8765}`)
+		}, nil, 1, "port"},
 		{"port in use", nil, []string{"--port", strconv.Itoa(takenPort)}, 1, "health endpoint"},
 		{"port flag out of range", nil, []string{"--port", "70000"}, 1, "gateway.port"},
 		{"port flag not a number", nil, []string{"--port", "x"}, 2, "invalid value"},
