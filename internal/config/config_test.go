@@ -86,6 +86,47 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadExecSandbox(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	data := `{"tools": {"exec": {"sandbox": "seatbelt", "sandboxRoBinds": ["/opt/bin"], "sandboxRwBinds": ["/var/cache/tool"]}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := cfg.Tools.Exec
+	if e.Sandbox != "seatbelt" || !reflect.DeepEqual(e.SandboxRoBinds, []string{"/opt/bin"}) ||
+		!reflect.DeepEqual(e.SandboxRwBinds, []string{"/var/cache/tool"}) || !e.Enable {
+		t.Errorf("exec = %+v", e)
+	}
+	if d := Default().Tools.Exec; d.Sandbox != "" || d.SandboxRoBinds == nil || len(d.SandboxRoBinds) != 0 {
+		t.Errorf("default sandbox settings = %+v", d)
+	}
+
+	// Saved configs keep the fields.
+	out := filepath.Join(dir, "saved.json")
+	if err := cfg.Save(out); err != nil {
+		t.Fatal(err)
+	}
+	again, err := Load(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(again.Tools.Exec, e) {
+		t.Errorf("round trip = %+v, want %+v", again.Tools.Exec, e)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"tools": {"exec": {"sandbox": "chroot"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), `unknown sandbox backend "chroot"`) {
+		t.Errorf("Load(unknown sandbox) err = %v", err)
+	}
+}
+
 func TestLoadGatewayAndChannels(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	data := `{"gateway": {"port": 9000}, "channels": {"telegram": {"enabled": true, "token": "x"}}}`
@@ -191,6 +232,17 @@ func TestValidate(t *testing.T) {
 		}, "fallbackModels[0].model"},
 		{"exec timeout", func(c *Config) { c.Tools.Exec.Timeout = -1 }, "tools.exec.timeout"},
 		{"bad pattern", func(c *Config) { c.Tools.Exec.DenyPatterns = []string{"("} }, "denyPatterns[0]"},
+		// The host OS is checked when the exec tool is built, so any known
+		// backend validates everywhere.
+		{"sandbox bwrap", func(c *Config) { c.Tools.Exec.Sandbox = "bwrap" }, ""},
+		{"sandbox seatbelt", func(c *Config) { c.Tools.Exec.Sandbox = "seatbelt" }, ""},
+		{"sandbox unknown", func(c *Config) { c.Tools.Exec.Sandbox = "docker" }, "tools.exec.sandbox"},
+		{"sandbox binds", func(c *Config) {
+			c.Tools.Exec.SandboxRoBinds = []string{"/opt/tools", "~/.local/bin"}
+			c.Tools.Exec.SandboxRwBinds = []string{"/var/cache/x"}
+		}, ""},
+		{"sandbox relative ro bind", func(c *Config) { c.Tools.Exec.SandboxRoBinds = []string{"bin"} }, "sandboxRoBinds[0] must be an absolute path"},
+		{"sandbox empty rw bind", func(c *Config) { c.Tools.Exec.SandboxRwBinds = []string{"/x", ""} }, "sandboxRwBinds[1]"},
 		{"fetch bytes", func(c *Config) { c.Tools.Web.FetchMaxBytes = -1 }, "fetchMaxBytes"},
 		{"gateway host", func(c *Config) { c.Gateway.Host = " " }, "gateway.host"},
 		{"gateway port high", func(c *Config) { c.Gateway.Port = 65536 }, "gateway.port"},

@@ -22,6 +22,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/nanobot-go/internal/security/sandbox"
 )
 
 // Defaults.
@@ -196,6 +197,15 @@ type ExecToolConfig struct {
 	// AllowedEnvKeys are environment variables passed through to commands
 	// on top of a minimal base set (HOME, PATH, LANG, ...).
 	AllowedEnvKeys []string `json:"allowedEnvKeys"`
+	// Sandbox runs commands in an OS sandbox: "bwrap" (Linux), "seatbelt"
+	// (macOS) or "" for none. A backend that cannot run on this host fails
+	// closed when the exec tool is built.
+	Sandbox string `json:"sandbox"`
+	// SandboxRoBinds and SandboxRwBinds are extra absolute paths exposed
+	// read-only / read-write inside the sandbox. Paths equal to or
+	// containing the workspace are ignored.
+	SandboxRoBinds []string `json:"sandboxRoBinds"`
+	SandboxRwBinds []string `json:"sandboxRwBinds"`
 }
 
 // WebToolConfig configures the web_fetch tool.
@@ -222,9 +232,10 @@ func Default() *Config {
 		}},
 		Tools: ToolsConfig{
 			RestrictToWorkspace: true,
-			Exec:                ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{}},
-			Web:                 WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
-			MCPServers:          map[string]MCPServerConfig{},
+			Exec: ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{},
+				SandboxRoBinds: []string{}, SandboxRwBinds: []string{}},
+			Web:        WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
+			MCPServers: map[string]MCPServerConfig{},
 		},
 		Channels: map[string]json.RawMessage{},
 		Gateway:  defaultGateway(),
@@ -428,6 +439,21 @@ func (c *Config) Validate() error {
 		for i, p := range list.patterns {
 			if _, err := regexp.Compile(p); err != nil {
 				bad("tools.exec.%s[%d]: %w", list.name, i, err)
+			}
+		}
+	}
+	if name := c.Tools.Exec.Sandbox; name != "" {
+		if _, err := sandbox.Lookup(name); err != nil {
+			bad("tools.exec.sandbox: %w", err)
+		}
+	}
+	for _, list := range []struct {
+		name  string
+		paths []string
+	}{{"sandboxRoBinds", c.Tools.Exec.SandboxRoBinds}, {"sandboxRwBinds", c.Tools.Exec.SandboxRwBinds}} {
+		for i, p := range list.paths {
+			if !filepath.IsAbs(sandbox.ExpandPath(strings.TrimSpace(p))) {
+				bad("tools.exec.%s[%d] must be an absolute path, got %q", list.name, i, p)
 			}
 		}
 	}
