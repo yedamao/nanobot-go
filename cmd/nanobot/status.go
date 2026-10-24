@@ -13,6 +13,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/channels/weixin"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
+	"github.com/yedamao/nanobot-go/internal/security/sandbox"
 	"github.com/yedamao/nanobot-go/internal/session"
 	"github.com/yedamao/nanobot-go/internal/tools"
 )
@@ -93,8 +94,15 @@ func (a *app) status(ctx context.Context, args []string) error {
 		}
 		row("Fallbacks:", "%s", strings.Join(fbs, ", "))
 	}
-	row("Restrict to workspace:", "%t", cfg.Tools.RestrictToWorkspace)
+	row("Restrict to workspace:", "%t", cfg.Tools.RestrictToWorkspace || cfg.Tools.Exec.Sandbox != "")
 	row("Tools:", "exec %s, web_fetch %s", onOff(cfg.Tools.Exec.Enable), onOff(cfg.Tools.Web.Enable))
+	if name := cfg.Tools.Exec.Sandbox; name == "" {
+		row("Exec sandbox:", "off")
+	} else if err := sandbox.Available(ctx, name); err != nil {
+		row("Exec sandbox:", "%s, unavailable: %v", name, err)
+	} else {
+		row("Exec sandbox:", "%s", name)
+	}
 	var live []mcp.ServerStatus
 	if *probeMCP && len(cfg.Tools.MCPServers) > 0 {
 		m := a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(statusMCPTimeout))

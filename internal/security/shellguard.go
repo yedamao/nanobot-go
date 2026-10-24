@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -63,19 +64,24 @@ type ShellGuardConfig struct {
 	// Workspace, when set with RestrictToWorkspace, confines the working
 	// directory and any absolute paths in the command.
 	Workspace *Workspace
+	// ExtraRoots are absolute, symlink-free directories that absolute
+	// paths in commands may also point into, such as the binds of an
+	// active process sandbox.
+	ExtraRoots []string
 }
 
 // ShellGuard is a best-effort filter for destructive or out-of-workspace
 // shell commands. It is not a sandbox.
 type ShellGuard struct {
-	deny      []*regexp.Regexp
-	allow     []*regexp.Regexp
-	workspace *Workspace
+	deny       []*regexp.Regexp
+	allow      []*regexp.Regexp
+	workspace  *Workspace
+	extraRoots []string
 }
 
 // NewShellGuard compiles the configured patterns.
 func NewShellGuard(cfg ShellGuardConfig) (*ShellGuard, error) {
-	g := &ShellGuard{workspace: cfg.Workspace}
+	g := &ShellGuard{workspace: cfg.Workspace, extraRoots: cfg.ExtraRoots}
 	for _, p := range append(append([]string{}, cfg.DenyPatterns...), defaultDenyPatterns...) {
 		re, err := regexp.Compile(p)
 		if err != nil {
@@ -198,7 +204,8 @@ func (g *ShellGuard) checkPaths(cmd, cwd string) error {
 		if benignDevicePaths[real] {
 			continue
 		}
-		if !IsWithin(real, realCwd) && !g.workspace.Contains(real) {
+		if !IsWithin(real, realCwd) && !g.workspace.Contains(real) &&
+			!slices.ContainsFunc(g.extraRoots, func(root string) bool { return IsWithin(real, root) }) {
 			return fmt.Errorf("%w (path outside working dir: %s).%s", ErrCommandBlocked, raw, boundaryNote)
 		}
 	}

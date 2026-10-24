@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/nanobot-go/internal/security/sandbox"
 	"github.com/yedamao/nanobot-go/internal/tools"
 )
 
@@ -41,7 +42,20 @@ type ExecConfig struct {
 	// commands. Everything outside baseEnvKeys and this list, notably
 	// provider API keys, is withheld.
 	AllowEnv []string
+	// Sandbox names the OS sandbox commands run in ("bwrap", "seatbelt");
+	// empty runs them unsandboxed. NewExec fails when the backend cannot
+	// run on this host, and a command is never run unsandboxed instead.
+	Sandbox string
+	// SandboxROBinds and SandboxRWBinds are extra absolute paths exposed
+	// read-only / read-write inside the sandbox; absolute paths below them
+	// also pass the shell guard. Paths equal to or containing the
+	// workspace are ignored.
+	SandboxROBinds []string
+	SandboxRWBinds []string
 }
+
+// sandboxProbeTimeout bounds the test run NewExec does with the sandbox.
+const sandboxProbeTimeout = 10 * time.Second
 
 // baseEnvKeys are passed to every command when set. Unlike nanobot, PATH
 // is included: commands run under `sh -c`, not a login shell that would
@@ -76,10 +90,19 @@ type Exec struct {
 	ws    *security.Workspace
 	guard *security.ShellGuard
 	cfg   ExecConfig
+	// sb is the sandbox backend, nil when commands run unsandboxed;
+	// sbProgram is its resolved binary.
+	sb        sandbox.Backend
+	sbProgram string
 }
 
-// NewExec returns the exec tool.
+// NewExec returns the exec tool. It fails when cfg.Sandbox is set but the
+// backend cannot run on this host.
 func NewExec(ws *security.Workspace, cfg ExecConfig) (*Exec, error) {
+	return buildExec(ws, cfg, sandbox.LocalHost())
+}
+
+func buildExec(ws *security.Workspace, cfg ExecConfig, host sandbox.Host) (*Exec, error) {
 	if cfg.Timeout <= 0 {
 		cfg.Timeout = defaultExecTimeout
 	}
@@ -92,20 +115,45 @@ func NewExec(ws *security.Workspace, cfg ExecConfig) (*Exec, error) {
 	if cfg.Shell == "" {
 		cfg.Shell = "sh"
 	}
+	e := &Exec{ws: ws, cfg: cfg}
+	var extraRoots []string
+	if cfg.Sandbox != "" {
+		b, err := sandbox.Lookup(cfg.Sandbox)
+		if err != nil {
+			return nil, fmt.Errorf("exec tool: %w", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), sandboxProbeTimeout)
+		defer cancel()
+		program, err := host.Check(ctx, b)
+		if err != nil {
+			return nil, fmt.Errorf("exec tool: %w; refusing to run commands unsandboxed (set tools.exec.sandbox to \"\" to disable the sandbox)", err)
+		}
+		e.sb, e.sbProgram = b, program
+		e.cfg.SandboxROBinds = sandbox.NormalizeBinds(cfg.SandboxROBinds, ws.Root)
+		e.cfg.SandboxRWBinds = sandbox.NormalizeBinds(cfg.SandboxRWBinds, ws.Root)
+		extraRoots = slices.Concat(e.cfg.SandboxROBinds, e.cfg.SandboxRWBinds)
+	}
 	guard, err := security.NewShellGuard(security.ShellGuardConfig{
 		DenyPatterns:  cfg.DenyPatterns,
 		AllowPatterns: cfg.AllowPatterns,
 		Workspace:     ws,
+		ExtraRoots:    extraRoots,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("exec tool: %w", err)
 	}
-	return &Exec{ws: ws, guard: guard, cfg: cfg}, nil
+	e.guard = guard
+	return e, nil
 }
 
 func (*Exec) Name() string { return "exec" }
-func (*Exec) Description() string {
-	return "Execute a shell command and return its stdout, stderr and exit code."
+func (e *Exec) Description() string {
+	d := "Execute a shell command and return its stdout, stderr and exit code."
+	if e.sb != nil {
+		d += " Commands run in an OS sandbox: only the workspace is writable, files outside it" +
+			" (except system tools) are not readable, and HOME is the workspace."
+	}
+	return d
 }
 func (*Exec) ReadOnly() bool { return false }
 func (e *Exec) Parameters() map[string]any {
@@ -147,8 +195,27 @@ func (e *Exec) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, e.cfg.Shell, "-c", args.Command)
-	cmd.Dir = cwd
+	argv := []string{e.cfg.Shell, "-c", args.Command}
+	dir := cwd
+	if e.sb != nil {
+		// The sandbox changes into cwd itself (bwrap --chdir, or a cd
+		// in the Seatbelt script).
+		if argv, err = sandbox.Wrap(e.sb, sandbox.Request{
+			Program:   e.sbProgram,
+			Shell:     e.cfg.Shell,
+			Command:   args.Command,
+			Workspace: e.ws.Root,
+			Cwd:       cwd,
+			ROBinds:   e.cfg.SandboxROBinds,
+			RWBinds:   e.cfg.SandboxRWBinds,
+		}); err != nil {
+			return tools.Errorf("%v (the command was not run)", err)
+		}
+		dir = e.ws.Root
+	}
+
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd.Dir = dir
 	cmd.Env = commandEnv(e.cfg.AllowEnv)
 	cmd.WaitDelay = execWaitDelay
 	setProcessGroup(cmd)

@@ -84,7 +84,10 @@ func (a *app) load(f *commonFlags, opts loadOptions) (*setup, error) {
 	if err := os.MkdirAll(wsPath, 0o700); err != nil {
 		return nil, fmt.Errorf("create workspace: %w", err)
 	}
-	ws, err := security.NewWorkspace(wsPath, cfg.Tools.RestrictToWorkspace)
+	// Like nanobot, an exec sandbox also confines the file tools: they run
+	// in this process, outside the sandbox, and could otherwise read the
+	// config directory the sandbox hides.
+	ws, err := security.NewWorkspace(wsPath, cfg.Tools.RestrictToWorkspace || cfg.Tools.Exec.Sandbox != "")
 	if err != nil {
 		return nil, err
 	}
@@ -184,11 +187,14 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	err = builtin.RegisterAll(reg, builtin.Config{
 		Workspace: ws,
 		Exec: builtin.ExecConfig{
-			Disabled:      !cfg.Tools.Exec.Enable,
-			Timeout:       time.Duration(cfg.Tools.Exec.Timeout) * time.Second,
-			DenyPatterns:  cfg.Tools.Exec.DenyPatterns,
-			AllowPatterns: cfg.Tools.Exec.AllowPatterns,
-			AllowEnv:      cfg.Tools.Exec.AllowedEnvKeys,
+			Disabled:       !cfg.Tools.Exec.Enable,
+			Timeout:        time.Duration(cfg.Tools.Exec.Timeout) * time.Second,
+			DenyPatterns:   cfg.Tools.Exec.DenyPatterns,
+			AllowPatterns:  cfg.Tools.Exec.AllowPatterns,
+			AllowEnv:       cfg.Tools.Exec.AllowedEnvKeys,
+			Sandbox:        cfg.Tools.Exec.Sandbox,
+			SandboxROBinds: cfg.Tools.Exec.SandboxRoBinds,
+			SandboxRWBinds: cfg.Tools.Exec.SandboxRwBinds,
 		},
 		Web: builtin.WebFetchConfig{
 			Disabled: !cfg.Tools.Web.Enable,

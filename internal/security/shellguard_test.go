@@ -218,6 +218,26 @@ func TestShellGuardWorkspaceContainment(t *testing.T) {
 	}
 }
 
+func TestShellGuardExtraRoots(t *testing.T) {
+	ws, outside := newTestWorkspace(t, true)
+	realOutside, err := filepath.EvalSymlinks(outside)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, err := NewShellGuard(ShellGuardConfig{Workspace: ws, ExtraRoots: []string{realOutside}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Check("cat "+filepath.Join(outside, "secret.txt"), ""); err != nil {
+		t.Errorf("path under an extra root blocked: %v", err)
+	}
+	for _, cmd := range []string{"cat /etc/passwd", "cat " + filepath.Dir(outside), "cd .."} {
+		if err := g.Check(cmd, ""); err == nil {
+			t.Errorf("Check(%q) passed, want blocked", cmd)
+		}
+	}
+}
+
 func TestSplitShellSegments(t *testing.T) {
 	tests := []struct {
 		cmd  string
