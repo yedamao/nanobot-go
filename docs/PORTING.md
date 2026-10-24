@@ -28,7 +28,8 @@ in which we port them.
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
 | `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
 | `nanobot/api`                            | `internal/api`                   | OpenAI-compatible HTTP API |
-| `webui/`                                 | `web/` (embedded via `embed`)    | Served by the gateway |
+| `nanobot/channels/websocket`             | `internal/channels/websocket`    | Browser chat over WebSocket, mounted on the gateway's HTTP server |
+| `webui/`                                 | `internal/webui` (embedded via `embed`) | Plain HTML/CSS/JS chat page served by the websocket channel (first slice) |
 
 ## Phased plan
 
@@ -214,6 +215,24 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported: `trust_remote_dns`, `allow_loopback`, `env_proxy_*`
     helpers beyond MCP's proxy routing (see the deviations below).
 - WebUI.
+  - Done (first slice): `internal/channels/websocket`, a channel named
+    `websocket` (config `{"enabled": bool}`, default off) that
+    implements the new optional `channels.Mounter` and mounts `GET /ws`
+    and the embedded page (`internal/webui`: `GET /` redirecting to
+    `GET /ui/`) on the gateway's health server; a JSON wire protocol
+    (`hello`, `chat` or plain text, `message`, `error`); one chat id per
+    connection, random or resumed with `?chat_id=`, session
+    `websocket:<chat id>`, replies fanned out to every socket of the
+    chat; loopback-only (startup refusal, `Host` check, same-origin
+    upgrades); WebUI-aware server timeouts; a `WebUI:` banner line.
+  - Not ported: the React/Vite app and its build, settings/models/
+    channels/skills/apps/automations/cron/pairing pages, topics list,
+    history replay on reconnect, temporary chats, conversation groups,
+    token streaming, progress/tool activity, reasoning, media and
+    uploads, file previews, `/stop` and restart control, the
+    `nanobot webui` launcher and on-demand gateway, LAN access, `token`/
+    `tokenIssueSecret`/`websocketRequiresToken` auth, TLS
+    (`sslCertfile`), the separate port 8765, Vite HMR.
 
 ## Design decisions we keep
 
@@ -418,7 +437,9 @@ Phase 2 is complete; phase 3 is in progress.
   and `/health` with `{"status":"ok"}` while the process is up; readiness
   arrives with channels that need it. It uses `net/http` with 2-second
   timeouts instead of nanobot's hand-written HTTP/1.0 server and its
-  64-connection cap. Port 0 (any free port) is accepted.
+  64-connection cap (with the WebUI mounted, only the header read keeps
+  the 2-second bound; see [WebUI](#webui-and-the-websocket-channel)).
+  Port 0 (any free port) is accepted.
 - **In-flight turns get a deadline.** nanobot cancels running tasks on
   shutdown (keeping checkpoints so a later gateway can offer to
   continue). nanobot-go stops consuming inbound messages, lets the turns
@@ -831,3 +852,44 @@ Phase 2 is complete; phase 3 is in progress.
   when the gateway runs it the turn lands in the API session and its
   reply is dropped with a warning; `serve` adds a note saying so to the
   tool's result.
+
+### WebUI and the websocket channel
+
+- **Same address as the gateway.** nanobot's WebSocket channel runs its
+  own server on port 8765 (`channels.websocket.host`/`port`) and serves
+  the WebUI there; the gateway's 18790 is health only. nanobot-go mounts
+  `/ws` and the page on the gateway's server through `channels.Mounter`
+  (one listener, one `--host`/`--port`); the section has no `host`,
+  `port` or `path` keys and rejects them.
+- **Loopback only, no auth.** nanobot allows a non-loopback `host` when
+  `token` or `tokenIssueSecret` is set and lets same-machine clients in
+  without one. nanobot-go has no tokens yet, so an enabled channel on a
+  non-loopback gateway fails the startup. It also rejects requests whose
+  `Host` header is not a loopback name (DNS rebinding) and upgrades whose
+  `Origin` names another host (cross-site WebSocket hijacking); nanobot's
+  `allowFrom` for the channel is not ported (every browser is sender
+  `webui`).
+- **Own, small protocol.** nanobot's envelope (topics, `chat_id`
+  attach/new, streaming deltas, progress and tool events, media, control
+  commands, session lists) is not used. Frames are `hello`, `chat` (or
+  plain text), `message` and `error`; see README. Only final replies are
+  sent, as on the other channels.
+- **Chat ids.** nanobot clients pick topics and attach to chats by id;
+  nanobot-go gives each connection a random id (`crypto/rand.Text`) or
+  the `?chat_id=` it asks for, and the page stores it in
+  `localStorage`. History is not replayed on reconnect.
+- **Undeliverable replies are dropped.** A reply for a chat with no open
+  socket is a `channels.Permanent` error, so the manager logs it instead
+  of retrying (a retrying reply would hold up every other chat's replies
+  for 7 seconds). nanobot's WebUI shows completed replies from the saved
+  session after it reconnects; this page does not (the reply is still in
+  the session, so the agent remembers it).
+- **Timeouts.** The shared server keeps `ReadHeaderTimeout` at 2 seconds
+  but drops `ReadTimeout`/`WriteTimeout` while the WebUI is mounted (they
+  would cut sockets after the upgrade), sets a 2-minute `IdleTimeout` and
+  64 KiB of headers (localhost cookies); the channel pings every 30
+  seconds, bounds writes to 10 seconds and frames to 64 KiB.
+- **No build step.** The page is plain HTML, CSS and JavaScript embedded
+  with `embed`, served with a strict CSP (`default-src 'self'`); no
+  React, Vite or npm. The `nanobot webui` launcher is not ported: enable
+  the channel and run `nanobot gateway`.

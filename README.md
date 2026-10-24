@@ -55,8 +55,12 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
   MCP servers), `version`.
 
+- WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
+  gateway serves a plain browser chat page and a WebSocket on its own
+  loopback address; each chat runs a full agent turn.
+
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
-(`HEARTBEAT.md`), WebUI. See
+(`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -379,7 +383,8 @@ order.
 Each key of `channels` is a channel name with an object holding at least
 `"enabled"`; the channel itself checks the other keys. An enabled channel
 nanobot-go does not know is an error at startup. The channels so far are
-[Telegram](#telegram) and [WeChat](#wechat).
+[Telegram](#telegram), [WeChat](#wechat) and `websocket`, the
+[WebUI](#webui).
 
 - **Health endpoint.** `GET http://<host>:<port>/healthz` (also
   `/health`, nanobot's path) returns `{"status":"ok"}` while the process
@@ -560,6 +565,67 @@ replaced exactly that token.
   to run `nanobot channels login weixin --force`, and polling resumes by
   itself once that login is saved.
 
+### WebUI
+
+A minimal browser chat page (phase 4, first slice), served by the
+`websocket` channel on the gateway's own address. Enable it and start the
+gateway:
+
+```json
+{
+  "channels": {
+    "websocket": {"enabled": true}
+  },
+  "gateway": {"host": "127.0.0.1", "port": 18790}
+}
+```
+
+```sh
+bin/nanobot gateway
+# nanobot-go gateway ...
+# Health endpoint: http://127.0.0.1:18790/healthz
+# WebUI: http://127.0.0.1:18790/
+```
+
+Open `http://127.0.0.1:18790/` (it redirects to `/ui/`), type a message
+and press Enter. Each reply is a full agent turn, tools included.
+
+- **One address.** The page (`GET /`, `GET /ui/`) and the WebSocket
+  (`GET /ws`) are mounted on the gateway's HTTP server next to
+  `/healthz`; there is no second port. With the channel disabled (the
+  default) those paths are 404 and the server is health-only, as before.
+- **Sessions.** Each chat is the session `websocket:<chat id>`. The page
+  keeps its chat id in the browser's `localStorage` and reconnects with
+  it, so a reload continues the same session (earlier messages are not
+  shown again); **New chat** starts a new id. Two tabs on the same id
+  both get the replies.
+- **Loopback only.** There is no browser login yet, so the gateway
+  refuses to start with the channel enabled unless `gateway.host` (or
+  `--host`) is a loopback address. The channel also refuses requests
+  whose `Host` header is not `localhost`/`127.0.0.1`/`[::1]` (DNS
+  rebinding) and WebSocket upgrades from another origin (other web
+  pages). Anyone who can reach the port on this machine can chat with
+  the agent, which can run commands. The page holds no secrets.
+- **Timeouts.** With the WebUI mounted the server bounds only the request
+  header read (2 seconds) and closes idle keep-alive connections after 2
+  minutes, so a socket can stay open through long turns; the channel
+  pings each socket every 30 seconds and bounds each write to 10 seconds.
+  Health-only gateways keep the 2-second read and write timeouts.
+- **Delivery.** A reply for a chat with no open socket (the tab was
+  closed) is dropped with a log line, not retried.
+
+Wire protocol (JSON text frames; any other frame type gets an `error`):
+
+| Direction | Frame |
+|-----------|-------|
+| server → client, on connect | `{"type":"hello","chat_id":"..."}` |
+| client → server | `{"type":"chat","content":"..."}`, or plain text |
+| server → client | `{"type":"message","role":"assistant","content":"..."}` |
+| server → client | `{"type":"error","content":"..."}` (bad frame) |
+
+`ws://127.0.0.1:18790/ws?chat_id=<id>` joins an existing chat (1-64
+letters, digits, `-`, `_`); without it the server picks a random id.
+
 ### OpenAI-compatible API
 
 nanobot-go can put the agent behind a minimal OpenAI-compatible endpoint,
@@ -715,6 +781,10 @@ tool binds a job to its chat.
 
 nanobot-go runs commands and edits files on your machine on the model's
 behalf. Treat it like giving someone a shell.
+
+- The [WebUI](#webui) has no login: it runs only on a loopback gateway
+  and answers only loopback `Host` names and same-origin sockets, but any
+  local user or process that can reach the port can drive the agent.
 
 - `restrictToWorkspace` (default `true`) confines file tools to the
   workspace, including through symlinks and `..`, and makes the shell guard
