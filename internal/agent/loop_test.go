@@ -380,6 +380,64 @@ func TestRunShutdownCancelsInFlightTurn(t *testing.T) {
 	}
 }
 
+func TestStopCancelsTheTurnInFlight(t *testing.T) {
+	b := bus.NewMessageBus(8)
+	started := make(chan string, 4)
+	p := &scripted{steps: []step{func(ctx context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
+		last := req.Messages[len(req.Messages)-1].Content
+		started <- last
+		if last == "slow" {
+			<-ctx.Done()
+			return nil, ctx.Err()
+		}
+		return &providers.ChatResponse{Content: "re:" + last, FinishReason: providers.FinishStop}, nil
+	}}}
+	l, sessions, _ := newTestLoop(t, p, nil, b)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.Run(ctx)
+	publish := func(chat, content string) {
+		t.Helper()
+		if err := b.PublishInbound(ctx, bus.InboundMessage{Channel: "test", ChatID: chat, Content: content, Metadata: map[string]any{"k": chat}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	next := func() bus.OutboundMessage {
+		t.Helper()
+		out, err := consumeWithTimeout(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	publish("1", "slow")
+	if got := <-started; got != "slow" {
+		t.Fatalf("first request = %q", got)
+	}
+	publish("1", "queued") // waits behind the slow turn
+	publish("1", " /STOP ")
+	if out := next(); out.Content != stoppedText || out.ChatID != "1" || out.Metadata["k"] != "1" {
+		t.Errorf("reply to the stopped turn = %+v", out)
+	}
+	// The queued turn still runs; /stop itself never reached the queue.
+	if out := next(); out.Content != "re:queued" {
+		t.Errorf("next reply = %+v", out)
+	}
+	publish("1", "/stop")
+	if out := next(); out.Content != nothingToStopText {
+		t.Errorf("idle /stop = %+v", out)
+	}
+	sess, _ := sessions.GetOrCreate("test:1")
+	if got, want := summarize(sess.Messages), []string{"user:queued", "assistant:re:queued"}; !slices.Equal(got, want) {
+		t.Errorf("session = %v, want %v (the stopped turn is not saved)", got, want)
+	}
+	l.Wait() // the worker forgets the turn once it has exited
+	if l.Cancel("test:1") || l.Cancel("test:nope") {
+		t.Error("Cancel reported a turn while none is in flight")
+	}
+}
+
 func TestServeLetsInFlightTurnFinish(t *testing.T) {
 	b := bus.NewMessageBus(4)
 	started, release := make(chan struct{}), make(chan struct{})

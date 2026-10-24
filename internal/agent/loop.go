@@ -21,13 +21,19 @@ const (
 	CommandNew     = "/new"
 	CommandCompact = "/compact"
 	CommandHelp    = "/help"
+	// CommandStop cancels the session's turn in flight. Serve handles it
+	// as soon as it arrives rather than after the turn it stops.
+	CommandStop = "/stop"
 )
 
 const (
 	helpText = "Commands:\n" +
 		"  /new      start a new conversation (clears this session's history)\n" +
 		"  /compact  summarize this conversation so far into memory and continue from the summary\n" +
+		"  /stop     stop the reply in progress\n" +
 		"  /help     show this help"
+	stoppedText            = "Stopped."
+	nothingToStopText      = "Nothing to stop."
 	newSessionText         = "New session started."
 	compactDisabledText    = "History consolidation is disabled."
 	compactNothingText     = "Nothing to compact."
@@ -76,12 +82,14 @@ type Loop struct {
 	runner *Runner
 	log    *slog.Logger
 
-	// mu guards workers; idle is signaled when the last worker exits. A
-	// counter under mu (rather than a WaitGroup) lets Wait run concurrently
-	// with enqueues for new sessions.
+	// mu guards workers and cancels; idle is signaled when the last worker
+	// exits. A counter under mu (rather than a WaitGroup) lets Wait run
+	// concurrently with enqueues for new sessions.
 	mu      sync.Mutex
 	idle    *sync.Cond
 	workers map[string]*worker
+	// cancels holds the cancel func of each session's turn in flight.
+	cancels map[string]context.CancelFunc
 }
 
 type worker struct {
@@ -124,7 +132,7 @@ func NewLoop(cfg LoopConfig) (*Loop, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	l := &Loop{cfg: cfg, runner: NewRunner(cfg.Provider), log: log, workers: map[string]*worker{}}
+	l := &Loop{cfg: cfg, runner: NewRunner(cfg.Provider), log: log, workers: map[string]*worker{}, cancels: map[string]context.CancelFunc{}}
 	l.idle = sync.NewCond(&l.mu)
 	return l, nil
 }
@@ -142,6 +150,10 @@ func (l *Loop) Run(ctx context.Context) error {
 // accepting messages while the turns in flight finish: cancel ctx, Wait
 // (with whatever deadline it likes), then cancel turnCtx. Serve does not
 // wait for in-flight turns.
+//
+// A /stop message cancels its session's turn in flight right away, whose
+// reply is then "Stopped."; with no turn in flight it is queued like any
+// message and answered "Nothing to stop.".
 func (l *Loop) Serve(ctx, turnCtx context.Context) error {
 	if l.cfg.Bus == nil {
 		return errors.New("agent loop: bus is required")
@@ -151,8 +163,29 @@ func (l *Loop) Serve(ctx, turnCtx context.Context) error {
 		if err != nil {
 			return err
 		}
+		if isCommand(msg.Content, CommandStop) && l.Cancel(msg.SessionKey()) {
+			continue
+		}
 		l.enqueue(job{ctx: turnCtx, msg: msg})
 	}
+}
+
+// Cancel cancels the turn in flight in sessionKey, if any, and reports
+// whether there was one. Turns queued behind it still run. A canceled
+// turn is not saved to the session; taken from the bus, it is answered
+// "Stopped.", and a Process caller gets context.Canceled.
+func (l *Loop) Cancel(sessionKey string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	cancel, ok := l.cancels[sessionKey]
+	if ok {
+		cancel()
+	}
+	return ok
+}
+
+func isCommand(content, command string) bool {
+	return strings.ToLower(strings.TrimSpace(content)) == command
 }
 
 // Wait blocks until no session worker is running. Turns enqueued while it
@@ -220,6 +253,7 @@ func (l *Loop) enqueue(j job) {
 func (l *Loop) work(key string, w *worker) {
 	for {
 		l.mu.Lock()
+		delete(l.cancels, key)
 		if len(w.queue) == 0 {
 			delete(l.workers, key)
 			if len(l.workers) == 0 {
@@ -231,29 +265,36 @@ func (l *Loop) work(key string, w *worker) {
 		j := w.queue[0]
 		w.queue[0] = job{}
 		w.queue = w.queue[1:]
+		ctx, cancel := context.WithCancel(j.ctx)
+		l.cancels[key] = cancel
 		l.mu.Unlock()
-		l.handle(j)
+		l.handle(ctx, j)
+		cancel()
 	}
 }
 
-// handle runs one job and delivers its result.
-func (l *Loop) handle(j job) {
+// handle runs one job under ctx, which Cancel may cancel before j.ctx
+// ends, and delivers its result.
+func (l *Loop) handle(ctx context.Context, j job) {
 	// Progress follows the reply: bus-driven turns report to their chat,
 	// while Process callers deliver (or not) themselves.
 	var progress Hooks
 	if j.reply == nil {
 		progress = newProgressHooks(l.cfg.Bus, j.msg)
 	}
-	r, err := l.turn(j.ctx, j.msg, progress)
+	r, err := l.turn(ctx, j.msg, progress)
 	if j.reply != nil {
 		j.reply <- result{reply: r, err: err}
 		return
 	}
 	content := r.Content
-	if err != nil {
-		if j.ctx.Err() != nil {
-			return // shutting down: nothing to deliver
-		}
+	switch {
+	case err == nil:
+	case j.ctx.Err() != nil:
+		return // shutting down: nothing to deliver
+	case ctx.Err() != nil:
+		content = stoppedText
+	default:
 		l.log.Error("agent turn failed", "session", j.msg.SessionKey(), "error", err)
 		content = fmt.Sprintf(errorReplyText, err)
 	}
@@ -289,6 +330,10 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks)
 		return Reply{Content: content}, err
 	case CommandHelp:
 		return Reply{Content: helpText}, nil
+	case CommandStop:
+		// Serve cancels a turn in flight without queuing /stop, so here
+		// there is none.
+		return Reply{Content: nothingToStopText}, nil
 	}
 
 	l.consolidate(ctx, sess, msg)
