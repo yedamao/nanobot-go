@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -63,6 +64,9 @@ func TestGatewayWebUIRoundTrip(t *testing.T) {
 	if hello.Type != wschan.TypeHello || hello.ChatID == "" {
 		t.Fatalf("hello = %+v", hello)
 	}
+	if h := readWSFrame(t, ctx, conn); h.Type != wschan.TypeHistory || len(h.Messages) != 0 {
+		t.Fatalf("history of a new chat = %+v", h)
+	}
 	// The socket outlives the health endpoint's 2-second timeouts.
 	time.Sleep(healthReadTimeout + 500*time.Millisecond)
 	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"chat","content":"hello"}`)); err != nil {
@@ -72,6 +76,21 @@ func TestGatewayWebUIRoundTrip(t *testing.T) {
 	if reply.Type != wschan.TypeMessage || reply.Role != "assistant" || reply.Content != "echo: hello" {
 		t.Errorf("reply = %+v", reply)
 	}
+
+	// A reload resumes the chat and gets the turn back from the store.
+	again, _, err := websocket.Dial(ctx, "ws://"+g.addr+"/ws?chat_id="+hello.ChatID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.CloseNow()
+	if h := readWSFrame(t, ctx, again); h.Type != wschan.TypeHello || h.ChatID != hello.ChatID {
+		t.Fatalf("resumed hello = %+v", h)
+	}
+	want := []wschan.HistoryMessage{{Role: "user", Content: "hello"}, {Role: "assistant", Content: "echo: hello"}}
+	if h := readWSFrame(t, ctx, again); h.Type != wschan.TypeHistory || !slices.Equal(h.Messages, want) {
+		t.Errorf("resumed history = %+v, want %+v", h, want)
+	}
+	again.Close(websocket.StatusNormalClosure, "")
 
 	// Shutdown closes the socket with "going away".
 	readErr := make(chan error, 1)

@@ -3,7 +3,8 @@
 // gateway's own HTTP server, which mounts them through channels.Mounter;
 // it opens no listener of its own. Each connection is one chat: text
 // frames become bus.InboundMessage values and replies for that chat are
-// written back as JSON frames.
+// written back as JSON frames. On connect the chat's stored transcript is
+// sent as a "history" frame so a reloaded page can show it again.
 //
 // It borrows only the idea of nanobot's WebSocket channel
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
@@ -34,7 +35,9 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/nanobot-go/internal/session"
 	"github.com/yedamao/nanobot-go/internal/webui"
 )
 
@@ -54,6 +57,14 @@ const (
 	// pingInterval is how often an idle connection is pinged, so a
 	// vanished browser is noticed.
 	pingInterval = 30 * time.Second
+
+	// MaxHistoryMessages caps the messages in a history frame: only the
+	// most recent ones are sent.
+	MaxHistoryMessages = 200
+	// MaxHistoryBytes caps the total content of a history frame; older
+	// messages are dropped first. The newest message is sent even when
+	// it alone is larger.
+	MaxHistoryBytes = 256 << 10
 )
 
 // chatIDRE is the shape of a client-supplied chat id.
@@ -62,6 +73,7 @@ var chatIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 // Frame types.
 const (
 	TypeHello   = "hello"
+	TypeHistory = "history"
 	TypeChat    = "chat"
 	TypeMessage = "message"
 	TypeError   = "error"
@@ -73,6 +85,15 @@ type Frame struct {
 	ChatID  string `json:"chat_id,omitempty"`
 	Role    string `json:"role,omitempty"`
 	Content string `json:"content,omitempty"`
+	// Messages is set on history frames only, where it is always present
+	// (an empty list for a new chat).
+	Messages []HistoryMessage `json:"messages,omitzero"`
+}
+
+// HistoryMessage is one transcript entry in a history frame.
+type HistoryMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
 }
 
 // Config is the channels.websocket section.
@@ -94,6 +115,17 @@ type Options struct {
 	// Host is the address the gateway's HTTP server listens on. It must
 	// be loopback: the channel has no browser authentication yet.
 	Host string
+	// Sessions loads a chat's stored session for the history frame sent
+	// on connect. Pass the session Store rather than the Manager: the
+	// store returns a fresh copy, while the Manager's cached *Session
+	// belongs to the agent loop's worker. Nil sends an empty history.
+	Sessions HistoryLoader
+}
+
+// HistoryLoader loads a stored session; session.Store implements it. Load
+// returns an error wrapping session.ErrNotFound for an unknown key.
+type HistoryLoader interface {
+	Load(key string) (*session.Session, error)
 }
 
 // Factory returns the channels.Factory for the websocket channel.
@@ -110,8 +142,9 @@ func Factory(opts Options) channels.Factory {
 // Channel is the browser chat channel. It implements channels.Channel
 // and channels.Mounter.
 type Channel struct {
-	bus *bus.MessageBus
-	log *slog.Logger
+	bus      *bus.MessageBus
+	log      *slog.Logger
+	sessions HistoryLoader
 
 	mu      sync.Mutex
 	started bool
@@ -137,7 +170,7 @@ func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -239,7 +272,10 @@ func (c *Channel) connsFor(chatID string) []*websocket.Conn {
 // serveWS upgrades the request and runs the connection until it closes
 // or the channel stops. ?chat_id= resumes a chat; without it the
 // connection gets a new random id. Either way the first frame is a
-// "hello" carrying the id.
+// "hello" carrying the id and the second a "history" frame with the
+// chat's stored transcript. A reply racing the connect may arrive before
+// the history frame (which then includes it) or, rarely, after it while
+// already included; the page tolerates both.
 func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 	chatID := r.URL.Query().Get("chat_id")
 	if chatID != "" && !chatIDRE.MatchString(chatID) {
@@ -282,6 +318,9 @@ func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 	if err := writeFrame(ctx, conn, Frame{Type: TypeHello, ChatID: chatID}); err != nil {
 		return
 	}
+	if err := writeFrame(ctx, conn, Frame{Type: TypeHistory, Messages: c.history(chatID)}); err != nil {
+		return
+	}
 	for {
 		typ, data, err := conn.Read(ctx)
 		if err != nil {
@@ -311,6 +350,50 @@ func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}
+
+// history returns the chat's stored user and assistant texts, oldest
+// first, capped by MaxHistoryMessages and MaxHistoryBytes. It reads the
+// whole transcript, including messages consolidation has summarized for
+// the model, since the user saw them; tool calls, tool results and system
+// messages are left out. A missing session or a failed load (which is
+// logged) yields an empty, non-nil list.
+func (c *Channel) history(chatID string) []HistoryMessage {
+	out := []HistoryMessage{}
+	if c.sessions == nil {
+		return out
+	}
+	key := Name + ":" + chatID
+	sess, err := c.sessions.Load(key)
+	if err != nil {
+		if !errors.Is(err, session.ErrNotFound) {
+			c.log.Warn("websocket: load history", "session", key, "error", err)
+		}
+		return out
+	}
+	return transcript(sess.Messages, MaxHistoryMessages, MaxHistoryBytes)
+}
+
+// transcript keeps the user and assistant messages of msgs with non-empty
+// text, then the newest of those within maxMessages and maxBytes of
+// content; the newest one is kept even when it alone exceeds maxBytes.
+func transcript(msgs []providers.Message, maxMessages, maxBytes int) []HistoryMessage {
+	out := []HistoryMessage{}
+	for _, m := range msgs {
+		if (m.Role != providers.RoleUser && m.Role != providers.RoleAssistant) || strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+		out = append(out, HistoryMessage{Role: string(m.Role), Content: m.Content})
+	}
+	start, size := len(out), 0
+	for start > 0 && len(out)-start < maxMessages {
+		size += len(out[start-1].Content)
+		if size > maxBytes && start < len(out) {
+			break
+		}
+		start--
+	}
+	return out[start:]
 }
 
 func (c *Channel) register(chatID string, conn *websocket.Conn) bool {

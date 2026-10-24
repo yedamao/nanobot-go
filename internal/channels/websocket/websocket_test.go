@@ -3,9 +3,11 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/session"
 )
 
 // harness is a started channel mounted on an httptest server (which
@@ -26,8 +30,13 @@ type harness struct {
 
 func newHarness(t *testing.T, start bool) *harness {
 	t.Helper()
+	return newHarnessWith(t, start, Options{Host: "127.0.0.1"})
+}
+
+func newHarnessWith(t *testing.T, start bool, opts Options) *harness {
+	t.Helper()
 	b := bus.NewMessageBus(8)
-	ch, err := New(Config{Enabled: true}, channels.Deps{Bus: b}, Options{Host: "127.0.0.1"})
+	ch, err := New(Config{Enabled: true}, channels.Deps{Bus: b}, opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,8 +65,16 @@ func testCtx(t *testing.T) context.Context {
 }
 
 // dial connects and returns the connection and the chat id from the
-// hello frame.
+// hello frame, consuming the history frame that follows it.
 func (h *harness) dial(t *testing.T, query string) (*websocket.Conn, string) {
+	t.Helper()
+	conn, chatID, _ := h.dialHistory(t, query)
+	return conn, chatID
+}
+
+// dialHistory connects and returns the connection, the chat id and the
+// raw history frame.
+func (h *harness) dialHistory(t *testing.T, query string) (*websocket.Conn, string, []byte) {
 	t.Helper()
 	ctx := testCtx(t)
 	conn, _, err := websocket.Dial(ctx, h.wsURL(query), nil)
@@ -69,7 +86,15 @@ func (h *harness) dial(t *testing.T, query string) (*websocket.Conn, string) {
 	if hello.Type != TypeHello || hello.ChatID == "" {
 		t.Fatalf("first frame = %+v, want hello with a chat id", hello)
 	}
-	return conn, hello.ChatID
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var f Frame
+	if err := json.Unmarshal(data, &f); err != nil || f.Type != TypeHistory {
+		t.Fatalf("second frame = %s (%v), want history", data, err)
+	}
+	return conn, hello.ChatID, data
 }
 
 func readFrame(t *testing.T, conn *websocket.Conn) Frame {
@@ -117,7 +142,7 @@ func TestRoundTrip(t *testing.T) {
 	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "hi there"}); err != nil {
 		t.Fatal(err)
 	}
-	if f := readFrame(t, conn); f != (Frame{Type: TypeMessage, Role: "assistant", Content: "hi there"}) {
+	if f := readFrame(t, conn); f.Type != TypeMessage || f.Role != "assistant" || f.Content != "hi there" || f.Messages != nil {
 		t.Errorf("reply frame = %+v", f)
 	}
 }
@@ -352,5 +377,112 @@ func TestParseConfig(t *testing.T) {
 		if _, err := ParseConfig(json.RawMessage(tt.raw)); (err != nil) != tt.wantErr {
 			t.Errorf("ParseConfig(%s) = %v, wantErr %v", tt.raw, err, tt.wantErr)
 		}
+	}
+}
+
+// failingLoader fails every load with an error other than not-found.
+type failingLoader struct{}
+
+func (failingLoader) Load(string) (*session.Session, error) {
+	return nil, errors.New("disk on fire")
+}
+
+func TestHistoryOnConnect(t *testing.T) {
+	store := session.NewJSONLStore(t.TempDir())
+	noArgs := json.RawMessage(`{}`)
+	sess := session.New(Name + ":old-chat")
+	sess.Append(
+		providers.Message{Role: providers.RoleUser, Content: "what time is it?"},
+		providers.Message{Role: providers.RoleAssistant, ToolCalls: []providers.ToolCall{{ID: "c1", Name: "clock", Arguments: noArgs}}},
+		providers.Message{Role: providers.RoleTool, ToolCallID: "c1", Name: "clock", Content: "12:00"},
+		providers.Message{Role: providers.RoleAssistant, Content: "Checking again.", ToolCalls: []providers.ToolCall{{ID: "c2", Name: "clock", Arguments: noArgs}}},
+		providers.Message{Role: providers.RoleTool, ToolCallID: "c2", Name: "clock", Content: "12:00"},
+		providers.Message{Role: providers.RoleAssistant, Content: "It is noon."},
+		providers.Message{Role: providers.RoleSystem, Content: "system note"},
+		providers.Message{Role: providers.RoleUser, Content: "thanks"},
+		providers.Message{Role: providers.RoleAssistant, Content: "  "},
+		providers.Message{Role: providers.RoleAssistant, Content: "You're welcome."},
+	)
+	if err := store.Save(sess); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name   string
+		loader HistoryLoader
+		query  string
+		want   []HistoryMessage
+	}{
+		{"stored chat", store, "?chat_id=old-chat", []HistoryMessage{
+			{"user", "what time is it?"},
+			{"assistant", "Checking again."},
+			{"assistant", "It is noon."},
+			{"user", "thanks"},
+			{"assistant", "You're welcome."},
+		}},
+		{"new chat id", store, "", []HistoryMessage{}},
+		{"unknown chat id", store, "?chat_id=never-seen", []HistoryMessage{}},
+		{"no loader", nil, "?chat_id=old-chat", []HistoryMessage{}},
+		{"load error", failingLoader{}, "?chat_id=old-chat", []HistoryMessage{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarnessWith(t, true, Options{Host: "127.0.0.1", Sessions: tt.loader})
+			conn, chatID, raw := h.dialHistory(t, tt.query)
+			// An empty history is still an explicit list.
+			if !strings.Contains(string(raw), `"messages":[`) {
+				t.Errorf("history frame %s has no messages list", raw)
+			}
+			var f Frame
+			if err := json.Unmarshal(raw, &f); err != nil {
+				t.Fatal(err)
+			}
+			if f.Messages == nil {
+				f.Messages = []HistoryMessage{}
+			}
+			if !slices.Equal(f.Messages, tt.want) {
+				t.Errorf("history = %+v, want %+v", f.Messages, tt.want)
+			}
+			// The connection works as usual afterwards.
+			write(t, conn, "next")
+			if in := h.inbound(t); in.ChatID != chatID || in.Content != "next" {
+				t.Errorf("inbound = %+v", in)
+			}
+		})
+	}
+}
+
+func TestTranscriptCaps(t *testing.T) {
+	msgs := []providers.Message{
+		{Role: providers.RoleUser, Content: "aaaa"},
+		{Role: providers.RoleAssistant, Content: "bbbb"},
+		{Role: providers.RoleTool, Content: "ignored"},
+		{Role: providers.RoleUser, Content: "cc"},
+		{Role: providers.RoleAssistant, Content: "dddddddd"},
+	}
+	tests := []struct {
+		name                  string
+		maxMessages, maxBytes int
+		want                  []string
+	}{
+		{"under the caps", 10, 100, []string{"aaaa", "bbbb", "cc", "dddddddd"}},
+		{"message cap", 2, 100, []string{"cc", "dddddddd"}},
+		{"byte cap", 10, 14, []string{"bbbb", "cc", "dddddddd"}},
+		{"byte cap exact", 10, 18, []string{"aaaa", "bbbb", "cc", "dddddddd"}},
+		{"newest alone too big", 10, 3, []string{"dddddddd"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := []string{}
+			for _, m := range transcript(msgs, tt.maxMessages, tt.maxBytes) {
+				got = append(got, m.Content)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("transcript = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	if got := transcript(nil, 10, 10); got == nil || len(got) != 0 {
+		t.Errorf("transcript(nil) = %#v, want an empty list", got)
 	}
 }
