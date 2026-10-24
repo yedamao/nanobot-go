@@ -56,7 +56,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   MCP servers), `version`.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
-(`HEARTBEAT.md`), full SSRF pinning, WebUI. See
+(`HEARTBEAT.md`), WebUI. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -129,6 +129,7 @@ Missing fields keep their defaults; unknown keys are an error.
     "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": [],
              "sandbox": "", "sandboxRoBinds": [], "sandboxRwBinds": []},
     "web": {"enable": true, "fetchMaxBytes": 2097152},
+    "ssrfWhitelist": [],
     "mcpServers": {}
   },
   "channels": {},
@@ -323,6 +324,39 @@ each server's state and tool count or error, and disconnects.
 
 MCP resources and prompts are not exposed yet, nor is OAuth; use a header
 with a token instead.
+
+HTTP and SSE servers are subject to the same private-address block as
+`web_fetch` (see below): a server on `localhost`, your LAN or a tailnet
+needs its address in `tools.ssrfWhitelist`, e.g. `"127.0.0.1/32"` for
+`http://127.0.0.1:8000/mcp`. Stdio servers are not affected.
+
+### Network access (SSRF protection)
+
+`web_fetch` and MCP HTTP/SSE clients refuse loopback, private (RFC 1918,
+`fc00::/7`), link-local and cloud-metadata (`169.254.169.254`), CGNAT
+(`100.64.0.0/10`), NAT64 and other reserved addresses. A host name is
+resolved once per request and every address it resolves to must be
+allowed (a name with both a public and a private address is refused);
+the connection then goes only to those addresses, so a DNS answer that
+changes in between (DNS rebinding) cannot redirect it. Every redirect is
+checked the same way before it is followed, and only `http`/`https` are
+allowed.
+
+To reach a specific internal service, whitelist its address. Prefer a
+single host (`/32` for IPv4, `/128` for IPv6) over whole ranges:
+
+```json
+{
+  "tools": {
+    "ssrfWhitelist": ["127.0.0.1/32", "100.101.102.103/32", "fd7a:115c:a1e0::1/128"]
+  }
+}
+```
+
+A bare address (`"192.168.1.20"`) means that host only. An entry that is
+not an address or CIDR range is a config error. `web_fetch` connects
+directly and ignores `HTTP(S)_PROXY`; MCP clients honour an environment
+proxy, in which case the URL is checked locally and the proxy connects.
 
 ### Gateway
 
@@ -729,9 +763,12 @@ behalf. Treat it like giving someone a shell.
   example without unprivileged user namespaces), nanobot-go refuses to
   start instead of running commands unsandboxed. `nanobot status` shows
   whether the configured sandbox is usable.
-- `web_fetch` refuses loopback, private, link-local and cloud-metadata
-  addresses, checked at connect time so DNS rebinding and redirects are
-  covered. Fetched content is marked as untrusted data for the model.
+- `web_fetch` and MCP HTTP/SSE clients refuse loopback, private,
+  link-local, CGNAT and cloud-metadata addresses unless they are in
+  `tools.ssrfWhitelist`. Each host is resolved once per request and only
+  the validated addresses are dialled, so DNS rebinding cannot slip past
+  the check; every redirect hop is re-checked before it is followed.
+  Fetched content is marked as untrusted data for the model.
 - The config file and session database are written with mode `0600`
   (its directory `0700`).
   `nanobot status` reports which keys are set, never their values.
@@ -741,9 +778,9 @@ behalf. Treat it like giving someone a shell.
   `env`, never the agent's API keys. `nanobot status` shows MCP `env` and
   `headers` names but never their values, counts `args` instead of
   printing them, and shows only the scheme and host of URLs; connection
-  errors have configured secrets replaced with `[redacted]`. MCP URLs are
-  trusted as configured (localhost servers work); they are not subject to
-  `web_fetch`'s private-address checks. Tool results from MCP servers go
+  errors have configured secrets replaced with `[redacted]`. MCP HTTP URLs
+  get the same private-address checks as `web_fetch`; whitelist a local
+  server's address to use it. Tool results from MCP servers go
   to the model like any other tool output.
 - The gateway's health endpoint has no authentication and listens on
   `127.0.0.1` unless `gateway.host` says otherwise. It reveals only that

@@ -202,6 +202,17 @@ Phase 2 is complete; phase 3 is in progress.
     `pathAppend`, the model-only access-restriction context (the exec tool
     description says commands are sandboxed instead).
 - Full SSRF protection: DNS pinning, CGNAT/metadata ranges, whitelist.
+  - Done: `security.Policy` (`ssrf.go`, port of `nanobot/security/network.py`):
+    `ParseWhitelist`/`NewPolicy`, `Allow` (whitelist, else not
+    `IsBlockedIP`), `ResolveAndValidate` (every answer must be allowed,
+    mixed public/private rejected), `CheckURL`/`CheckTarget`, a pinned
+    `DialContext`/`NewTransport` that dials only validated addresses,
+    `CheckRedirect` re-checking each hop, and `WithPinnedDNS` sharing one
+    lookup per host across check, redirects and dials. Config
+    `tools.ssrfWhitelist`, validated at load. Wired into `web_fetch` and
+    the MCP streamable HTTP and SSE clients.
+  - Not ported: `trust_remote_dns`, `allow_loopback`, `env_proxy_*`
+    helpers beyond MCP's proxy routing (see the deviations below).
 - WebUI.
 
 ## Design decisions we keep
@@ -337,12 +348,14 @@ Phase 2 is complete; phase 3 is in progress.
   resources embedded in a result are inlined.
 - **SSE is supported** through the SDK, inferred like nanobot from a URL
   ending in `/sse`.
-- **No SSRF filter or TCP probe on MCP URLs.** nanobot validates MCP URLs
-  against its SSRF rules (blocking localhost and private ranges unless
-  whitelisted), pins DNS and probes the port before connecting.
-  nanobot-go treats the URL as trusted operator configuration, so local
-  servers work without a whitelist; the per-server connect timeout
-  replaces the probe.
+- **SSRF filter, but no TCP probe on MCP URLs.** As in nanobot, HTTP and
+  SSE servers are checked against the SSRF policy (localhost and private
+  ranges blocked unless in `tools.ssrfWhitelist`), DNS is pinned and
+  every request and redirect is validated; with an environment proxy the
+  URL is checked locally and the proxy connects. nanobot also probes the
+  port before connecting; nanobot-go's per-server connect timeout
+  replaces the probe. (Before phase 4b nanobot-go trusted MCP URLs as
+  configured; local HTTP servers now need a whitelist entry.)
 - **Concurrent connects with a timeout.** nanobot connects servers one by
   one with no overall limit. nanobot-go connects them concurrently, each
   within 30 seconds (10 in `status --mcp`). A failed server is not retried
@@ -725,6 +738,46 @@ Phase 2 is complete; phase 3 is in progress.
   usually does not exist inside the sandbox; nanobot-go points it at the
   sandbox's private `/tmp`. Seatbelt sets `HOME` and `TMPDIR` to the
   workspace, as in nanobot.
+
+### SSRF
+
+- **Pinning per dial, not by patching the resolver.** nanobot pins DNS by
+  swapping the process-global `socket.getaddrinfo` under a lock for the
+  duration of each request. Go has no such hook, and does not need one:
+  the transport's `DialContext` resolves the host through the policy and
+  connects only to the validated addresses. A context pin set
+  (`WithPinnedDNS`) makes the pre-flight check, every redirect hop and
+  every dial of a `web_fetch` share one lookup per host, so a rebinding
+  answer is never even seen; requests are not serialized. A
+  `net.Dialer.Control` check on the dialled address stays as defense in
+  depth.
+- **No global whitelist.** nanobot's `configure_ssrf_whitelist` sets
+  module state at config load; nanobot-go passes a `*security.Policy` to
+  the tools that need it.
+- **Invalid whitelist entries are config errors.** nanobot silently skips
+  them. A bare address is accepted as a single host, and host bits are
+  ignored (`10.1.2.3/8` is `10.0.0.0/8`), as with nanobot's
+  `strict=False`.
+- **Wider blocked set.** `IsBlockedIP` also blocks multicast,
+  `192.0.0.0/24`, `198.18.0.0/15` (benchmarking), `240.0.0.0/4` and NAT64
+  `64:ff9b::/96`, which nanobot's list does not.
+- **Redirects fail closed.** nanobot's `validate_resolved_url` lets a
+  redirect through when its host does not resolve; nanobot-go refuses
+  it (the dial would fail anyway, but the error is clearer).
+- **`trust_remote_dns` is not ported.** nanobot uses it only for image
+  generation behind a trusted proxy that resolves names itself. nanobot-go
+  has no such caller, and a direct pinned dial cannot connect to a name
+  it could not resolve, so there is no `ssrfTrustRemoteDNS` setting.
+- **`allow_loopback` is not ported.** It has no caller here; whitelist
+  `127.0.0.1/32` (or `::1/128`) instead. Tests use the whitelist too, so
+  they exercise the production path.
+- **`web_fetch` ignores environment proxies**, so the checked
+  destination is the peer actually dialled. MCP clients honour them
+  (see MCP above).
+- **Shell guard unchanged.** The exec guard still refuses commands
+  containing `localhost` or a literal internal IP URL without resolving
+  names, and does not consult `tools.ssrfWhitelist` (nanobot's
+  `contains_internal_url` resolves and honours the whitelist).
 
 ### OpenAI-compatible API
 
