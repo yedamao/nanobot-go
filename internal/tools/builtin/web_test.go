@@ -1,18 +1,62 @@
 package builtin
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
-func allowAll(netip.Addr) bool { return true }
+// loopbackPolicy whitelists 127.0.0.1/32 (where httptest listens), so tests
+// exercise the production policy rather than an allow-all override.
+func loopbackPolicy(t *testing.T, r security.Resolver) *security.Policy {
+	t.Helper()
+	p, err := security.NewPolicy([]string{"127.0.0.1/32"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Resolver = r
+	return p
+}
+
+// fakeResolver answers from a table; a host with several answers returns
+// them in turn, repeating the last. It counts lookups.
+type fakeResolver struct {
+	mu      sync.Mutex
+	answers map[string][]string
+	calls   map[string]int
+}
+
+func (r *fakeResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	seq, ok := r.answers[host]
+	if !ok {
+		return nil, &net.DNSError{Err: "no such host", Name: host, IsNotFound: true}
+	}
+	if r.calls == nil {
+		r.calls = map[string]int{}
+	}
+	n := r.calls[host]
+	r.calls[host]++
+	return []netip.Addr{netip.MustParseAddr(seq[min(n, len(seq)-1)])}, nil
+}
+
+func (r *fakeResolver) count(host string) int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.calls[host]
+}
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -60,7 +104,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 
 func TestWebFetch(t *testing.T) {
 	srv := newTestServer(t)
-	tool := NewWebFetch(WebFetchConfig{AllowIP: allowAll, MaxBytes: 1000, UserAgent: "test-agent"})
+	tool := NewWebFetch(WebFetchConfig{Policy: loopbackPolicy(t, nil), MaxBytes: 1000, UserAgent: "test-agent"})
 
 	tests := []struct {
 		name    string
@@ -148,9 +192,8 @@ func TestWebFetchRedirectToBlockedAddress(t *testing.T) {
 	}))
 	t.Cleanup(public.Close)
 
-	// Treat 127.0.0.1 as "public" and everything else as internal.
-	onlyV4Loopback := func(ip netip.Addr) bool { return ip == netip.MustParseAddr("127.0.0.1") }
-	res := run(t, NewWebFetch(WebFetchConfig{AllowIP: onlyV4Loopback}), map[string]any{"url": public.URL})
+	// 127.0.0.1 is whitelisted and plays "public"; ::1 stays blocked.
+	res := run(t, NewWebFetch(WebFetchConfig{Policy: loopbackPolicy(t, nil)}), map[string]any{"url": public.URL})
 	if !res.IsError || !strings.Contains(res.Content, "blocked internal/private address") {
 		t.Errorf("got %+v", res)
 	}
@@ -159,9 +202,68 @@ func TestWebFetchRedirectToBlockedAddress(t *testing.T) {
 	}
 }
 
+// Every redirect hop is checked before it is followed: scheme, literal
+// address and the addresses a host name resolves to.
+func TestWebFetchRedirectChecks(t *testing.T) {
+	r := &fakeResolver{answers: map[string][]string{"internal.test": {"10.0.0.1"}}}
+	var target atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		http.Redirect(w, req, target.Load().(string), http.StatusFound)
+	}))
+	t.Cleanup(srv.Close)
+	tool := NewWebFetch(WebFetchConfig{Policy: loopbackPolicy(t, r)})
+	for _, tt := range []struct{ to, want string }{
+		{"file:///etc/passwd", "not allowed"},
+		{"http://169.254.169.254/latest/meta-data/", "blocked internal/private address 169.254.169.254"},
+		{"http://100.64.0.1/", "blocked internal/private address 100.64.0.1"},
+		{"http://192.168.0.1/", "blocked internal/private address 192.168.0.1"},
+		{"http://internal.test/secret", "10.0.0.1 for host internal.test"},
+	} {
+		target.Store(tt.to)
+		res := run(t, tool, map[string]any{"url": srv.URL + "/"})
+		if !res.IsError || !strings.Contains(res.Content, tt.want) {
+			t.Errorf("redirect to %s: got %+v, want %q", tt.to, res, tt.want)
+		}
+	}
+}
+
+// A host whose DNS answer changes from an allowed to a private address
+// (rebinding) is resolved once per fetch, so the private answer is never
+// used, also not for a same-host redirect.
+func TestWebFetchPinsDNS(t *testing.T) {
+	srv := newTestServer(t)
+	u, _ := url.Parse(srv.URL)
+	r := &fakeResolver{answers: map[string][]string{"rebind.test": {"127.0.0.1", "10.0.0.1"}}}
+	tool := NewWebFetch(WebFetchConfig{Policy: loopbackPolicy(t, r)})
+	res := run(t, tool, map[string]any{"url": "http://rebind.test:" + u.Port() + "/redirect"})
+	if res.IsError || !strings.Contains(res.Content, `{"ua":`) {
+		t.Fatalf("got %+v", res)
+	}
+	if n := r.count("rebind.test"); n != 1 {
+		t.Errorf("resolved %d times in one fetch, want 1", n)
+	}
+	// The next fetch resolves afresh and gets the private answer: refused.
+	res = run(t, tool, map[string]any{"url": "http://rebind.test:" + u.Port() + "/json"})
+	if !res.IsError || !strings.Contains(res.Content, "blocked internal/private address 10.0.0.1") {
+		t.Errorf("got %+v", res)
+	}
+}
+
+// Without a whitelist the default policy blocks every internal range.
+func TestWebFetchDefaultPolicyRanges(t *testing.T) {
+	tool := NewWebFetch(WebFetchConfig{})
+	for _, host := range []string{"127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1",
+		"100.64.0.1", "169.254.169.254", "[::1]", "[fd00::1]", "[::ffff:127.0.0.1]", "0.0.0.0"} {
+		res := run(t, tool, map[string]any{"url": "http://" + host + "/"})
+		if !res.IsError || !strings.Contains(res.Content, "blocked internal/private address") {
+			t.Errorf("%s: got %+v", host, res)
+		}
+	}
+}
+
 func TestWebFetchTimeout(t *testing.T) {
 	srv := newTestServer(t)
-	tool := NewWebFetch(WebFetchConfig{AllowIP: allowAll, Timeout: 200 * time.Millisecond})
+	tool := NewWebFetch(WebFetchConfig{Policy: loopbackPolicy(t, nil), Timeout: 200 * time.Millisecond})
 	start := time.Now()
 	res := run(t, tool, map[string]any{"url": srv.URL + "/slow"})
 	if !res.IsError {

@@ -8,13 +8,10 @@ import (
 	"html"
 	"io"
 	"mime"
-	"net"
 	"net/http"
-	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/security"
@@ -39,10 +36,9 @@ type WebFetchConfig struct {
 	MaxBytes int64
 	// UserAgent is sent with every request.
 	UserAgent string
-	// AllowIP decides which dialled addresses are reachable. The default,
-	// security.AllowPublicIP, blocks loopback, private and metadata ranges.
-	// Tests can inject a permissive policy to reach httptest servers.
-	AllowIP func(netip.Addr) bool
+	// Policy decides which addresses are reachable (tools.ssrfWhitelist).
+	// nil blocks loopback, private, CGNAT and metadata ranges.
+	Policy *security.Policy
 }
 
 // WebFetch implements web_fetch.
@@ -62,42 +58,20 @@ func NewWebFetch(cfg WebFetchConfig) *WebFetch {
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = defaultWebUserAgent
 	}
-	if cfg.AllowIP == nil {
-		cfg.AllowIP = security.AllowPublicIP
+	if cfg.Policy == nil {
+		cfg.Policy = &security.Policy{}
 	}
-	allow := cfg.AllowIP
-	dialer := &net.Dialer{
-		Timeout: 10 * time.Second,
-		// Control sees the resolved address actually being dialled, which
-		// defeats DNS rebinding and covers every redirect hop.
-		Control: func(_, address string, _ syscall.RawConn) error {
-			ap, err := netip.ParseAddrPort(address)
-			if err != nil {
-				return fmt.Errorf("blocked address %q: %w", address, err)
-			}
-			if !allow(ap.Addr()) {
-				return fmt.Errorf("blocked internal/private address %s", ap.Addr())
-			}
-			return nil
-		},
-	}
-	transport := &http.Transport{
-		Proxy:                 nil, // a proxy would hide the real destination from Control
-		DialContext:           dialer.DialContext,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: cfg.Timeout,
-		MaxIdleConns:          10,
-		IdleConnTimeout:       30 * time.Second,
-	}
+	// The pinned transport dials only addresses the policy validated for
+	// the request (no proxy, no second DNS lookup), and every redirect hop
+	// is re-checked before it is followed.
+	transport := cfg.Policy.NewTransport()
+	transport.ResponseHeaderTimeout = cfg.Timeout
+	transport.MaxIdleConns = 10
+	transport.IdleConnTimeout = 30 * time.Second
 	client := &http.Client{
-		Transport: transport,
-		Timeout:   cfg.Timeout,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= maxRedirects {
-				return fmt.Errorf("stopped after %d redirects", maxRedirects)
-			}
-			return checkScheme(req.URL)
-		},
+		Transport:     transport,
+		Timeout:       cfg.Timeout,
+		CheckRedirect: cfg.Policy.CheckRedirect(maxRedirects),
 	}
 	return &WebFetch{cfg: cfg, client: client}
 }
@@ -129,11 +103,12 @@ func (w *WebFetch) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 	if err != nil {
 		return tools.Errorf("invalid URL %q: %v", args.URL, err)
 	}
-	if err := checkScheme(u); err != nil {
-		return tools.Errorf("%v", err)
-	}
-	if u.Hostname() == "" {
-		return tools.Errorf("URL %q has no host", args.URL)
+	// One deadline and one DNS pin set for the check, every redirect hop
+	// and every dial: each host is resolved and validated exactly once.
+	ctx, cancel := context.WithTimeout(security.WithPinnedDNS(ctx), w.cfg.Timeout)
+	defer cancel()
+	if _, err := w.cfg.Policy.CheckTarget(ctx, u); err != nil {
+		return tools.Errorf("fetch %s: %v", u.Redacted(), err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -179,13 +154,6 @@ func (w *WebFetch) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 		res.Content = "Error: HTTP " + resp.Status + "\n" + res.Content
 	}
 	return res
-}
-
-func checkScheme(u *url.URL) error {
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return fmt.Errorf("URL scheme %q not allowed (only http and https)", u.Scheme)
-	}
-	return nil
 }
 
 func isTextual(mediaType string, body []byte) bool {
