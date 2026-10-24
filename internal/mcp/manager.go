@@ -26,6 +26,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/tools"
 )
 
@@ -73,9 +74,14 @@ var errClosed = errors.New("MCP manager is closed")
 // Option configures a Manager.
 type Option func(*Manager)
 
-// WithTransport replaces DefaultTransport, e.g. with in-memory transports
-// in tests.
+// WithTransport replaces the default transports (NewTransportFactory),
+// e.g. with in-memory transports in tests.
 func WithTransport(f TransportFactory) Option { return func(m *Manager) { m.newTransport = f } }
+
+// WithSSRFPolicy sets which addresses HTTP servers may be reached at
+// (tools.ssrfWhitelist); the default policy blocks loopback and private
+// ranges. It is ignored with WithTransport.
+func WithSSRFPolicy(p *security.Policy) Option { return func(m *Manager) { m.ssrf = p } }
 
 // WithConnectTimeout sets the per-server connect timeout.
 func WithConnectTimeout(d time.Duration) Option { return func(m *Manager) { m.connectTimeout = d } }
@@ -99,6 +105,7 @@ type Manager struct {
 	reg            *tools.Registry
 	logger         *slog.Logger
 	newTransport   TransportFactory
+	ssrf           *security.Policy
 	connectTimeout time.Duration
 	stderr         io.Writer
 	version        string
@@ -159,13 +166,15 @@ func NewManager(servers map[string]config.MCPServerConfig, reg *tools.Registry, 
 	m := &Manager{
 		reg:            reg,
 		logger:         logger,
-		newTransport:   DefaultTransport,
 		connectTimeout: DefaultConnectTimeout,
 		version:        "dev",
 		lookupEnv:      os.LookupEnv,
 	}
 	for _, o := range opts {
 		o(m)
+	}
+	if m.newTransport == nil {
+		m.newTransport = NewTransportFactory(m.ssrf)
 	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	// Advertise no client capabilities: nanobot-go serves no roots,

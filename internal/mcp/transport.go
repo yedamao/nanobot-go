@@ -5,6 +5,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 // TransportFactory builds the transport for one connection attempt. It is
@@ -37,9 +39,23 @@ var stdioEnvKeys = []string{
 	"SYSTEMDRIVE", "SYSTEMROOT", "TEMP", "TMP", "USERNAME", "USERPROFILE", "COMSPEC",
 }
 
-// DefaultTransport builds SDK transports from the config: a child process
-// for stdio, and HTTP clients that add the configured headers otherwise.
+// DefaultTransport builds SDK transports from the config with the default
+// SSRF policy; see NewTransportFactory.
 func DefaultTransport(name string, cfg config.MCPServerConfig, stderr io.Writer) (sdk.Transport, error) {
+	return newTransport(cfg, stderr, nil)
+}
+
+// NewTransportFactory returns a factory that builds a child process for
+// stdio servers and, for HTTP servers, clients that add the configured
+// headers and only reach addresses policy allows (nil: the default
+// policy, which blocks loopback and private ranges).
+func NewTransportFactory(policy *security.Policy) TransportFactory {
+	return func(_ string, cfg config.MCPServerConfig, stderr io.Writer) (sdk.Transport, error) {
+		return newTransport(cfg, stderr, policy)
+	}
+}
+
+func newTransport(cfg config.MCPServerConfig, stderr io.Writer, policy *security.Policy) (sdk.Transport, error) {
 	switch t := cfg.Transport(); t {
 	case config.MCPStdio:
 		cmd := exec.Command(cfg.Command, cfg.Args...)
@@ -54,9 +70,9 @@ func DefaultTransport(name string, cfg config.MCPServerConfig, stderr io.Writer)
 		cmd.Stderr = stderr
 		return &sdk.CommandTransport{Command: cmd, TerminateDuration: stdioTerminateWait}, nil
 	case config.MCPStreamableHTTP:
-		return &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers)}, nil
+		return &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers, policy)}, nil
 	case config.MCPSSE:
-		return &sdk.SSEClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers)}, nil
+		return &sdk.SSEClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers, policy)}, nil
 	default:
 		return nil, fmt.Errorf("unknown MCP transport %q", t)
 	}
@@ -78,15 +94,56 @@ func stdioEnv(extra map[string]string) []string {
 	return env
 }
 
-// httpClient returns a client that sets headers on every request. It has
-// no overall timeout: MCP streams are long-lived, and calls are bounded by
-// their contexts instead.
-func httpClient(headers map[string]string) *http.Client {
-	base := http.DefaultTransport.(*http.Transport).Clone()
-	if len(headers) == 0 {
-		return &http.Client{Transport: base}
+// maxHTTPRedirects matches net/http's default redirect limit.
+const maxHTTPRedirects = 10
+
+// httpClient returns a client that sets headers on every request and
+// enforces policy on every request and redirect. It has no overall
+// timeout: MCP streams are long-lived, and calls are bounded by their
+// contexts instead.
+func httpClient(headers map[string]string, policy *security.Policy) *http.Client {
+	if policy == nil {
+		policy = &security.Policy{}
 	}
-	return &http.Client{Transport: &headerTransport{headers: headers, base: base}}
+	proxied := http.DefaultTransport.(*http.Transport).Clone()
+	var base http.RoundTripper = &guardTransport{
+		policy:  policy,
+		proxy:   proxied.Proxy,
+		direct:  policy.NewTransport(),
+		proxied: proxied,
+	}
+	if len(headers) > 0 {
+		base = &headerTransport{headers: headers, base: base}
+	}
+	return &http.Client{Transport: base, CheckRedirect: policy.CheckRedirect(maxHTTPRedirects)}
+}
+
+// guardTransport sends a request straight to the addresses the policy
+// validated for its host (pinned dial). When an environment proxy applies,
+// like nanobot it checks the URL and lets the proxy connect, since the
+// dialled peer is then the proxy.
+type guardTransport struct {
+	policy  *security.Policy
+	proxy   func(*http.Request) (*url.URL, error)
+	direct  http.RoundTripper
+	proxied http.RoundTripper
+}
+
+func (t *guardTransport) RoundTrip(r *http.Request) (*http.Response, error) {
+	proxyURL, err := t.proxy(r)
+	if err == nil && proxyURL == nil {
+		return t.direct.RoundTrip(r)
+	}
+	if err == nil {
+		_, err = t.policy.CheckTarget(r.Context(), r.URL)
+	}
+	if err != nil {
+		if r.Body != nil {
+			r.Body.Close() // a RoundTripper must close the body, also on error
+		}
+		return nil, err
+	}
+	return t.proxied.RoundTrip(r)
 }
 
 type headerTransport struct {

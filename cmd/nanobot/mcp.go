@@ -12,6 +12,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
+	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/tools"
 )
 
@@ -25,7 +26,13 @@ const maxErrSummary = 160
 // newMCP returns a Manager for the configured MCP servers, registering
 // their tools in reg once connected.
 func (a *app) newMCP(cfg *config.Config, reg *tools.Registry, logger *slog.Logger, verbose bool, opts ...mcp.Option) *mcp.Manager {
-	opts = append([]mcp.Option{mcp.WithVersion(version)}, opts...)
+	// Load validated the whitelist; should parsing fail anyway, the
+	// default policy (no whitelist) is the stricter fallback.
+	ssrf, err := security.NewPolicy(cfg.Tools.SSRFWhitelist)
+	if err != nil {
+		ssrf = &security.Policy{}
+	}
+	opts = append([]mcp.Option{mcp.WithVersion(version), mcp.WithSSRFPolicy(ssrf)}, opts...)
 	if a.mcpTransport != nil {
 		opts = append(opts, mcp.WithTransport(a.mcpTransport))
 	}

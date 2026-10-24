@@ -111,7 +111,8 @@ type app struct {
 	exit func(code int)
 	// newProvider builds the model provider; nil uses the config.
 	newProvider func(*config.Config) (providers.Provider, error)
-	// mcpTransport connects to MCP servers; nil uses mcp.DefaultTransport.
+	// mcpTransport connects to MCP servers; nil uses mcp's default
+	// transports with the configured SSRF policy.
 	mcpTransport mcp.TransportFactory
 	// channelFactories are registered on top of the built-in channels
 	// (for tests).
