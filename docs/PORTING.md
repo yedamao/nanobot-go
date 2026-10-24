@@ -183,6 +183,24 @@ Phase 2 is complete; phase 3 is in progress.
 
 - Process sandboxes: bwrap on Linux, Seatbelt on macOS. A configured backend
   that cannot start fails closed.
+  - Done: `internal/security/sandbox` (port of
+    `nanobot/agent/tools/sandbox.py`): a `Backend` per sandbox producing
+    an argv (no shell re-parsing), `Wrap`, bind normalization
+    (`NormalizeBinds`: `~`/`$VAR`, symlinks, duplicates, dropping paths
+    equal to or containing the workspace), `Host.Check`/`Available` (OS,
+    binary, probe run); nanobot's bwrap mounts and Seatbelt profile
+    (system subpaths and literals, traversable ancestors, parent deny
+    before the workspace allow, RO-bind write/unlink protection,
+    unrestricted network, `cd <cwd> || exit 1`). Config
+    `tools.exec.sandbox`, `sandboxRoBinds`, `sandboxRwBinds`; exec wraps
+    after the shell guard; bind roots pass the guard's path check while a
+    sandbox is active; a sandbox forces `restrictToWorkspace` for the file
+    tools; a `status` row.
+  - Not ported: the media directory bind (no media yet), the
+    `NANOBOT_WORKSPACE_SANDBOX_ENFORCED` marker and the
+    `my(action="check", key="workspace_sandbox")` report, `pathPrepend`/
+    `pathAppend`, the model-only access-restriction context (the exec tool
+    description says commands are sandboxed instead).
 - Full SSRF protection: DNS pinning, CGNAT/metadata ranges, whitelist.
 - WebUI.
 
@@ -677,6 +695,36 @@ Phase 2 is complete; phase 3 is in progress.
 - **No heartbeat.** nanobot's `gateway.heartbeat` (a system job that reads
   `HEARTBEAT.md`, picks a recently active chat and posts the result after
   an evaluator pass) is not ported yet.
+
+### Exec sandbox
+
+- **Fails closed everywhere.** nanobot logs a warning on Windows and runs
+  the command unsandboxed. nanobot-go checks the backend when the exec
+  tool is built: an unknown name (already a config error), a backend for
+  another OS (bwrap off Linux, Seatbelt off macOS, either on Windows), a
+  missing binary, or a probe run that fails (e.g. bwrap without
+  unprivileged user namespaces) is an error, and `agent`, `gateway` and
+  `serve` refuse to start. A command is never run unsandboxed in its
+  place; if the sandbox cannot start a command later, the model gets a
+  tool error. To run without a sandbox, set `tools.exec.sandbox` to `""`.
+- **Host OS checked at startup, not at load.** Config validation only
+  checks the name, so a config for another machine still parses; the
+  host check happens when the exec tool is built, and `status` reports it.
+- **Bind paths must be absolute.** nanobot silently skips relative
+  entries; nanobot-go rejects them (after `~` and `$VAR` expansion) when
+  the config loads. Paths equal to or containing the workspace are
+  ignored in both, also when they only match by file identity (e.g. a
+  differently-cased path on a case-insensitive volume).
+- **Workspace placement.** bwrap refuses a workspace directly under `/`
+  (a tmpfs over `/` would hide the system mounts; nanobot would produce a
+  broken command) and both backends refuse `/` itself.
+- **bwrap is resolved once.** NewExec resolves `bwrap` through PATH and
+  then runs that absolute path; Seatbelt always uses
+  `/usr/bin/sandbox-exec` as in nanobot.
+- **`TMPDIR=/tmp` under bwrap.** nanobot leaves the host `TMPDIR`, which
+  usually does not exist inside the sandbox; nanobot-go points it at the
+  sandbox's private `/tmp`. Seatbelt sets `HOME` and `TMPDIR` to the
+  workspace, as in nanobot.
 
 ### OpenAI-compatible API
 

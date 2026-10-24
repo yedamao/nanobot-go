@@ -19,7 +19,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - Agent: model/tool loop with an iteration cap, concurrent read-only tools,
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
-  `web_fetch`.
+  `web_fetch`. `exec` can run commands in an OS sandbox (phase 4):
+  bubblewrap on Linux, Seatbelt on macOS.
 - Persistent sessions (SQLite, one database per workspace, conflict
   detection between processes), `/new`, `/compact` and `/help`.
 - History consolidation (phase 2, part 1): when a conversation outgrows
@@ -55,7 +56,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   MCP servers), `version`.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
-(`HEARTBEAT.md`), process sandboxing. See
+(`HEARTBEAT.md`), full SSRF pinning, WebUI. See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -125,7 +126,8 @@ Missing fields keep their defaults; unknown keys are an error.
   },
   "tools": {
     "restrictToWorkspace": true,
-    "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": []},
+    "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": [],
+             "sandbox": "", "sandboxRoBinds": [], "sandboxRwBinds": []},
     "web": {"enable": true, "fetchMaxBytes": 2097152},
     "mcpServers": {}
   },
@@ -696,8 +698,37 @@ behalf. Treat it like giving someone a shell.
 - The shell guard blocks well-known destructive commands (`rm -rf /`,
   `mkfs`, fork bombs, `shutdown`, ...) and requests to internal URLs. It is
   **best-effort pattern matching, not a sandbox**; a determined model can
-  get around it. Use `tools.exec.enable: false` or run nanobot-go in a
-  container or VM if that matters to you. Process sandboxing is planned.
+  get around it. Turn on the process sandbox below, set
+  `tools.exec.enable: false`, or run nanobot-go in a container or VM if
+  that matters to you.
+- `tools.exec.sandbox` runs every command in an OS sandbox after the shell
+  guard has passed it: `"seatbelt"` on macOS (`/usr/bin/sandbox-exec`,
+  built in) or `"bwrap"` on Linux (install bubblewrap, e.g.
+  `apt install bubblewrap`). Inside, the workspace is read-write, system
+  directories (`/usr`, `/bin`, certificates, ...) are read-only, and the
+  workspace's parent directory, which holds the config, keys and
+  sessions in the default layout (`~/.nanobot-go`), is hidden. `HOME`
+  points at the workspace (on macOS `TMPDIR` too; under bwrap `/tmp` is a
+  private tmpfs). Network access is not restricted. A sandbox also turns
+  on `restrictToWorkspace` for the file tools.
+
+  ```json
+  "tools": {"exec": {"sandbox": "seatbelt",
+                     "sandboxRoBinds": ["~/.local/bin", "/opt/homebrew"],
+                     "sandboxRwBinds": []}}
+  ```
+
+  Tools installed outside the system directories (Homebrew,
+  `~/.local/bin`, `~/.cargo/bin`, ...) are invisible until you list them in
+  `sandboxRoBinds`; `sandboxRwBinds` adds writable roots for trusted
+  caches. Both take absolute paths (`~` and `$VAR` are expanded); a path
+  equal to or containing the workspace is ignored, since it would uncover
+  the hidden parent. Absolute paths under these binds also pass the shell
+  guard. The sandbox **fails closed**: if the backend is unknown, built
+  for another OS, missing, or cannot start a sandboxed process (for
+  example without unprivileged user namespaces), nanobot-go refuses to
+  start instead of running commands unsandboxed. `nanobot status` shows
+  whether the configured sandbox is usable.
 - `web_fetch` refuses loopback, private, link-local and cloud-metadata
   addresses, checked at connect time so DNS rebinding and redirects are
   covered. Fetched content is marked as untrusted data for the model.
