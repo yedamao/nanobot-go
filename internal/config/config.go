@@ -22,6 +22,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/security/sandbox"
 )
 
@@ -182,6 +183,10 @@ type ToolsConfig struct {
 	RestrictToWorkspace bool           `json:"restrictToWorkspace"`
 	Exec                ExecToolConfig `json:"exec"`
 	Web                 WebToolConfig  `json:"web"`
+	// SSRFWhitelist lists CIDR ranges that web_fetch and MCP HTTP servers
+	// may reach although they are loopback, private, CGNAT or link-local
+	// (e.g. "100.64.0.0/10" for Tailscale). Prefer single hosts (/32).
+	SSRFWhitelist []string `json:"ssrfWhitelist"`
 	// MCPServers maps a server name to its connection settings. Each
 	// server's tools appear as mcp_<server>_<tool>.
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
@@ -234,8 +239,9 @@ func Default() *Config {
 			RestrictToWorkspace: true,
 			Exec: ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{},
 				SandboxRoBinds: []string{}, SandboxRwBinds: []string{}},
-			Web:        WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
-			MCPServers: map[string]MCPServerConfig{},
+			Web:           WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
+			SSRFWhitelist: []string{},
+			MCPServers:    map[string]MCPServerConfig{},
 		},
 		Channels: map[string]json.RawMessage{},
 		Gateway:  defaultGateway(),
@@ -459,6 +465,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Tools.Web.FetchMaxBytes < 0 {
 		bad("tools.web.fetchMaxBytes must not be negative, got %d", c.Tools.Web.FetchMaxBytes)
+	}
+	if _, err := security.ParseWhitelist(c.Tools.SSRFWhitelist); err != nil {
+		bad("tools.ssrfWhitelist%v", err)
 	}
 	validateMCP(c.Tools.MCPServers, bad)
 	validateChannels(c.Channels, bad)

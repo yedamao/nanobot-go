@@ -86,6 +86,29 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadSSRFWhitelist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"tools": {"ssrfWhitelist": ["100.100.1.2/32"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Tools.SSRFWhitelist, []string{"100.100.1.2/32"}) {
+		t.Errorf("ssrfWhitelist = %q", cfg.Tools.SSRFWhitelist)
+	}
+	if d := Default().Tools.SSRFWhitelist; d == nil || len(d) != 0 {
+		t.Errorf("default ssrfWhitelist = %#v", d)
+	}
+	if err := os.WriteFile(path, []byte(`{"tools": {"ssrfWhitelist": ["100.64.0.0/xx"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "tools.ssrfWhitelist[0]") {
+		t.Errorf("Load with an invalid CIDR = %v", err)
+	}
+}
+
 func TestLoadExecSandbox(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
@@ -244,6 +267,11 @@ func TestValidate(t *testing.T) {
 		{"sandbox relative ro bind", func(c *Config) { c.Tools.Exec.SandboxRoBinds = []string{"bin"} }, "sandboxRoBinds[0] must be an absolute path"},
 		{"sandbox empty rw bind", func(c *Config) { c.Tools.Exec.SandboxRwBinds = []string{"/x", ""} }, "sandboxRwBinds[1]"},
 		{"fetch bytes", func(c *Config) { c.Tools.Web.FetchMaxBytes = -1 }, "fetchMaxBytes"},
+		{"ssrf whitelist", func(c *Config) {
+			c.Tools.SSRFWhitelist = []string{"100.64.0.0/10", "192.168.1.20/32", "fd7a:115c:a1e0::/48", "10.0.0.5"}
+		}, ""},
+		{"ssrf whitelist bad cidr", func(c *Config) { c.Tools.SSRFWhitelist = []string{"10.0.0.0/8", "10.0.0.0/40"} }, "tools.ssrfWhitelist[1] invalid CIDR"},
+		{"ssrf whitelist not ip", func(c *Config) { c.Tools.SSRFWhitelist = []string{"intranet.local"} }, "tools.ssrfWhitelist[0]"},
 		{"gateway host", func(c *Config) { c.Gateway.Host = " " }, "gateway.host"},
 		{"gateway port high", func(c *Config) { c.Gateway.Port = 65536 }, "gateway.port"},
 		{"gateway port negative", func(c *Config) { c.Gateway.Port = -1 }, "gateway.port"},

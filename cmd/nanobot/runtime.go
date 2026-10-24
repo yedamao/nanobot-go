@@ -183,6 +183,10 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		return nil, err
 	}
 	cfg, ws, provider, logger := s.cfg, s.ws, s.provider, s.logger
+	ssrf, err := security.NewPolicy(cfg.Tools.SSRFWhitelist)
+	if err != nil {
+		return nil, err
+	}
 	reg := tools.NewRegistry()
 	err = builtin.RegisterAll(reg, builtin.Config{
 		Workspace: ws,
@@ -199,6 +203,7 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		Web: builtin.WebFetchConfig{
 			Disabled: !cfg.Tools.Web.Enable,
 			MaxBytes: cfg.Tools.Web.FetchMaxBytes,
+			Policy:   ssrf,
 		},
 	})
 	if err != nil {
