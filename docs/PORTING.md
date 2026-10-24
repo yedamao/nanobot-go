@@ -231,11 +231,18 @@ Phase 2 is complete; phase 3 is in progress.
     `websocket.Options.Sessions` (the gateway's `session.Store`); the
     page redraws from it and shows connection status and an empty
     state.
+  - Done: live tool progress and stop. Bus-driven turns publish a
+    progress update per tool call (`OutboundMessage.Metadata["_progress"]`,
+    `bus.IsProgress`) with a hint from `agent.ToolHint` (a small port of
+    `utils/tool_hints.py`); the channel sends it as a `progress` frame and
+    the page shows it in the thinking bubble. `Loop.Cancel` and `/stop`
+    (also the `stop` frame and a Stop button) cancel a session's turn in
+    flight.
   - Not ported: the React/Vite app and its build, settings/models/
     channels/skills/apps/automations/cron/pairing pages, topics list,
     temporary chats, conversation groups,
-    token streaming, progress/tool activity, reasoning, media and
-    uploads, file previews, `/stop` and restart control, the
+    token streaming, structured tool events, reasoning, media and
+    uploads, file previews, restart control, the
     `nanobot webui` launcher and on-demand gateway, LAN access, `token`/
     `tokenIssueSecret`/`websocketRequiresToken` auth, TLS
     (`sslCertfile`), the separate port 8765, Vite HMR.
@@ -475,11 +482,13 @@ Phase 2 is complete; phase 3 is in progress.
   attempts via `channels.sendMaxRetries`, which is not ported. A channel
   marks errors not worth retrying with `channels.Permanent` (nanobot:
   `DeliveryRejectedError`/`should_retry_send_error`).
-- **No delivery outbox, progress or streaming.** nanobot persists
+- **No delivery outbox or streaming; minimal progress.** nanobot persists
   scheduled deliveries in `delivery/outbox.sqlite3`, streams deltas,
   sends progress/tool hints/reasoning, and suppresses duplicate replies.
-  nanobot-go delivers only final replies; on a forced or timed-out stop,
-  queued replies are dropped with a warning.
+  nanobot-go delivers final replies plus one-string tool hints marked as
+  progress (`bus.IsProgress`), which are tried once and dropped quietly
+  for unknown channels; on a forced or timed-out stop, queued replies are
+  dropped with a warning.
 - **Channel config is a raw object per channel.** nanobot's `channels`
   section also has global keys (`sendProgress`, `sendToolHints`,
   `sendMaxRetries`, ...) next to the channel sections; nanobot-go only
@@ -635,8 +644,9 @@ Phase 2 is complete; phase 3 is in progress.
   transcript become placeholders (`[image]`, `[file: name]`, ...), the
   same text nanobot produces when a download fails; nothing is
   downloaded or decrypted. Outbound media are not sent (logged). Progress
-  messages, tool hints, structured progress items, block streaming and
-  run IDs are not ported, since the loop does not emit progress.
+  messages and tool hints are dropped (the typing indicator keeps
+  running); structured progress items, block streaming and run IDs are
+  not ported.
 - **Errors.** Business errors (non-zero `ret` or `errcode`) and 4xx other
   than 408/425/429 are `Permanent`; network errors, 5xx, 408/425/429 and
   invalid JSON are retried by the manager. A `getupdates` timeout polls
@@ -878,8 +888,29 @@ Phase 2 is complete; phase 3 is in progress.
 - **Own, small protocol.** nanobot's envelope (topics, `chat_id`
   attach/new, streaming deltas, progress and tool events, media, control
   commands, session lists) is not used. Frames are `hello`, `history`,
-  `chat` (or plain text), `message` and `error`; see README. Only final
-  replies are sent, as on the other channels.
+  `chat` (or plain text), `stop`, `progress`, `message` and `error`; see
+  README.
+- **Progress is one string per tool call.** nanobot's progress hook
+  sends `ProgressEvent`s (content plus `tool_hint`), tool-event payloads
+  with arguments and results, reasoning bubbles and streamed deltas, and
+  formats all calls of an iteration as one hint (`read a × 2, $ ls`).
+  nanobot-go publishes one plain hint per call as it starts (from
+  `OnToolStart`, so parallel read-only calls each send one), nothing on
+  tool end, no assistant text between tool calls, no reasoning, no
+  token deltas. The hint covers nanobot's common formats (`read`,
+  `write`, `edit`, `ls`, `$ cmd`, `fetch`, `search`, `mcp server::tool`,
+  `name("arg")`) without home-directory folding or path abbreviation
+  inside commands. Progress is a marked `OutboundMessage`
+  (`Metadata["_progress"]`), not a separate event type: channels without
+  a status display drop it, the manager never retries it or warns about
+  it, and only bus-driven turns publish it (API and cron turns, which
+  deliver their own replies, do not).
+- **Stop.** nanobot's `/stop` cancels the session's active tasks and
+  subagents and reports how many it stopped. nanobot-go cancels the one
+  turn in flight (Serve handles `/stop` before queuing it), answers it
+  "Stopped.", and lets queued messages run; with nothing in flight the
+  reply is "Nothing to stop.". Through `Loop.Process` (API) `/stop`
+  waits behind the session's turn, so it does not stop it there.
 - **Chat ids.** nanobot clients pick topics and attach to chats by id;
   nanobot-go gives each connection a random id (`crypto/rand.Text`) or
   the `?chat_id=` it asks for, and the page stores it in
@@ -894,7 +925,8 @@ Phase 2 is complete; phase 3 is in progress.
   consolidation marker), capped to the newest 200 messages and 256 KiB.
   It is read from the `session.Store`, not the `Manager`, whose cached
   `*Session` belongs to the agent loop's worker. Tool calls, progress
-  and media are not replayed.
+  and media are not replayed; a reconnect during a turn shows its
+  progress again from the next tool call.
 - **Undeliverable replies are dropped.** A reply for a chat with no open
   socket is a `channels.Permanent` error, so the manager logs it instead
   of retrying (a retrying reply would hold up every other chat's replies

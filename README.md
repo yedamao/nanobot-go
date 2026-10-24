@@ -22,7 +22,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   `web_fetch`. `exec` can run commands in an OS sandbox (phase 4):
   bubblewrap on Linux, Seatbelt on macOS.
 - Persistent sessions (SQLite, one database per workspace, conflict
-  detection between processes), `/new`, `/compact` and `/help`.
+  detection between processes), `/new`, `/compact` and `/help`; in chat
+  channels `/stop` stops the reply in progress.
 - History consolidation (phase 2, part 1): when a conversation outgrows
   `maxHistoryMessages` or the context window, its oldest turns are
   summarized into `memory/history.jsonl` instead of being dropped.
@@ -58,7 +59,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
   gateway serves a plain browser chat page and a WebSocket on its own
   loopback address; each chat runs a full agent turn, and a reload shows
-  the chat's earlier messages again.
+  the chat's earlier messages again. The page shows the tool being run
+  while a turn is in progress and can stop it.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
@@ -475,7 +477,9 @@ apply.
 - **Sessions.** Each chat is a session `telegram:<chat id>`; a forum topic
   is its own session `telegram:<chat id>:topic:<thread id>`, and replies
   go back to the topic. `/new`, `/compact` and `/help` work as in the CLI
-  (`/new@your_bot` too); `/start` answers with a greeting.
+  (`/new@your_bot` too); `/start` answers with a greeting; `/stop` stops
+  the reply in progress (answered "Stopped."; the stopped turn is not
+  saved).
 - **Messages.** Text messages and captions are handled; a reply quotes
   the message it answers (`[Reply to bot: ...]`). Photos, voice and other
   media without a caption are ignored. Replies are sent as **plain
@@ -612,6 +616,18 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **Status.** The header shows Connecting… / Connected / Disconnected
   (with the retry delay); sending is enabled once the history has
   arrived.
+- **Progress.** While a reply is due the page shows a muted "nanobot is
+  thinking…" bubble. As each tool call starts the server sends a
+  `progress` frame with a short hint (`read …/notes/todo.md`,
+  `$ go test ./...`, `fetch https://…`, `github::list_issues("a/b")`) and
+  the bubble shows it; the reply, a disconnect or a reconnect's history
+  clears it. Progress is never stored, so it is not in the history.
+  Other chat channels (Telegram, WeChat) ignore progress; their "typing…"
+  indicator keeps running instead.
+- **Stop.** While a reply is due a **Stop** button sends a `stop` frame
+  (typing `/stop` does the same): the turn in flight is canceled and
+  answered "Stopped.", and it is not saved to the session. Messages sent
+  after it still run.
 - **Loopback only.** There is no browser login yet, so the gateway
   refuses to start with the channel enabled unless `gateway.host` (or
   `--host`) is a loopback address. The channel also refuses requests
@@ -635,6 +651,8 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 | server → client, on connect | `{"type":"hello","chat_id":"..."}` |
 | server → client, right after `hello` | `{"type":"history","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}` (`[]` for a new chat) |
 | client → server | `{"type":"chat","content":"..."}`, or plain text |
+| client → server | `{"type":"stop"}` (same as sending `/stop`) |
+| server → client, while a turn runs | `{"type":"progress","content":"..."}` (transient status; the next `message` supersedes it) |
 | server → client | `{"type":"message","role":"assistant","content":"..."}` |
 | server → client | `{"type":"error","content":"..."}` (bad frame) |
 
