@@ -595,14 +595,26 @@ bin/nanobot gateway
 Open `http://127.0.0.1:18790/` (it redirects to `/ui/`), type a message
 and press Enter. Each reply is a full agent turn, tools included.
 
-- **One address.** The page (`GET /`, `GET /ui/`) and the WebSocket
-  (`GET /ws`) are mounted on the gateway's HTTP server next to
+- **One address.** The page (`GET /`, `GET /ui/`), the chat list
+  (`GET /ui/chats`) and the WebSocket (`GET /ws`) are mounted on the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
   keeps its chat id in the browser's `localStorage` and reconnects with
   it, so a reload continues the same session; **New chat** starts a new
   id (and an empty page). Two tabs on the same id both get the replies.
+- **Chat list.** A sidebar (a **Chats** overlay on narrow screens) lists
+  the stored WebUI chats, newest first: the first user message as the
+  title, the last message as a preview, and when it was last updated.
+  The current chat is highlighted; one with nothing stored yet shows as
+  "New chat" on top until its first turn is saved. Clicking a chat
+  reconnects with its id, so its history loads as on a reload. The list
+  is `GET /ui/chats` (loopback only, like `/ws`), refetched after each
+  `history` and `message` frame and when the tab becomes visible:
+  `{"chats":[{"chat_id":"...","updated_at":"2026-10-25T12:00:00Z","title":"...","preview":"..."}]}`.
+  It holds only `websocket:*` sessions, at most 50, with titles cut to
+  60 and previews to 80 characters. Chats cannot be renamed, deleted or
+  searched yet.
 - **History on reload.** On every connect, after `hello`, the server
   sends a `history` frame with the chat's stored transcript and the page
   redraws from it, so a reload or reconnect shows the earlier messages

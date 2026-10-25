@@ -238,8 +238,15 @@ Phase 2 is complete; phase 3 is in progress.
     the page shows it in the thinking bubble. `Loop.Cancel` and `/stop`
     (also the `stop` frame and a Stop button) cancel a session's turn in
     flight.
+  - Done: a chat list. `GET /ui/chats` (the channel's, loopback-gated)
+    lists the stored `websocket:*` sessions, newest 50, each with
+    `chat_id`, `updated_at`, a title (first user message) and a preview
+    (last text); the page shows them in a sidebar, highlights the
+    current chat and switches by reconnecting with `?chat_id=`.
   - Not ported: the React/Vite app and its build, settings/models/
     channels/skills/apps/automations/cron/pairing pages, topics list,
+    chat rename/delete/archive, pins, search and generated titles,
+    listing other channels' sessions,
     temporary chats, conversation groups,
     token streaming, structured tool events, reasoning, media and
     uploads, file previews, restart control, the
@@ -915,6 +922,14 @@ Phase 2 is complete; phase 3 is in progress.
   nanobot-go gives each connection a random id (`crypto/rand.Text`) or
   the `?chat_id=` it asks for, and the page stores it in
   `localStorage`.
+- **Chat list over HTTP, not the socket.** nanobot's WebUI reads
+  `GET /api/sessions` (every channel's sessions, with previews) and
+  lists them in its ChatList. nanobot-go's channel serves
+  `GET /ui/chats` next to the page instead of adding a WebSocket frame
+  pair: it needs no open socket, and no other channel sees a new frame
+  type. It lists only `websocket:*` sessions (at most 50), loads each
+  for its title and preview rather than storing them, and leaves out
+  chats with no user or assistant text yet.
 - **History is pushed, not fetched.** nanobot's WebUI reads a chat's
   messages from the saved session. nanobot-go pushes them as one
   `history` frame after every `hello` and the page replaces its list, so
