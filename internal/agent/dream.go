@@ -19,7 +19,7 @@ const DreamChannel = "dream"
 func DreamRun(r *Runner, cb *ContextBuilder, spec RunSpec) memory.DreamRunFunc {
 	return func(ctx context.Context, prompt string, reg *tools.Registry) (memory.DreamOutcome, error) {
 		spec := spec
-		spec.Messages = cb.BuildMessages("", nil, prompt, DreamChannel)
+		spec.Messages = cb.BuildMessages("", nil, prompt, nil, DreamChannel)
 		spec.Tools = reg
 		res, err := r.Run(ctx, spec)
 		if res == nil {

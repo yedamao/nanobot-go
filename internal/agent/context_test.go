@@ -117,7 +117,7 @@ func TestSystemPromptTruncatesHugeBootstrapFile(t *testing.T) {
 func TestBuildMessages(t *testing.T) {
 	b := NewContextBuilder(t.TempDir())
 	history := []providers.Message{{Role: providers.RoleUser, Content: "old"}, {Role: providers.RoleAssistant, Content: "reply"}}
-	msgs := b.BuildMessages("", history, "new", "cli")
+	msgs := b.BuildMessages("", history, "new", nil, "cli")
 	roles := make([]providers.Role, len(msgs))
 	for i, m := range msgs {
 		roles[i] = m.Role
@@ -135,7 +135,7 @@ func TestBuildMessagesWithSummary(t *testing.T) {
 	b := NewContextBuilder(t.TempDir())
 	fixed := time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
 	b.now = func() time.Time { return fixed } // the prompt is compared twice
-	msgs := b.BuildMessages("  - [ephemeral] fixing the build\n", nil, "new", "cli")
+	msgs := b.BuildMessages("  - [ephemeral] fixing the build\n", nil, "new", nil, "cli")
 	sys := msgs[0].Content
 	if !strings.HasPrefix(sys, b.SystemPrompt("cli")) {
 		t.Error("summary does not come after the stable system prompt")

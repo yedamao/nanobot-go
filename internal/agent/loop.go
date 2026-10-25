@@ -380,9 +380,12 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks)
 
 	l.consolidate(ctx, sess, msg)
 	ctx = tools.WithTurn(ctx, tools.Turn{Channel: msg.Channel, ChatID: msg.ChatID, SessionKey: key, Metadata: msg.Metadata})
-	messages := l.cfg.Context.BuildMessages(sess.Summary, sess.History(l.cfg.MaxHistoryMessages), msg.Content, msg.Channel)
+	// Attached images go to the model as image parts; other files are
+	// named in the text for the model to read with its tools.
+	content, images := providers.SplitMedia(msg.Content, msg.Media)
+	messages := l.cfg.Context.BuildMessages(sess.Summary, sess.History(l.cfg.MaxHistoryMessages), content, images, msg.Channel)
 	res, err := l.runner.Run(ctx, RunSpec{
-		Messages:      messages,
+		Messages:      l.cfg.Context.ExpandMedia(messages),
 		Tools:         l.cfg.Tools,
 		Model:         l.cfg.Model,
 		MaxIterations: l.cfg.MaxIterations,

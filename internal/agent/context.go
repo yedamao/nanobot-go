@@ -121,11 +121,12 @@ func (b *ContextBuilder) SystemPrompt(channel string) string {
 }
 
 // BuildMessages returns the system prompt, the replayed history and the new
-// user message. A non-empty summary (the session's consolidation
+// user message, which carries the attached image paths in media (see
+// providers.SplitMedia). A non-empty summary (the session's consolidation
 // checkpoint) is appended to the system prompt, like nanobot's
 // [Archived Context Summary]; it comes last so the stable prefix of the
 // prompt stays cacheable.
-func (b *ContextBuilder) BuildMessages(summary string, history []providers.Message, content, channel string) []providers.Message {
+func (b *ContextBuilder) BuildMessages(summary string, history []providers.Message, content string, media []string, channel string) []providers.Message {
 	system := b.SystemPrompt(channel)
 	if summary = strings.TrimSpace(summary); summary != "" {
 		system += promptSeparator + summaryHeader + summary
@@ -133,7 +134,14 @@ func (b *ContextBuilder) BuildMessages(summary string, history []providers.Messa
 	msgs := make([]providers.Message, 0, len(history)+2)
 	msgs = append(msgs, providers.Message{Role: providers.RoleSystem, Content: system})
 	msgs = append(msgs, history...)
-	return append(msgs, providers.Message{Role: providers.RoleUser, Content: content})
+	return append(msgs, providers.Message{Role: providers.RoleUser, Content: content, Media: media})
+}
+
+// ExpandMedia returns msgs with the images of user messages read for the
+// model (see providers.ExpandMedia); relative paths resolve against the
+// workspace.
+func (b *ContextBuilder) ExpandMedia(msgs []providers.Message) []providers.Message {
+	return providers.ExpandMedia(msgs, b.workspace)
 }
 
 func (b *ContextBuilder) identity(channel string) string {

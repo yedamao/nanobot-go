@@ -304,6 +304,9 @@ func formatMessage(m providers.Message) string {
 	if c := strings.TrimSpace(m.Content); c != "" {
 		b.WriteString(" " + tools.Truncate(c, maxMessageChars))
 	}
+	for _, p := range m.Media {
+		b.WriteString("\n[image: " + p + "]")
+	}
 	for _, call := range m.ToolCalls {
 		b.WriteString("\n[tool call] " + call.Name + " " + tools.Truncate(string(call.Arguments), maxMessageChars/4))
 	}
