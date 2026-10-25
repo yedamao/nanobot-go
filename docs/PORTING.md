@@ -259,6 +259,18 @@ Phase 2 is complete; phase 3 is in progress.
     provider name, workspace base name, configured channels (enabled,
     running), and API/exec/web_fetch flags; the gateway fills it from
     its config and `Manager.Running()`. The page shows it in a dialog.
+  - Done: a safe settings whitelist. `GET`/`PATCH /ui/settings`
+    (loopback-gated, PATCH same-origin only, mounted only when
+    `websocket.Options.Settings` is set) read and save `model`,
+    `provider`, `tools.exec`, `tools.web_fetch`, `tools.exec_sandbox`
+    and `channels.<name>.enabled` (configured telegram/weixin/websocket
+    sections only). The channel checks the body against an exact key
+    schema and refuses secret-looking key names at any depth; the
+    gateway's `webSettings` loads the config file afresh, mutates only
+    those fields in place (a channel's `RawMessage` keeps its other
+    keys), validates and saves it. Changes apply on restart: the view
+    lists `restart_required` (saved differs from running) and
+    `env_overrides`. The Status dialog has a form for them.
   - Done: token streaming. `ChatRequest.OnDelta` makes the
     OpenAI-compatible provider (and so DeepSeek) send `"stream": true`
     and parse the SSE chunks; `RunSpec.Stream` passes each delta to
@@ -268,9 +280,10 @@ Phase 2 is complete; phase 3 is in progress.
     `delta` frame; the page appends it to a live assistant bubble, which
     the final `message` frame replaces. Deltas are never saved.
   - Not ported: the React/Vite app and its build, settings/models/
-    channels/skills/apps/automations/cron/pairing pages (settings
-    writes, model picker, provider key forms, MCP servers and OAuth,
-    restart button), topics list,
+    channels/skills/apps/automations/cron/pairing pages (settings beyond
+    the whitelist, the full model catalog and picker, provider key
+    forms, channel tokens and allow lists, SSRF whitelist, MCP servers
+    and OAuth, a restart button, hot-applying saved settings), topics list,
     chat archive, pins, search, bulk delete, generated titles,
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
@@ -998,10 +1011,11 @@ Phase 2 is complete; phase 3 is in progress.
   overwrites the title or recreates the chat), so the page refuses both
   while its current chat's reply is running; another tab's running turn
   is not detected.
-- **Status, not settings.** nanobot's WebUI settings read and write the
-  config (models, providers and their keys, channels, MCP, OAuth) and
-  can restart the gateway. nanobot-go serves only a read-only overview
-  at `GET /ui/status`, with the intent of `nanobot status`: names and
+- **Status and a settings whitelist.** nanobot's WebUI settings read
+  and write the whole config (models, providers and their keys,
+  channels, MCP, OAuth) and can restart the gateway. nanobot-go serves a
+  read-only overview at `GET /ui/status`, with the intent of
+  `nanobot status`: names and
   flags, never key material, tokens, allow lists, environment values or
   absolute paths (the workspace is its base name). The handler lives on
   the websocket channel next to `/ui/chats`, so it shares the loopback
@@ -1009,6 +1023,19 @@ Phase 2 is complete; phase 3 is in progress.
   small `Status` DTO callback from the gateway rather than importing
   the config package. The config part is a snapshot taken at startup;
   uptime and running channels are read per request.
+  `/ui/settings` edits only six kinds of field and never sees a secret:
+  the channel decodes the body against an exact key schema (no
+  case-insensitive matching, no nulls, secret-looking names refused at
+  any depth) into a `SettingsPatch` DTO, and the gateway applies it to a
+  config freshly loaded from disk, never to the running config, which
+  has the environment's keys applied. Channel sections stay
+  `json.RawMessage` and only their `enabled` key is replaced, so tokens
+  and allow lists survive. Nothing is hot-applied: tools, provider and
+  channels are built once at startup, so a saved change waits for a
+  restart, and the page never restarts the gateway. Enabling a channel
+  whose section is not in the file is refused, since it would lack its
+  token, and so is another OS's sandbox, either of which would stop the
+  gateway from starting.
 - **History is pushed, not fetched.** nanobot's WebUI reads a chat's
   messages from the saved session. nanobot-go pushes them as one
   `history` frame after every `hello` and the page replaces its list, so

@@ -62,11 +62,14 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   the chat's earlier messages again. The page lists, renames and deletes
   its chats, streams the reply as it is written (OpenAI-compatible
   providers such as DeepSeek), shows the tool being run while a turn is
-  in progress and can stop it, and has a read-only status panel
-  (version, model, provider, channels).
+  in progress and can stop it, and has a status panel (version, model,
+  provider, channels) that can also save a small whitelist of settings
+  (model, provider, tool switches, exec sandbox, channel on/off) for the
+  next gateway start.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
-(`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
+(`HEARTBEAT.md`), the full WebUI (provider keys, MCP, apps, automations,
+...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -600,7 +603,8 @@ and press Enter. Each reply is a full agent turn, tools included.
 
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
   (`GET /ui/chats`, with `PATCH`/`DELETE /ui/chats/{chat_id}`), the
-  status (`GET /ui/status`) and the WebSocket (`GET /ws`) are mounted on
+  status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`)
+  and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
@@ -651,16 +655,49 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **Status.** The header shows Connecting… / Connected / Disconnected
   (with the retry delay); sending is enabled once the history has
   arrived.
-- **Status panel.** The header's **Status** button opens a read-only
-  overview of the gateway, fetched from `GET /ui/status` (loopback only)
+- **Status panel.** The header's **Status** button opens an overview of
+  what the gateway is running with, fetched from `GET /ui/status` (loopback only)
   when it opens and on **Refresh**:
   `{"version":"0.1.0-dev","go":"go1.26.0","started_at":"2026-10-25T09:00:00Z","uptime_seconds":3600,"model":"claude-opus-4-5","provider":"anthropic","workspace":"workspace","channels":[{"name":"websocket","enabled":true,"running":true}],"api_enabled":false,"tools":{"exec":true,"web_fetch":true}}`.
   `provider` is the resolved preset's name, `workspace` the directory's
   base name, and `channels` every configured channel with its `enabled`
   flag and whether it is running. Like `nanobot status` it never holds
   API keys, tokens, `allowFrom` lists, environment values or full paths.
-  Nothing can be changed from the page: edit `config.json` and restart
-  the gateway.
+  It is a snapshot of the config the gateway started with, so it does
+  not change when settings are saved.
+- **Settings.** Below the status, the same dialog edits a small
+  whitelist of settings in `config.json`. **Save changes nothing in the
+  running gateway: restart it to apply them.** The page says which saved
+  settings differ from the running ones.
+
+  | Setting | Config field | Values |
+  | --- | --- | --- |
+  | `model` | `agents.defaults.model` | non-empty, no spaces, at most 200 bytes |
+  | `provider` | `agents.defaults.provider` | `auto` (or empty) or a preset name |
+  | `tools.exec` | `tools.exec.enable` | true / false |
+  | `tools.web_fetch` | `tools.web.enable` | true / false |
+  | `tools.exec_sandbox` | `tools.exec.sandbox` | `""` (none) or this OS's backend (`seatbelt` on macOS, `bwrap` on Linux) |
+  | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
+
+  `GET /ui/settings` reads the file and answers
+  `{"settings":{"model":"...","provider":"auto","tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
+  `PATCH /ui/settings` (loopback only, same-origin only) takes the
+  changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
+  and answers the new view; `restart_required` lists the saved settings
+  that differ from the running gateway's, `env_overrides` the ones
+  `NANOBOT_GO_MODEL`/`NANOBOT_GO_PROVIDER` override (the environment
+  still wins after a restart). Unknown keys, wrongly cased keys, nulls,
+  bad values and any key that looks secret (`apiKey`, `token`,
+  `allowFrom`, `headers`, `env`, `secret`, `password`, ...) at any depth
+  are 400; a config file that cannot be read or written is 500. Each
+  save loads `config.json` afresh, changes only those fields (a
+  channel's other keys, such as its token, are kept) and writes it back
+  atomically with mode 0600, so keys, tokens and every other setting
+  survive; values from the environment are never written. The file is
+  rewritten in full, with defaults filled in, as `nanobot onboard` does.
+  Keys, tokens, allow lists, MCP servers and the rest stay in
+  `config.json`. Disabling the `websocket` channel asks first: the page
+  is gone after the restart.
 - **Progress.** While a reply is due the page shows a muted "nanobot is
   thinking…" bubble. As each tool call starts the server sends a
   `progress` frame with a short hint (`read …/notes/todo.md`,
