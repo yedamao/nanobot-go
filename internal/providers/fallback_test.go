@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -14,6 +15,8 @@ type fakeProvider struct {
 	name   string
 	errs   []error
 	models []string
+	// deltas are streamed to a request's OnDelta before it is answered.
+	deltas []string
 }
 
 func (f *fakeProvider) Name() string { return f.name }
@@ -21,6 +24,11 @@ func (f *fakeProvider) Name() string { return f.name }
 func (f *fakeProvider) Chat(_ context.Context, req ChatRequest) (*ChatResponse, error) {
 	n := len(f.models)
 	f.models = append(f.models, req.Model)
+	if req.OnDelta != nil {
+		for _, d := range f.deltas {
+			req.OnDelta(d)
+		}
+	}
 	var err error
 	if len(f.errs) > 0 {
 		err = f.errs[min(n, len(f.errs)-1)]
@@ -102,6 +110,36 @@ func TestFallbackOrderAndExhaustion(t *testing.T) {
 	_, err = p.Chat(context.Background(), ChatRequest{})
 	if !errors.As(err, &e) || e.Kind != KindConnection {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestFallbackStreaming(t *testing.T) {
+	var got []string
+	onDelta := func(d string) { got = append(got, d) }
+
+	// Failing before any delta fails over, and the fallback streams.
+	primary := &fakeProvider{name: "primary", errs: []error{apiErr(KindServerError)}}
+	fb := &fakeProvider{name: "fb", deltas: []string{"from ", "fb"}}
+	p := NewFallback(primary, []Fallback{{Provider: fb}})
+	resp, err := p.Chat(context.Background(), ChatRequest{OnDelta: onDelta})
+	if err != nil || resp.Content != "fb" || !slices.Equal(got, []string{"from ", "fb"}) {
+		t.Fatalf("resp = %+v, err = %v, deltas = %q", resp, err, got)
+	}
+
+	// Failing after a delta does not: the fallback's reply would be
+	// appended to the partial one.
+	got = nil
+	primary.deltas = []string{"part"}
+	fb.models = nil
+	_, err = p.Chat(context.Background(), ChatRequest{OnDelta: onDelta})
+	var e *APIError
+	if !errors.As(err, &e) || e.Kind != KindServerError || len(fb.models) != 0 || !slices.Equal(got, []string{"part"}) {
+		t.Fatalf("err = %v, fallback calls = %d, deltas = %q", err, len(fb.models), got)
+	}
+
+	// Without OnDelta nothing is streamed and failover is unchanged.
+	if resp, err := p.Chat(context.Background(), ChatRequest{}); err != nil || resp.Content != "fb" {
+		t.Fatalf("resp = %+v, err = %v", resp, err)
 	}
 }
 

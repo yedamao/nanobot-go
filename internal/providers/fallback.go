@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -91,7 +92,18 @@ func ShouldFailover(err error) bool {
 }
 
 // Chat implements Provider.
+//
+// A streamed request (ChatRequest.OnDelta) fails over only while no delta
+// has been passed on: once a provider has streamed part of a reply, another
+// provider's reply would be appended to it, so its failure is returned.
 func (f *FallbackProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+	var streamed atomic.Bool
+	if onDelta := req.OnDelta; onDelta != nil {
+		req.OnDelta = func(d string) {
+			streamed.Store(true)
+			onDelta(d)
+		}
+	}
 	var lastErr error
 	if f.primaryAvailable() {
 		resp, err := f.primary.Chat(ctx, req)
@@ -103,6 +115,9 @@ func (f *FallbackProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResp
 			return nil, err
 		}
 		f.recordFailure()
+		if streamed.Load() {
+			return nil, err
+		}
 		lastErr = err
 	}
 
@@ -119,7 +134,7 @@ func (f *FallbackProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResp
 			return resp, nil
 		}
 		lastErr = err
-		if ctx.Err() != nil || !ShouldFailover(err) {
+		if ctx.Err() != nil || !ShouldFailover(err) || streamed.Load() {
 			return nil, err
 		}
 	}

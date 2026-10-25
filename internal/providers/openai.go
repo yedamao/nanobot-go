@@ -47,9 +47,15 @@ func NewOpenAI(cfg OpenAIConfig) *OpenAI {
 // Name implements Provider.
 func (o *OpenAI) Name() string { return o.cfg.Name }
 
-// Chat implements Provider.
+// Chat implements Provider. With req.OnDelta set the response is streamed
+// as server-sent events (see chatStream).
 func (o *OpenAI) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	body, err := json.Marshal(o.buildRequest(req))
+	wire := o.buildRequest(req)
+	if req.OnDelta != nil {
+		wire.Stream = true
+		wire.StreamOptions = &openAIStreamOptions{IncludeUsage: true}
+	}
+	body, err := json.Marshal(wire)
 	if err != nil {
 		return nil, fmt.Errorf("%s: encode request: %w", o.cfg.Name, err)
 	}
@@ -57,7 +63,11 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, erro
 	if o.cfg.APIKey != "" {
 		h.Set("Authorization", "Bearer "+o.cfg.APIKey)
 	}
-	out, err := o.ep.post(ctx, o.cfg.BaseURL+"/chat/completions", h, body)
+	url := o.cfg.BaseURL + "/chat/completions"
+	if req.OnDelta != nil {
+		return o.chatStream(ctx, url, h, body, req.OnDelta)
+	}
+	out, err := o.ep.post(ctx, url, h, body)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +90,13 @@ type openAIRequest struct {
 	ToolChoice  string          `json:"tool_choice,omitempty"`
 	MaxTokens   int             `json:"max_tokens,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
+	Stream      bool            `json:"stream,omitempty"`
+	// StreamOptions asks for a last chunk carrying the usage.
+	StreamOptions *openAIStreamOptions `json:"stream_options,omitempty"`
+}
+
+type openAIStreamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
 }
 
 type openAIMessage struct {
@@ -186,19 +203,23 @@ func (r *openAIResponse) toChatResponse() *ChatResponse {
 	for _, tc := range c.Message.ToolCalls {
 		out.ToolCalls = append(out.ToolCalls, ToolCall{ID: tc.ID, Name: tc.Function.Name, Arguments: rawArguments(tc.Function.Arguments)})
 	}
-	switch c.FinishReason {
-	case "length":
-		out.FinishReason = FinishLength
-	case "tool_calls", "function_call":
-		out.FinishReason = FinishToolCalls
-	default:
-		out.FinishReason = FinishStop
-		// Some compatible servers report "stop" alongside tool calls.
-		if len(out.ToolCalls) > 0 {
-			out.FinishReason = FinishToolCalls
-		}
-	}
+	out.FinishReason = openAIFinishReason(c.FinishReason, len(out.ToolCalls) > 0)
 	return out
+}
+
+// openAIFinishReason normalizes a wire finish_reason.
+func openAIFinishReason(reason string, hasToolCalls bool) string {
+	switch reason {
+	case "length":
+		return FinishLength
+	case "tool_calls", "function_call":
+		return FinishToolCalls
+	}
+	// Some compatible servers report "stop" alongside tool calls.
+	if hasToolCalls {
+		return FinishToolCalls
+	}
+	return FinishStop
 }
 
 func openAIErrorMessage(body []byte) string {

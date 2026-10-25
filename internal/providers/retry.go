@@ -25,8 +25,8 @@ const DefaultMaxRetryAfter = 60 * time.Second
 const maxResponseBytes = 32 << 20
 
 // DefaultRequestTimeout bounds one provider HTTP request when no client is
-// configured, like the official SDKs' 10-minute default. Responses are not
-// streamed, so it must cover a whole long generation.
+// configured, like the official SDKs' 10-minute default. It also bounds
+// reading the body, streamed or not, so it must cover a long generation.
 const DefaultRequestTimeout = 10 * time.Minute
 
 // clientOrDefault returns c, or a client with DefaultRequestTimeout. Never
@@ -85,48 +85,75 @@ type httpEndpoint struct {
 // post sends body to url and returns the response body of a 2xx reply.
 // Retryable failures are retried per the policy; the last error is returned.
 func (e *httpEndpoint) post(ctx context.Context, url string, header http.Header, body []byte) ([]byte, error) {
+	var out []byte
+	err := e.send(ctx, url, header, body, true, func(r io.Reader) error {
+		var err error
+		if out, err = io.ReadAll(io.LimitReader(r, maxResponseBytes)); err != nil {
+			return transportError(e.provider, err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// stream sends body to url and hands the body of a 2xx reply to read as it
+// arrives. Failures before the reply are retried per the policy; a failure
+// while reading is not, since read may already have passed part of the
+// stream on.
+func (e *httpEndpoint) stream(ctx context.Context, url string, header http.Header, body []byte, read func(io.Reader) error) error {
+	return e.send(ctx, url, header, body, false, read)
+}
+
+// send posts body until read has consumed a 2xx reply or the retry policy
+// gives up. Errors from read are retried only when retryRead is set.
+func (e *httpEndpoint) send(ctx context.Context, url string, header http.Header, body []byte, retryRead bool, read func(io.Reader) error) error {
 	delays := e.retry.delays()
 	for attempt := 0; ; attempt++ {
-		out, retryAfter, err := e.once(ctx, url, header, body)
+		retryAfter, reading, err := e.once(ctx, url, header, body, read)
 		if err == nil {
-			return out, nil
+			return nil
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("%s: %w", e.provider, ctx.Err())
+			return fmt.Errorf("%s: %w", e.provider, ctx.Err())
 		}
 		var apiErr *APIError
-		if !errors.As(err, &apiErr) || !apiErr.Retryable() || attempt >= len(delays) {
-			return nil, err
+		if (reading && !retryRead) || !errors.As(err, &apiErr) || !apiErr.Retryable() || attempt >= len(delays) {
+			return err
 		}
 		wait := delays[attempt]
 		if retryAfter > 0 {
 			wait = min(retryAfter, cmp.Or(e.retry.MaxRetryAfter, DefaultMaxRetryAfter))
 		}
 		if err := e.retry.sleep(ctx, wait); err != nil {
-			return nil, fmt.Errorf("%s: %w", e.provider, err)
+			return fmt.Errorf("%s: %w", e.provider, err)
 		}
 	}
 }
 
-func (e *httpEndpoint) once(ctx context.Context, url string, header http.Header, body []byte) ([]byte, time.Duration, error) {
+// once makes one request and passes the body of a 2xx reply to read.
+// reading reports whether it did, so that err came from read.
+func (e *httpEndpoint) once(ctx context.Context, url string, header http.Header, body []byte, read func(io.Reader) error) (retryAfter time.Duration, reading bool, err error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return nil, 0, fmt.Errorf("%s: build request: %w", e.provider, err)
+		return 0, false, fmt.Errorf("%s: build request: %w", e.provider, err)
 	}
 	req.Header = header.Clone()
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := e.client.Do(req)
 	if err != nil {
-		return nil, 0, transportError(e.provider, err)
+		return 0, false, transportError(e.provider, err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return 0, true, read(resp.Body)
+	}
 	out, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
 	if err != nil {
-		return nil, 0, transportError(e.provider, err)
-	}
-	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		return out, 0, nil
+		return 0, false, transportError(e.provider, err)
 	}
 	msg := e.errorMessage(out)
 	if msg == "" {
@@ -139,7 +166,7 @@ func (e *httpEndpoint) once(ctx context.Context, url string, header http.Header,
 		msg = http.StatusText(resp.StatusCode)
 	}
 	apiErr := &APIError{Provider: e.provider, StatusCode: resp.StatusCode, Kind: kindForStatus(resp.StatusCode), Message: msg}
-	return nil, parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()), apiErr
+	return parseRetryAfter(resp.Header.Get("Retry-After"), time.Now()), false, apiErr
 }
 
 // parseRetryAfter parses a Retry-After header in seconds or HTTP-date form.

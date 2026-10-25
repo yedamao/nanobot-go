@@ -88,6 +88,12 @@ type ChatRequest struct {
 	MaxTokens int
 	// Temperature is omitted from the request when nil.
 	Temperature *float64
+	// OnDelta, when set, asks for a streamed response: it is called with
+	// each piece of assistant text as it arrives, in order and on the
+	// goroutine that called Chat, before Chat returns the assembled
+	// response. Providers that cannot stream (Anthropic, for now) ignore
+	// it and never call it.
+	OnDelta func(delta string)
 }
 
 // ChatResponse is a provider-neutral chat response.

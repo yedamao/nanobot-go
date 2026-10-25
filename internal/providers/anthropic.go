@@ -55,7 +55,8 @@ func NewAnthropic(cfg AnthropicConfig) *Anthropic {
 // Name implements Provider.
 func (a *Anthropic) Name() string { return "anthropic" }
 
-// Chat implements Provider.
+// Chat implements Provider. It does not stream yet: req.OnDelta is ignored
+// and the whole reply arrives with the response.
 func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	body, err := json.Marshal(a.buildRequest(req))
 	if err != nil {
