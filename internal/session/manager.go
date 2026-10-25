@@ -42,6 +42,13 @@ func (m *Manager) GetOrCreate(key string) (*Session, error) {
 	return s, nil
 }
 
+// Load returns a fresh copy of the session stored under key, bypassing
+// the cache, or an error wrapping ErrNotFound. Unlike GetOrCreate's
+// cached *Session, which belongs to the agent loop's worker for key, the
+// copy is the caller's own: it suits readers (history, chat lists) and
+// edits saved back with Save, which then replaces the cached session.
+func (m *Manager) Load(key string) (*Session, error) { return m.store.Load(key) }
+
 // Save persists s and caches it. When the store reports a conflict, s is
 // stale and dropped from the cache, so the next GetOrCreate loads the
 // stored session instead of failing on every later save.

@@ -460,3 +460,36 @@ func TestManagerDropsStaleSessionOnConflict(t *testing.T) {
 		t.Error("stale session still cached after a conflict")
 	}
 }
+
+func TestManagerLoadBypassesCache(t *testing.T) {
+	m := NewManager(NewJSONLStore(t.TempDir()))
+	if _, err := m.Load("k"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("Load of a missing key = %v, want ErrNotFound", err)
+	}
+	cached, err := m.GetOrCreate("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached.Append(user("hi"))
+	if err := m.Save(cached); err != nil {
+		t.Fatal(err)
+	}
+
+	// Load hands out a copy of its own, not the worker's cached session.
+	fresh, err := m.Load("k")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fresh == cached || !reflect.DeepEqual(fresh.Messages, cached.Messages) {
+		t.Fatalf("Load = %p %+v, want a fresh copy of %p", fresh, fresh.Messages, cached)
+	}
+	// An edit saved back replaces the cached session, so the next turn
+	// sees it.
+	fresh.Metadata["title"] = "Renamed"
+	if err := m.Save(fresh); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := m.GetOrCreate("k"); got != fresh || got.Metadata["title"] != "Renamed" {
+		t.Errorf("GetOrCreate after Save = %+v, want the edited copy", got)
+	}
+}
