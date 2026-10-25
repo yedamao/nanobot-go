@@ -122,6 +122,7 @@ type recordingHooks struct {
 	started    []string
 	ended      []string
 	content    []string
+	deltas     []string
 }
 
 func (h *recordingHooks) BeforeIteration(_ context.Context, i int, _ []providers.Message) {
@@ -146,6 +147,29 @@ func (h *recordingHooks) OnContent(_ context.Context, s string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.content = append(h.content, s)
+}
+
+func (h *recordingHooks) OnDelta(_ context.Context, s string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.deltas = append(h.deltas, s)
+}
+
+// streamed streams deltas to a request's OnDelta, then answers with their
+// text and calls.
+func streamed(deltas []string, calls ...providers.ToolCall) step {
+	return func(_ context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
+		if req.OnDelta != nil {
+			for _, d := range deltas {
+				req.OnDelta(d)
+			}
+		}
+		finish := providers.FinishStop
+		if len(calls) > 0 {
+			finish = providers.FinishToolCalls
+		}
+		return &providers.ChatResponse{Content: strings.Join(deltas, ""), ToolCalls: calls, FinishReason: finish}, nil
+	}
 }
 
 func userMsg(s string) []providers.Message {
@@ -223,6 +247,43 @@ func TestRunSimpleAnswer(t *testing.T) {
 	}
 	if !slices.Equal(hooks.content, []string{"Hello!"}) || !slices.Equal(hooks.iterations, []int{0}) {
 		t.Errorf("hooks = %+v", hooks)
+	}
+}
+
+func TestRunStreamsDeltas(t *testing.T) {
+	reg := registry(t, &fakeTool{name: "echo"})
+	p := &scripted{steps: []step{
+		streamed([]string{"Let me ", "check."}, call("c1", "echo", `{"v":"x"}`)),
+		streamed(nil, call("c2", "echo", `{}`)), // no text: no separator owed
+		streamed([]string{"", "Done", "."}),
+	}}
+	hooks := &recordingHooks{}
+	res, err := NewRunner(p).Run(context.Background(), RunSpec{Messages: userMsg("hi"), Tools: reg, Hooks: hooks, Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.FinalContent != "Done." {
+		t.Errorf("final = %q", res.FinalContent)
+	}
+	if want := []string{"Let me ", "check.", "\n\nDone", "."}; !slices.Equal(hooks.deltas, want) {
+		t.Errorf("deltas = %q, want %q", hooks.deltas, want)
+	}
+	if want := []string{"Let me check.", "Done."}; !slices.Equal(hooks.content, want) {
+		t.Errorf("content = %q", hooks.content)
+	}
+	// History holds whole messages, not deltas.
+	if got, want := summarize(res.NewMessages()), []string{"assistant:[echo]", "tool:c1", "assistant:[echo]", "tool:c2", "assistant:Done."}; !slices.Equal(got, want) {
+		t.Errorf("new messages = %v", got)
+	}
+
+	// Without Stream the provider is not asked to stream.
+	p = &scripted{steps: []step{streamed([]string{"hi"})}}
+	hooks = &recordingHooks{}
+	if _, err := NewRunner(p).Run(context.Background(), RunSpec{Messages: userMsg("hi"), Hooks: hooks}); err != nil {
+		t.Fatal(err)
+	}
+	if p.reqs[0].OnDelta != nil || len(hooks.deltas) != 0 {
+		t.Errorf("unstreamed run: OnDelta set %v, deltas %q", p.reqs[0].OnDelta != nil, hooks.deltas)
 	}
 }
 

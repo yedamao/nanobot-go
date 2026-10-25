@@ -81,6 +81,10 @@ type RunSpec struct {
 	Temperature *float64
 	// Hooks observes the run; nil means NopHooks.
 	Hooks Hooks
+	// Stream asks the provider to stream its responses, passing the text
+	// to Hooks.OnDelta as it arrives. Providers that cannot stream answer
+	// as usual, without deltas.
+	Stream bool
 }
 
 // RunResult is the outcome of a run.
@@ -139,6 +143,8 @@ type run struct {
 	maxIter int
 	defs    []providers.ToolDef
 	res     *RunResult
+	// streamed is set once a response has passed a delta to the hooks.
+	streamed bool
 }
 
 func (r *run) loop(ctx context.Context) (*RunResult, error) {
@@ -247,16 +253,31 @@ func (r *run) forceFinal(ctx context.Context) (*RunResult, error) {
 }
 
 // chat sends one request and accounts for its usage. A response with
-// FinishError is turned into an error.
+// FinishError is turned into an error. With RunSpec.Stream its text is
+// passed to Hooks.OnDelta as it arrives.
 func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []providers.ToolDef, choice providers.ToolChoice) (*providers.ChatResponse, error) {
-	resp, err := r.runner.provider.Chat(ctx, providers.ChatRequest{
+	req := providers.ChatRequest{
 		Model:       r.spec.Model,
 		Messages:    msgs,
 		Tools:       defs,
 		ToolChoice:  choice,
 		MaxTokens:   r.spec.MaxTokens,
 		Temperature: r.spec.Temperature,
-	})
+	}
+	if r.spec.Stream {
+		first := true
+		req.OnDelta = func(d string) {
+			if d == "" {
+				return
+			}
+			if first && r.streamed {
+				d = "\n\n" + d // keep it apart from the text of an earlier response
+			}
+			first, r.streamed = false, true
+			r.hooks.OnDelta(ctx, d)
+		}
+	}
+	resp, err := r.runner.provider.Chat(ctx, req)
 	if err != nil {
 		return nil, err
 	}

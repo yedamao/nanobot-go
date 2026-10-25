@@ -22,6 +22,12 @@ type Hooks interface {
 	OnToolEnd(ctx context.Context, call providers.ToolCall, result tools.Result)
 	// OnContent is called with non-empty assistant text from each response.
 	OnContent(ctx context.Context, content string)
+	// OnDelta is called with each piece of assistant text as it streams
+	// in, when RunSpec.Stream is set and the provider streams. The first
+	// delta of a later response in the run starts with a blank line, so
+	// the deltas of a run concatenate into readable text. OnContent still
+	// follows with each response's whole text.
+	OnDelta(ctx context.Context, delta string)
 }
 
 // NopHooks implements Hooks with no-ops.
@@ -31,3 +37,4 @@ func (NopHooks) BeforeIteration(context.Context, int, []providers.Message)   {}
 func (NopHooks) OnToolStart(context.Context, providers.ToolCall)             {}
 func (NopHooks) OnToolEnd(context.Context, providers.ToolCall, tools.Result) {}
 func (NopHooks) OnContent(context.Context, string)                           {}
+func (NopHooks) OnDelta(context.Context, string)                             {}

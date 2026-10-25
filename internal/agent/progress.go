@@ -117,8 +117,9 @@ func shortenPath(p string, n int) string {
 	return "…/" + out
 }
 
-// progressHooks publishes a progress update (see bus.IsProgress) to the
-// chat a turn came from as each tool call starts.
+// progressHooks reports a turn to the chat it came from: a progress
+// update (see bus.IsProgress) as each tool call starts, and each streamed
+// piece of the reply (see bus.IsDelta).
 type progressHooks struct {
 	NopHooks
 	bus     *bus.MessageBus
@@ -136,12 +137,24 @@ func newProgressHooks(b *bus.MessageBus, msg bus.InboundMessage) *progressHooks 
 // every update gets its own Metadata map. A failed publish (the turn is
 // ending) is ignored.
 func (h *progressHooks) OnToolStart(ctx context.Context, call providers.ToolCall) {
+	h.publish(ctx, bus.MetaProgress, ToolHint(call))
+}
+
+// OnDelta publishes a streamed piece of the reply. A failed publish is
+// ignored: the final reply carries the whole text anyway.
+func (h *progressHooks) OnDelta(ctx context.Context, delta string) {
+	h.publish(ctx, bus.MetaDelta, delta)
+}
+
+// publish sends content marked with the Metadata flag key. Every message
+// gets its own Metadata map.
+func (h *progressHooks) publish(ctx context.Context, key, content string) {
 	meta := maps.Clone(h.meta)
 	if meta == nil {
 		meta = map[string]any{}
 	}
-	meta[bus.MetaProgress] = true
-	_ = h.bus.PublishOutbound(ctx, bus.OutboundMessage{Channel: h.channel, ChatID: h.chatID, Content: ToolHint(call), Metadata: meta})
+	meta[key] = true
+	_ = h.bus.PublishOutbound(ctx, bus.OutboundMessage{Channel: h.channel, ChatID: h.chatID, Content: content, Metadata: meta})
 }
 
 // hookList calls each of its hooks in order.
@@ -186,5 +199,11 @@ func (l hookList) OnToolEnd(ctx context.Context, call providers.ToolCall, result
 func (l hookList) OnContent(ctx context.Context, content string) {
 	for _, h := range l {
 		h.OnContent(ctx, content)
+	}
+}
+
+func (l hookList) OnDelta(ctx context.Context, delta string) {
+	for _, h := range l {
+		h.OnDelta(ctx, delta)
 	}
 }

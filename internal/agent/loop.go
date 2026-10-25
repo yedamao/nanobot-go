@@ -276,8 +276,9 @@ func (l *Loop) work(key string, w *worker) {
 // handle runs one job under ctx, which Cancel may cancel before j.ctx
 // ends, and delivers its result.
 func (l *Loop) handle(ctx context.Context, j job) {
-	// Progress follows the reply: bus-driven turns report to their chat,
-	// while Process callers deliver (or not) themselves.
+	// Progress and streamed deltas follow the reply: bus-driven turns
+	// report to their chat, while Process callers deliver (or not)
+	// themselves and get no stream.
 	var progress Hooks
 	if j.reply == nil {
 		progress = newProgressHooks(l.cfg.Bus, j.msg)
@@ -307,7 +308,9 @@ func (l *Loop) handle(ctx context.Context, j job) {
 // turn processes one message and returns the reply. The session is only
 // updated after a successful run, so a failed provider call never leaves a
 // dangling user message or partial tool exchange in history. progress, if
-// not nil, observes the run alongside LoopConfig.Hooks.
+// not nil, observes the run alongside LoopConfig.Hooks, and the run is
+// streamed for it. Deltas are never saved: history gets the run's
+// messages as for an unstreamed run.
 func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks) (Reply, error) {
 	if err := ctx.Err(); err != nil {
 		return Reply{}, err
@@ -347,6 +350,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks)
 		MaxTokens:     l.cfg.MaxTokens,
 		Temperature:   l.cfg.Temperature,
 		Hooks:         joinHooks(l.cfg.Hooks, progress),
+		Stream:        progress != nil,
 	})
 	if err != nil {
 		return Reply{}, err

@@ -134,3 +134,99 @@ func TestRunPublishesProgressBeforeTheReply(t *testing.T) {
 		t.Errorf("Process published %d outbound messages", n)
 	}
 }
+
+func TestRunStreamsDeltasBeforeTheReply(t *testing.T) {
+	b := bus.NewMessageBus(16)
+	tool := &fakeTool{name: "probe", readOnly: true}
+	p := &scripted{steps: []step{
+		streamed([]string{"Look", "ing"}, call("c1", "probe", `{}`)),
+		streamed([]string{"do", "ne"}),
+	}}
+	l, sessions, _ := newTestLoop(t, p, registry(t, tool), b)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.Run(ctx)
+
+	meta := map[string]any{"message_thread_id": int64(7)}
+	if err := b.PublishInbound(ctx, bus.InboundMessage{Channel: "test", ChatID: "1", Content: "go", Metadata: meta}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for range 6 {
+		out, err := consumeWithTimeout(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kind := "message"
+		switch {
+		case bus.IsDelta(out) && bus.IsProgress(out):
+			t.Errorf("outbound marked both delta and progress: %+v", out)
+		case bus.IsDelta(out):
+			kind = "delta"
+		case bus.IsProgress(out):
+			kind = "progress"
+		}
+		if out.ChatID != "1" || out.Metadata["message_thread_id"] != int64(7) {
+			t.Errorf("outbound = %+v", out)
+		}
+		got = append(got, kind+":"+out.Content)
+	}
+	want := []string{"delta:Look", "delta:ing", "progress:probe", "delta:\n\ndo", "delta:ne", "message:done"}
+	if !slices.Equal(got, want) {
+		t.Errorf("outbound = %q, want %q", got, want)
+	}
+	if _, marked := meta[bus.MetaDelta]; marked {
+		t.Error("the inbound message's metadata was modified")
+	}
+	// The session holds the whole messages, never the deltas.
+	l.Wait()
+	sess, _ := sessions.GetOrCreate("test:1")
+	if got, want := summarize(sess.Messages), []string{"user:go", "assistant:[probe]", "tool:c1", "assistant:done"}; !slices.Equal(got, want) {
+		t.Errorf("session = %v, want %v", got, want)
+	}
+	if sess.Messages[1].Content != "Looking" {
+		t.Errorf("tool-call message content = %q", sess.Messages[1].Content)
+	}
+
+	// Process callers get no stream.
+	p.mu.Lock()
+	p.steps = []step{streamed([]string{"direct"})}
+	p.reqs = nil
+	p.mu.Unlock()
+	if r, err := l.Process(ctx, bus.InboundMessage{Channel: "test", ChatID: "2", Content: "go"}); err != nil || r.Content != "direct" {
+		t.Fatalf("Process = %+v, %v", r, err)
+	}
+	if p.reqs[0].OnDelta != nil || b.OutboundLen() != 0 {
+		t.Errorf("Process streamed: OnDelta set %v, %d outbound", p.reqs[0].OnDelta != nil, b.OutboundLen())
+	}
+}
+
+func TestStopCancelsAStreamingTurn(t *testing.T) {
+	b := bus.NewMessageBus(16)
+	p := &scripted{steps: []step{func(ctx context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
+		req.OnDelta("partial")
+		<-ctx.Done() // the stream stalls until the turn is stopped
+		return nil, ctx.Err()
+	}}}
+	l, sessions, _ := newTestLoop(t, p, nil, b)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.Run(ctx)
+
+	if err := b.PublishInbound(ctx, bus.InboundMessage{Channel: "test", ChatID: "1", Content: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := consumeWithTimeout(b); err != nil || !bus.IsDelta(out) || out.Content != "partial" {
+		t.Fatalf("first outbound = %+v, %v", out, err)
+	}
+	if err := b.PublishInbound(ctx, bus.InboundMessage{Channel: "test", ChatID: "1", Content: "/stop"}); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := consumeWithTimeout(b); err != nil || bus.IsDelta(out) || out.Content != stoppedText {
+		t.Fatalf("reply = %+v, %v", out, err)
+	}
+	l.Wait()
+	if sess, _ := sessions.GetOrCreate("test:1"); len(sess.Messages) != 0 {
+		t.Errorf("the stopped turn was saved: %v", summarize(sess.Messages))
+	}
+}
