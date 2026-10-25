@@ -82,8 +82,8 @@ type RunSpec struct {
 	// Hooks observes the run; nil means NopHooks.
 	Hooks Hooks
 	// Stream asks the provider to stream its responses, passing the text
-	// to Hooks.OnDelta as it arrives. Providers that cannot stream answer
-	// as usual, without deltas.
+	// to Hooks.OnDelta and any thinking to Hooks.OnThinking as it arrives.
+	// Providers that cannot stream answer as usual, without deltas.
 	Stream bool
 }
 
@@ -145,6 +145,9 @@ type run struct {
 	res     *RunResult
 	// streamed is set once a response has passed a delta to the hooks.
 	streamed bool
+	// thinking is set while thinking streams to the hooks, until
+	// OnThinkingEnd; thought once any has.
+	thinking, thought bool
 }
 
 func (r *run) loop(ctx context.Context) (*RunResult, error) {
@@ -266,10 +269,21 @@ func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []provide
 	}
 	if r.spec.Stream {
 		first := true
+		req.OnThinking = func(d string) {
+			if d == "" {
+				return
+			}
+			if !r.thinking && r.thought {
+				d = "\n\n" + d // keep it apart from earlier thinking
+			}
+			r.thinking, r.thought = true, true
+			r.hooks.OnThinking(ctx, d)
+		}
 		req.OnDelta = func(d string) {
 			if d == "" {
 				return
 			}
+			r.endThinking(ctx)
 			if first && r.streamed {
 				d = "\n\n" + d // keep it apart from the text of an earlier response
 			}
@@ -278,6 +292,7 @@ func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []provide
 		}
 	}
 	resp, err := r.runner.provider.Chat(ctx, req)
+	r.endThinking(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -286,6 +301,14 @@ func (r *run) chat(ctx context.Context, msgs []providers.Message, defs []provide
 		return nil, fmt.Errorf("%s: model returned an error: %s", r.runner.provider.Name(), resp.Content)
 	}
 	return resp, nil
+}
+
+// endThinking calls Hooks.OnThinkingEnd if thinking is streaming.
+func (r *run) endThinking(ctx context.Context) {
+	if r.thinking {
+		r.thinking = false
+		r.hooks.OnThinkingEnd(ctx)
+	}
 }
 
 func (r *run) fail(ctx context.Context, err error) (*RunResult, error) {

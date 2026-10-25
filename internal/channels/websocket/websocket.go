@@ -118,7 +118,14 @@ const (
 	// append to the pieces before it; the message frame that follows
 	// holds the whole reply and replaces them.
 	TypeDelta = "delta"
-	TypeError = "error"
+	// TypeThinking carries the next piece of the model's thinking, to
+	// append to the pieces before it. It is shown apart from the reply
+	// and never stored in the chat's history.
+	TypeThinking = "thinking"
+	// TypeThinkingEnd, without content, ends a run of thinking frames:
+	// the answer is starting or the response is done.
+	TypeThinkingEnd = "thinking_end"
+	TypeError       = "error"
 )
 
 // Frame is one JSON message on the socket, in either direction.
@@ -416,11 +423,13 @@ func (c *Channel) Stop(ctx context.Context) error {
 // Send writes msg as a "message" frame to every connection of its chat,
 // as a "progress" frame when it is a progress update (bus.IsProgress), or
 // as a "delta" frame when it is a streamed piece of a reply
-// (bus.IsDelta). A message frame's markdown images and media that name
+// (bus.IsDelta), or as a "thinking" or "thinking_end" frame for the
+// model's streamed thinking (bus.IsThinking, bus.IsThinkingEnd). A
+// message frame's markdown images and media that name
 // workspace files point at the media route. A chat with no open connection (the tab was closed) is a
 // Permanent error for a reply: it is dropped with a log line instead of
 // being retried, which would hold up the other chats' replies. A progress
-// update or delta for such a chat is dropped silently.
+// update, delta or thinking for such a chat is dropped silently.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	var frame Frame
 	switch {
@@ -428,6 +437,10 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		frame = Frame{Type: TypeProgress, Content: msg.Content}
 	case bus.IsDelta(msg):
 		frame = Frame{Type: TypeDelta, Content: msg.Content}
+	case bus.IsThinking(msg):
+		frame = Frame{Type: TypeThinking, Content: msg.Content}
+	case bus.IsThinkingEnd(msg):
+		frame = Frame{Type: TypeThinkingEnd}
 	default:
 		frame = Frame{Type: TypeMessage, Role: "assistant", Content: c.rewriteMarkdownImages(msg.Content), Media: c.mediaRefs(msg.Media)}
 	}

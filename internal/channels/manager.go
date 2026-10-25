@@ -268,9 +268,9 @@ func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 	}
 }
 
-// transient reports whether msg is a progress update or a streamed delta,
-// which are delivered best-effort.
-func transient(msg bus.OutboundMessage) bool { return bus.IsProgress(msg) || bus.IsDelta(msg) }
+// transient reports whether msg is a progress update, a streamed delta or
+// thinking (bus.IsStreamed), which are delivered best-effort.
+func transient(msg bus.OutboundMessage) bool { return bus.IsStreamed(msg) }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)

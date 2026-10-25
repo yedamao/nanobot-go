@@ -123,6 +123,9 @@ type recordingHooks struct {
 	ended      []string
 	content    []string
 	deltas     []string
+	// stream records deltas ("d:…"), thinking ("t:…") and thinking ends
+	// ("end") in order.
+	stream []string
 }
 
 func (h *recordingHooks) BeforeIteration(_ context.Context, i int, _ []providers.Message) {
@@ -153,12 +156,36 @@ func (h *recordingHooks) OnDelta(_ context.Context, s string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.deltas = append(h.deltas, s)
+	h.stream = append(h.stream, "d:"+s)
+}
+
+func (h *recordingHooks) OnThinking(_ context.Context, s string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stream = append(h.stream, "t:"+s)
+}
+
+func (h *recordingHooks) OnThinkingEnd(context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.stream = append(h.stream, "end")
 }
 
 // streamed streams deltas to a request's OnDelta, then answers with their
 // text and calls.
 func streamed(deltas []string, calls ...providers.ToolCall) step {
+	return thoughtStreamed(nil, deltas, calls...)
+}
+
+// thoughtStreamed streams thinking to a request's OnThinking, then
+// deltas to its OnDelta, and answers with the deltas' text and calls.
+func thoughtStreamed(thinking, deltas []string, calls ...providers.ToolCall) step {
 	return func(_ context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
+		if req.OnThinking != nil {
+			for _, d := range thinking {
+				req.OnThinking(d)
+			}
+		}
 		if req.OnDelta != nil {
 			for _, d := range deltas {
 				req.OnDelta(d)
@@ -284,6 +311,44 @@ func TestRunStreamsDeltas(t *testing.T) {
 	}
 	if p.reqs[0].OnDelta != nil || len(hooks.deltas) != 0 {
 		t.Errorf("unstreamed run: OnDelta set %v, deltas %q", p.reqs[0].OnDelta != nil, hooks.deltas)
+	}
+}
+
+func TestRunStreamsThinking(t *testing.T) {
+	reg := registry(t, &fakeTool{name: "echo"})
+	p := &scripted{steps: []step{
+		// Thinking then a tool call without text: it ends with the response.
+		thoughtStreamed([]string{"Need ", "a tool.", ""}, nil, call("c1", "echo", `{}`)),
+		// Thinking ends when the answer starts.
+		thoughtStreamed([]string{"Got it."}, []string{"Do", "ne."}),
+	}}
+	hooks := &recordingHooks{}
+	res, err := NewRunner(p).Run(context.Background(), RunSpec{Messages: userMsg("hi"), Tools: reg, Hooks: hooks, Stream: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"t:Need ", "t:a tool.", "end", "t:\n\nGot it.", "end", "d:Do", "d:ne."}
+	if !slices.Equal(hooks.stream, want) {
+		t.Errorf("stream = %q, want %q", hooks.stream, want)
+	}
+	// Thinking is never part of the reply or the history.
+	if res.FinalContent != "Done." || !slices.Equal(hooks.content, []string{"Done."}) {
+		t.Errorf("final = %q, content = %q", res.FinalContent, hooks.content)
+	}
+	for _, m := range res.NewMessages() {
+		if strings.Contains(m.Content, "Got it") || strings.Contains(m.Content, "tool.") {
+			t.Errorf("thinking in history: %+v", m)
+		}
+	}
+
+	// Without Stream nothing is asked for.
+	p = &scripted{steps: []step{thoughtStreamed([]string{"hmm"}, []string{"hi"})}}
+	hooks = &recordingHooks{}
+	if _, err := NewRunner(p).Run(context.Background(), RunSpec{Messages: userMsg("hi"), Hooks: hooks}); err != nil {
+		t.Fatal(err)
+	}
+	if p.reqs[0].OnThinking != nil || len(hooks.stream) != 0 {
+		t.Errorf("unstreamed run: OnThinking set %v, stream %q", p.reqs[0].OnThinking != nil, hooks.stream)
 	}
 }
 

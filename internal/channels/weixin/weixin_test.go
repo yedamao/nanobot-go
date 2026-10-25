@@ -322,7 +322,7 @@ func TestSendSkipsProgress(t *testing.T) {
 	h.start(t)
 	h.greet(t, "m1", "ctx-1")
 	h.f.waitFor("sendtyping", 1)
-	for _, key := range []string{bus.MetaProgress, bus.MetaDelta} {
+	for _, key := range []string{bus.MetaProgress, bus.MetaDelta, bus.MetaThinking, bus.MetaThinkingEnd} {
 		msg := bus.OutboundMessage{Channel: Name, ChatID: alice, Content: "read notes.md", Metadata: map[string]any{key: true}}
 		if err := h.ch.Send(context.Background(), msg); err != nil {
 			t.Fatalf("Send(%s) = %v", key, err)

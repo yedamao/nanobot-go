@@ -569,10 +569,11 @@ func (c *Channel) cacheContext(user, token string) {
 // when it is old). A reply that cannot be sent for lack of a usable
 // context_token is held back, up to three per user, and sent when the
 // user writes again; Send then returns nil. Media are not supported.
-// Progress updates (bus.IsProgress) and streamed deltas (bus.IsDelta) are
-// dropped; the final reply carries the whole text.
+// Progress updates, streamed deltas and thinking (bus.IsStreamed) are
+// dropped: the final reply carries the whole text, and thinking is never
+// shown in a chat app.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
-	if bus.IsProgress(msg) || bus.IsDelta(msg) {
+	if bus.IsStreamed(msg) {
 		return nil // no status display; the typing indicator keeps running
 	}
 	if msg.ChatID == "" {

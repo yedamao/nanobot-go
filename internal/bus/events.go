@@ -65,3 +65,35 @@ func IsDelta(msg OutboundMessage) bool {
 	v, _ := msg.Metadata[MetaDelta].(bool)
 	return v
 }
+
+// MetaThinking is the Metadata key that marks an OutboundMessage as a
+// piece of the model's thinking being streamed: Content is the new text
+// only, to append to what came before. Thinking is never part of the
+// reply and is not stored in the session. Chat apps must not show it;
+// see IsThinking.
+const MetaThinking = "_thinking"
+
+// IsThinking reports whether msg is a streamed piece of thinking.
+// Channels without a place to show it apart from the reply drop these.
+func IsThinking(msg OutboundMessage) bool {
+	v, _ := msg.Metadata[MetaThinking].(bool)
+	return v
+}
+
+// MetaThinkingEnd is the Metadata key that marks an OutboundMessage as the
+// end of a run of thinking pieces (see MetaThinking), sent when the answer
+// starts or the response ends. Content is empty. See IsThinkingEnd.
+const MetaThinkingEnd = "_thinking_end"
+
+// IsThinkingEnd reports whether msg ends a run of thinking pieces.
+func IsThinkingEnd(msg OutboundMessage) bool {
+	v, _ := msg.Metadata[MetaThinkingEnd].(bool)
+	return v
+}
+
+// IsStreamed reports whether msg is a transient streamed update rather
+// than a reply: a progress update, a delta, thinking or its end. Channels
+// that only send whole messages drop these.
+func IsStreamed(msg OutboundMessage) bool {
+	return IsProgress(msg) || IsDelta(msg) || IsThinking(msg) || IsThinkingEnd(msg)
+}

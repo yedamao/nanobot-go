@@ -194,6 +194,33 @@ func TestDeltaFrames(t *testing.T) {
 	}
 }
 
+func TestThinkingFrames(t *testing.T) {
+	h := newHarness(t, true)
+	conn, chatID := h.dial(t, "")
+	thinking := map[string]any{bus.MetaThinking: true}
+	for _, d := range []string{"Hm", "m."} {
+		if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: d, Metadata: thinking}); err != nil {
+			t.Fatal(err)
+		}
+		if f := readFrame(t, conn); f.Type != TypeThinking || f.Content != d || f.Role != "" {
+			t.Errorf("thinking frame = %+v", f)
+		}
+	}
+	end := map[string]any{bus.MetaThinkingEnd: true}
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Metadata: end}); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeThinkingEnd || f.Content != "" || f.Role != "" {
+		t.Errorf("thinking_end frame = %+v", f)
+	}
+	// Thinking for a closed tab is not worth an error.
+	for _, meta := range []map[string]any{thinking, end} {
+		if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: "nobody", Content: "x", Metadata: meta}); err != nil {
+			t.Errorf("Send(%v) to unknown chat = %v", meta, err)
+		}
+	}
+}
+
 func TestClientFrames(t *testing.T) {
 	h := newHarness(t, true)
 	conn, _ := h.dial(t, "")

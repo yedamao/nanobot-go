@@ -28,6 +28,12 @@ type Hooks interface {
 	// the deltas of a run concatenate into readable text. OnContent still
 	// follows with each response's whole text.
 	OnDelta(ctx context.Context, delta string)
+	// OnThinking is called, like OnDelta, with each piece of the model's
+	// thinking as it streams in. Thinking is never part of the reply.
+	OnThinking(ctx context.Context, delta string)
+	// OnThinkingEnd is called once after a run of OnThinking calls: when
+	// the answer text starts or the response ends.
+	OnThinkingEnd(ctx context.Context)
 }
 
 // NopHooks implements Hooks with no-ops.
@@ -38,3 +44,5 @@ func (NopHooks) OnToolStart(context.Context, providers.ToolCall)             {}
 func (NopHooks) OnToolEnd(context.Context, providers.ToolCall, tools.Result) {}
 func (NopHooks) OnContent(context.Context, string)                           {}
 func (NopHooks) OnDelta(context.Context, string)                             {}
+func (NopHooks) OnThinking(context.Context, string)                          {}
+func (NopHooks) OnThinkingEnd(context.Context)                               {}

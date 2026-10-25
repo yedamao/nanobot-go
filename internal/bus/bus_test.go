@@ -46,6 +46,33 @@ func TestIsDelta(t *testing.T) {
 	}
 }
 
+func TestIsThinkingAndIsStreamed(t *testing.T) {
+	tests := []struct {
+		name                    string
+		meta                    map[string]any
+		thinking, end, streamed bool
+	}{
+		{"nil metadata", nil, false, false, false},
+		{"progress", map[string]any{MetaProgress: true}, false, false, true},
+		{"delta", map[string]any{MetaDelta: true}, false, false, true},
+		{"thinking", map[string]any{MetaThinking: true}, true, false, true},
+		{"thinking end", map[string]any{MetaThinkingEnd: true}, false, true, true},
+		{"not a bool", map[string]any{MetaThinking: "yes"}, false, false, false},
+	}
+	for _, tt := range tests {
+		msg := OutboundMessage{Metadata: tt.meta}
+		if got := IsThinking(msg); got != tt.thinking {
+			t.Errorf("%s: IsThinking = %v", tt.name, got)
+		}
+		if got := IsThinkingEnd(msg); got != tt.end {
+			t.Errorf("%s: IsThinkingEnd = %v", tt.name, got)
+		}
+		if got := IsStreamed(msg); got != tt.streamed {
+			t.Errorf("%s: IsStreamed = %v", tt.name, got)
+		}
+	}
+}
+
 func TestSessionKey(t *testing.T) {
 	tests := []struct {
 		name string

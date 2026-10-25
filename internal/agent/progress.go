@@ -118,8 +118,9 @@ func shortenPath(p string, n int) string {
 }
 
 // progressHooks reports a turn to the chat it came from: a progress
-// update (see bus.IsProgress) as each tool call starts, and each streamed
-// piece of the reply (see bus.IsDelta).
+// update (see bus.IsProgress) as each tool call starts, each streamed
+// piece of the reply (see bus.IsDelta), and the model's streamed thinking
+// (see bus.IsThinking and bus.IsThinkingEnd).
 type progressHooks struct {
 	NopHooks
 	bus     *bus.MessageBus
@@ -144,6 +145,17 @@ func (h *progressHooks) OnToolStart(ctx context.Context, call providers.ToolCall
 // ignored: the final reply carries the whole text anyway.
 func (h *progressHooks) OnDelta(ctx context.Context, delta string) {
 	h.publish(ctx, bus.MetaDelta, delta)
+}
+
+// OnThinking publishes a streamed piece of thinking (see bus.IsThinking).
+// A failed publish is ignored.
+func (h *progressHooks) OnThinking(ctx context.Context, delta string) {
+	h.publish(ctx, bus.MetaThinking, delta)
+}
+
+// OnThinkingEnd publishes the end of the thinking (see bus.IsThinkingEnd).
+func (h *progressHooks) OnThinkingEnd(ctx context.Context) {
+	h.publish(ctx, bus.MetaThinkingEnd, "")
 }
 
 // publish sends content marked with the Metadata flag key. Every message
@@ -205,5 +217,17 @@ func (l hookList) OnContent(ctx context.Context, content string) {
 func (l hookList) OnDelta(ctx context.Context, delta string) {
 	for _, h := range l {
 		h.OnDelta(ctx, delta)
+	}
+}
+
+func (l hookList) OnThinking(ctx context.Context, delta string) {
+	for _, h := range l {
+		h.OnThinking(ctx, delta)
+	}
+}
+
+func (l hookList) OnThinkingEnd(ctx context.Context) {
+	for _, h := range l {
+		h.OnThinkingEnd(ctx)
 	}
 }

@@ -201,6 +201,48 @@ func TestRunStreamsDeltasBeforeTheReply(t *testing.T) {
 	}
 }
 
+func TestRunPublishesThinking(t *testing.T) {
+	b := bus.NewMessageBus(16)
+	p := &scripted{steps: []step{thoughtStreamed([]string{"Hm", "m."}, []string{"Hi"})}}
+	l, sessions, _ := newTestLoop(t, p, nil, b)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.Run(ctx)
+
+	if err := b.PublishInbound(ctx, bus.InboundMessage{Channel: "test", ChatID: "1", Content: "go"}); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for range 5 {
+		out, err := consumeWithTimeout(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		kind := "message"
+		switch {
+		case bus.IsThinking(out):
+			kind = "thinking"
+		case bus.IsThinkingEnd(out):
+			kind = "thinking_end"
+		case bus.IsDelta(out):
+			kind = "delta"
+		}
+		if bus.IsThinking(out) && (bus.IsDelta(out) || bus.IsThinkingEnd(out)) {
+			t.Errorf("outbound marked twice: %+v", out)
+		}
+		got = append(got, kind+":"+out.Content)
+	}
+	want := []string{"thinking:Hm", "thinking:m.", "thinking_end:", "delta:Hi", "message:Hi"}
+	if !slices.Equal(got, want) {
+		t.Errorf("outbound = %q, want %q", got, want)
+	}
+	l.Wait()
+	sess, _ := sessions.GetOrCreate("test:1")
+	if got, want := summarize(sess.Messages), []string{"user:go", "assistant:Hi"}; !slices.Equal(got, want) {
+		t.Errorf("session = %v, want %v", got, want)
+	}
+}
+
 func TestStopCancelsAStreamingTurn(t *testing.T) {
 	b := bus.NewMessageBus(16)
 	p := &scripted{steps: []step{func(ctx context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {

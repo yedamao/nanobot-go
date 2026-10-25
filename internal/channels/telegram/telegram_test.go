@@ -489,7 +489,7 @@ func TestSendEdgeCases(t *testing.T) {
 func TestSendSkipsProgress(t *testing.T) {
 	h := newHarness(t, nil)
 	h.start(t)
-	for _, key := range []string{bus.MetaProgress, bus.MetaDelta} {
+	for _, key := range []string{bus.MetaProgress, bus.MetaDelta, bus.MetaThinking, bus.MetaThinkingEnd} {
 		msg := bus.OutboundMessage{Channel: Name, ChatID: "42", Content: "read notes.md", Metadata: map[string]any{key: true}}
 		if err := h.ch.Send(context.Background(), msg); err != nil {
 			t.Fatalf("Send(%s) = %v", key, err)
