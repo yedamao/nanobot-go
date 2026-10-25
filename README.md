@@ -60,9 +60,10 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   gateway serves a plain browser chat page and a WebSocket on its own
   loopback address; each chat runs a full agent turn, and a reload shows
   the chat's earlier messages again. The page lists, renames and deletes
-  its chats, shows the tool being run while a turn is in progress and can
-  stop it, and has a read-only status panel (version, model, provider,
-  channels).
+  its chats, streams the reply as it is written (OpenAI-compatible
+  providers such as DeepSeek), shows the tool being run while a turn is
+  in progress and can stop it, and has a read-only status panel
+  (version, model, provider, channels).
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
@@ -668,6 +669,17 @@ and press Enter. Each reply is a full agent turn, tools included.
   clears it. Progress is never stored, so it is not in the history.
   Other chat channels (Telegram, WeChat) ignore progress; their "typing…"
   indicator keeps running instead.
+- **Streaming.** With an OpenAI-compatible provider (OpenAI, DeepSeek,
+  ...) the reply streams in: the server sends `delta` frames with each
+  new piece of text, and the page grows an assistant bubble from them
+  (the thinking bubble hides while text arrives and comes back below it,
+  with the hint, when a tool runs). Text a turn writes before its tool
+  calls streams too, set apart from later text by a blank line. The
+  final `message` frame replaces the streamed text with the whole reply,
+  which is what the session saves. A stopped turn's partial text becomes
+  "Stopped.". Anthropic replies are not streamed yet: they arrive whole
+  in the `message` frame. Telegram and WeChat ignore deltas and send the
+  final reply.
 - **Stop.** While a reply is due a **Stop** button sends a `stop` frame
   (typing `/stop` does the same): the turn in flight is canceled and
   answered "Stopped.", and it is not saved to the session. Messages sent
@@ -697,7 +709,8 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 | client → server | `{"type":"chat","content":"..."}`, or plain text |
 | client → server | `{"type":"stop"}` (same as sending `/stop`) |
 | server → client, while a turn runs | `{"type":"progress","content":"..."}` (transient status; the next `message` supersedes it) |
-| server → client | `{"type":"message","role":"assistant","content":"..."}` |
+| server → client, while a reply streams | `{"type":"delta","content":"..."}` (the next piece of text, to append; never stored) |
+| server → client | `{"type":"message","role":"assistant","content":"..."}` (the whole reply; replaces any streamed text) |
 | server → client | `{"type":"error","content":"..."}` (bad frame) |
 
 `ws://127.0.0.1:18790/ws?chat_id=<id>` joins an existing chat (1-64

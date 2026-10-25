@@ -259,6 +259,14 @@ Phase 2 is complete; phase 3 is in progress.
     provider name, workspace base name, configured channels (enabled,
     running), and API/exec/web_fetch flags; the gateway fills it from
     its config and `Manager.Running()`. The page shows it in a dialog.
+  - Done: token streaming. `ChatRequest.OnDelta` makes the
+    OpenAI-compatible provider (and so DeepSeek) send `"stream": true`
+    and parse the SSE chunks; `RunSpec.Stream` passes each delta to
+    `Hooks.OnDelta`, and for bus-driven turns `progressHooks` publishes
+    it as an `OutboundMessage` marked `Metadata["_delta"]`
+    (`bus.IsDelta`) holding only the new text. The channel sends it as a
+    `delta` frame; the page appends it to a live assistant bubble, which
+    the final `message` frame replaces. Deltas are never saved.
   - Not ported: the React/Vite app and its build, settings/models/
     channels/skills/apps/automations/cron/pairing pages (settings
     writes, model picker, provider key forms, MCP servers and OAuth,
@@ -267,7 +275,9 @@ Phase 2 is complete; phase 3 is in progress.
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
     temporary chats, conversation groups,
-    token streaming, structured tool events, reasoning, media and
+    Anthropic token streaming, `StreamEndEvent` and the rest of the
+    stream event taxonomy, `<think>` scrubbing of streamed text,
+    structured tool events, reasoning, media and
     uploads, file previews, restart control, the
     `nanobot webui` launcher and on-demand gateway, LAN access, `token`/
     `tokenIssueSecret`/`websocketRequiresToken` auth, TLS
@@ -388,6 +398,23 @@ Phase 2 is complete; phase 3 is in progress.
   sessions in the workspace, so it imports only the flat files in its
   sessions directory. As in nanobot, one unreadable or duplicate file
   aborts the whole import and leaves the sources unchanged.
+- **Streaming is a request option, OpenAI-compatible only.** nanobot's
+  providers have a streaming chat method and its progress hook emits
+  `StreamDeltaEvent`/`StreamEndEvent`. nanobot-go adds
+  `ChatRequest.OnDelta`: the OpenAI-compatible provider then streams
+  (`stream_options.include_usage` for the usage; keep-alives, a missing
+  `[DONE]`, tool calls without `index` and servers that ignore `stream`
+  are tolerated) and still returns the whole `ChatResponse`. Anthropic
+  ignores it and answers in one piece, so its turns show no deltas.
+  Only failures before the reply starts are retried; a stream cut off
+  mid-reply is a connection error. `FallbackProvider` fails over a
+  streamed request only while no delta has been passed on, since another
+  provider's reply would be appended to the partial one. Only bus-driven
+  turns stream (API and cron turns do not); later responses of a turn
+  (after tool calls) start their deltas with a blank line, and the final
+  reply, the only text saved, supersedes them. Streamed text is not
+  scrubbed of `<think>` blocks (DeepSeek's `reasoning_content` is
+  ignored).
 
 ### MCP
 
@@ -508,13 +535,16 @@ Phase 2 is complete; phase 3 is in progress.
   attempts via `channels.sendMaxRetries`, which is not ported. A channel
   marks errors not worth retrying with `channels.Permanent` (nanobot:
   `DeliveryRejectedError`/`should_retry_send_error`).
-- **No delivery outbox or streaming; minimal progress.** nanobot persists
-  scheduled deliveries in `delivery/outbox.sqlite3`, streams deltas,
-  sends progress/tool hints/reasoning, and suppresses duplicate replies.
-  nanobot-go delivers final replies plus one-string tool hints marked as
-  progress (`bus.IsProgress`), which are tried once and dropped quietly
-  for unknown channels; on a forced or timed-out stop, queued replies are
-  dropped with a warning.
+- **No delivery outbox; minimal progress and streaming.** nanobot
+  persists scheduled deliveries in `delivery/outbox.sqlite3`, streams
+  deltas (editing Telegram messages as they grow), sends progress/tool
+  hints/reasoning, and suppresses duplicate replies. nanobot-go delivers
+  final replies plus one-string tool hints marked as progress
+  (`bus.IsProgress`) and streamed deltas (`bus.IsDelta`), which are tried
+  once and dropped quietly for unknown channels; only the websocket
+  channel shows deltas, Telegram and WeChat drop them and send the final
+  reply. On a forced or timed-out stop, queued replies are dropped with a
+  warning.
 - **Channel config is a raw object per channel.** nanobot's `channels`
   section also has global keys (`sendProgress`, `sendToolHints`,
   `sendMaxRetries`, ...) next to the channel sections; nanobot-go only
@@ -914,16 +944,18 @@ Phase 2 is complete; phase 3 is in progress.
 - **Own, small protocol.** nanobot's envelope (topics, `chat_id`
   attach/new, streaming deltas, progress and tool events, media, control
   commands, session lists) is not used. Frames are `hello`, `history`,
-  `chat` (or plain text), `stop`, `progress`, `message` and `error`; see
-  README.
+  `chat` (or plain text), `stop`, `progress`, `delta`, `message` and
+  `error`; see README. A `delta` frame is only text to append; there is
+  no stream-end event, the `message` frame with the whole reply ends the
+  stream.
 - **Progress is one string per tool call.** nanobot's progress hook
   sends `ProgressEvent`s (content plus `tool_hint`), tool-event payloads
   with arguments and results, reasoning bubbles and streamed deltas, and
   formats all calls of an iteration as one hint (`read a × 2, $ ls`).
   nanobot-go publishes one plain hint per call as it starts (from
   `OnToolStart`, so parallel read-only calls each send one), nothing on
-  tool end, no assistant text between tool calls, no reasoning, no
-  token deltas. The hint covers nanobot's common formats (`read`,
+  tool end, no reasoning; assistant text, between tool calls too, comes
+  only as `delta` frames. The hint covers nanobot's common formats (`read`,
   `write`, `edit`, `ls`, `$ cmd`, `fetch`, `search`, `mcp server::tool`,
   `name("arg")`) without home-directory folding or path abbreviation
   inside commands. Progress is a marked `OutboundMessage`
