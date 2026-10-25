@@ -6,8 +6,10 @@
 // written back as JSON frames. On connect the chat's stored transcript is
 // sent as a "history" frame so a reloaded page can show it again,
 // GET /ui/chats lists the stored chats for the page's sidebar (PATCH and
-// DELETE /ui/chats/{chat_id} rename and delete one) and GET /ui/status
-// reports a read-only overview for its status panel.
+// DELETE /ui/chats/{chat_id} rename and delete one), GET /ui/status
+// reports a read-only overview for its status panel and GET and PATCH
+// /ui/settings read and change a small whitelist of settings, saved to
+// the config file for the next start.
 //
 // It borrows only the idea of nanobot's WebSocket channel
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
@@ -167,6 +169,9 @@ type Options struct {
 	// Status returns the overview served at GET /ui/status; it is called
 	// once per request. Nil leaves the path unmounted (404).
 	Status func() Status
+	// Settings reads and saves the settings GET and PATCH /ui/settings
+	// edit. Nil leaves the path unmounted (404).
+	Settings SettingsStore
 }
 
 // Status is the body of GET /ui/status: a read-only overview for the
@@ -239,6 +244,7 @@ type Channel struct {
 	log      *slog.Logger
 	sessions SessionStore
 	status   func() Status
+	settings SettingsStore
 
 	mu      sync.Mutex
 	started bool
@@ -264,7 +270,7 @@ func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -273,20 +279,26 @@ func (c *Channel) Name() string { return Name }
 // Mount implements channels.Mounter: GET /ws upgrades to a WebSocket,
 // GET /ui/chats lists the stored chats, PATCH and DELETE
 // /ui/chats/{chat_id} (when Options.Sessions is set) rename and delete
-// one, GET /ui/status (when Options.Status is set) reports the overview
-// and GET / and /ui/ serve the chat page. Requests whose Host is not a
-// loopback name are refused, and so are cross-origin renames and
-// deletes. Until Start and after Stop, /ws answers 503.
+// one, GET /ui/status (when Options.Status is set) reports the overview,
+// GET and PATCH /ui/settings (when Options.Settings is set) read and
+// change the editable settings and GET / and /ui/ serve the chat page.
+// Requests whose Host is not a loopback name are refused, and so are
+// cross-origin renames, deletes and settings changes. Until Start and
+// after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	mux.Handle("GET "+Path, loopbackOnly(http.HandlerFunc(c.serveWS)))
 	mux.Handle("GET "+ChatsPath, loopbackOnly(http.HandlerFunc(c.serveChats)))
+	sameOrigin := http.NewCrossOriginProtection()
 	if c.sessions != nil {
-		sameOrigin := http.NewCrossOriginProtection()
 		mux.Handle("PATCH "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.renameChat))))
 		mux.Handle("DELETE "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.deleteChat))))
 	}
 	if c.status != nil {
 		mux.Handle("GET "+StatusPath, loopbackOnly(http.HandlerFunc(c.serveStatus)))
+	}
+	if c.settings != nil {
+		mux.Handle("GET "+SettingsPath, loopbackOnly(http.HandlerFunc(c.serveSettings)))
+		mux.Handle("PATCH "+SettingsPath, loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.updateSettings))))
 	}
 	ui := loopbackOnly(webui.Handler())
 	mux.Handle("GET /{$}", ui)
