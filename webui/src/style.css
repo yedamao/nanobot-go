@@ -375,6 +375,8 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: var(--muted);
   vertical-align: middle;
 }
+.badge[data-state="connected"] { color: var(--ok); border-color: var(--ok); }
+.badge[data-state="failed"] { color: var(--error); border-color: var(--error); }
 .page-list { list-style: none; margin: 0; padding: 0; }
 .page-list li {
   padding: 10px 12px;

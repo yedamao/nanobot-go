@@ -307,3 +307,78 @@ export async function deleteSkill(name: string): Promise<void> {
   const resp = await fetch("skills/" + encodeURIComponent(name), { method: "DELETE" });
   if (!resp.ok) throw await requestError(resp);
 }
+
+// GET /ui/mcp lists tools.mcpServers merged with the running gateway's
+// connection states. Env and header values are never sent, only their
+// names. PUT /ui/mcp/{name} creates (201) or replaces (200) a server,
+// PATCH /ui/mcp/{name} {"enabled":bool} turns one on or off and DELETE
+// /ui/mcp/{name} removes it (204). MCP servers connect when the gateway
+// starts: changes need a restart (restart_required).
+export interface MCPServer {
+  name: string;
+  enabled: boolean;
+  transport: string;
+  type?: string;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  url?: string;
+  env_keys?: string[];
+  header_keys?: string[];
+  tool_timeout?: number;
+  enabled_tools: string[] | null;
+  state: string;
+  error?: string;
+  tools?: string[];
+  restart_required: boolean;
+  removed?: boolean;
+}
+
+export interface MCPList {
+  servers: MCPServer[];
+  live: boolean;
+  restart_required: string[];
+}
+
+/** The body of PUT /ui/mcp/{name}. */
+export interface MCPServerInput {
+  type?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  cwd?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  toolTimeout?: number;
+  enabledTools?: string[];
+  enabled?: boolean;
+}
+
+export async function listMCP(): Promise<MCPList> {
+  const resp = await fetch("mcp", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  const body = (await resp.json()) as Partial<MCPList>;
+  return { servers: body.servers ?? [], live: !!body.live, restart_required: body.restart_required ?? [] };
+}
+
+async function mcpRequest(name: string, method: string, body?: unknown): Promise<Response> {
+  const resp = await fetch("mcp/" + encodeURIComponent(name), {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : {},
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp;
+}
+
+export async function putMCPServer(name: string, input: MCPServerInput): Promise<MCPServer> {
+  return (await mcpRequest(name, "PUT", input)).json();
+}
+
+export async function setMCPServerEnabled(name: string, enabled: boolean): Promise<MCPServer> {
+  return (await mcpRequest(name, "PATCH", { enabled })).json();
+}
+
+export async function deleteMCPServer(name: string): Promise<void> {
+  await mcpRequest(name, "DELETE");
+}

@@ -5,6 +5,7 @@ import { ChatList, useChats } from "./ChatList";
 import { Composer } from "./Composer";
 import { CronPage } from "./CronPage";
 import { Login } from "./Login";
+import { MCPPage } from "./MCPPage";
 import { MessageList } from "./MessageList";
 import { SkillsPage } from "./SkillsPage";
 import { StatusDialog } from "./StatusDialog";
@@ -22,11 +23,11 @@ function statusText(c: Connection): string {
 }
 
 type Gate = "checking" | "sign-in" | "ready";
-type View = "chat" | "cron" | "channels" | "skills";
+type View = "chat" | "cron" | "channels" | "skills" | "mcp";
 
 function readView(): View {
   const h = (typeof location !== "undefined" ? location.hash : "").replace(/^#\/?/, "");
-  if (h === "cron" || h === "channels" || h === "skills") return h;
+  if (h === "cron" || h === "channels" || h === "skills" || h === "mcp") return h;
   return "chat";
 }
 
@@ -134,6 +135,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
                 ["cron", "Cron"],
                 ["channels", "Channels"],
                 ["skills", "Skills"],
+                ["mcp", "MCP"],
               ] as const
             ).map(([id, label]) => (
               <button
@@ -174,6 +176,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
         {view === "cron" && <CronPage />}
         {view === "channels" && <ChannelsPage />}
         {view === "skills" && <SkillsPage />}
+        {view === "mcp" && <MCPPage />}
       </div>
       <StatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </div>
