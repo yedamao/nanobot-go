@@ -69,8 +69,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
-triggers, the fuller WebUI (provider keys, MCP, apps, skill marketplace,
-skill install marketplace, MCP/apps settings, ...). See
+triggers, the fuller WebUI (provider keys, MCP/apps settings, skill install
+marketplace, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -762,10 +762,10 @@ and press Enter. Each reply is a full agent turn, tools included.
   the next reload); its reply arrives as usual if the page is connected.
 - **Cron.** The **Cron** nav page lists every scheduled job (including
   system ones such as Dream/heartbeat): schedule summary, next/last run,
-  last status. **Run** fires a job now through the live cron service
-  (`{"force":true}` when disabled); **Remove** deletes a non-system job
-  (system jobs answer 403). Create/edit still go through the agent's
-  `cron` tool or `nanobot cron`.
+  last status. Create a job from the form (every / cron / one-time);
+  **Edit** / **Enable** / **Disable** patch non-system jobs; **Run**
+  fires one now (`{"force":true}` when disabled); **Remove** deletes a
+  non-system job (system jobs answer 403 on edit/remove).
 - **Channels & pairing.** The **Channels** page shows configured channel
   status from `GET /ui/status`, pending pairing codes with Approve/Deny,
   and approved senders with Revoke — the same store as
