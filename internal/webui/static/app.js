@@ -10,10 +10,16 @@
 //   {"chats":[{"chat_id":"...","updated_at":"...","title":"...","preview":"..."}]}
 // and renames or deletes one with PATCH /ui/chats/{chat_id} {"title":"..."}
 // (answered with the chat's entry) and DELETE /ui/chats/{chat_id} (204).
-// The Status panel shows GET /ui/status (read-only):
+// The Status panel shows GET /ui/status (what the gateway runs with):
 //   {"version":"...","go":"...","started_at":"...","uptime_seconds":0,"model":"...",
 //    "provider":"...","workspace":"...","channels":[{"name":"...","enabled":true,"running":true}],
 //    "api_enabled":false,"tools":{"exec":true,"web_fetch":true}}
+// and edits the saved settings with GET /ui/settings and PATCH /ui/settings
+// (only the changed fields of "settings"; both answer the same view):
+//   {"settings":{"model":"...","provider":"...","tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},
+//                "channels":{"websocket":{"enabled":true}}},
+//    "restart_required":["tools.exec"],"env_overrides":["model"],
+//    "choices":{"provider":["auto","..."],"exec_sandbox":["","seatbelt"]}}
 "use strict";
 
 const CHAT_KEY = "nanobot-go.chatId";
@@ -300,10 +306,148 @@ function duration(s) {
   return s + "s";
 }
 
+const settingsForm = document.getElementById("settings-form");
+const settingsFields = document.getElementById("settings-fields");
+const settingsMessage = document.getElementById("settings-message");
+const saveSettings = document.getElementById("save-settings");
+const setModel = document.getElementById("set-model");
+const setProvider = document.getElementById("set-provider");
+const setExec = document.getElementById("set-exec");
+const setWebFetch = document.getElementById("set-web-fetch");
+const setSandbox = document.getElementById("set-exec-sandbox");
+const setChannels = document.getElementById("set-channels");
+let saved = null; // the settings last loaded or saved
+let saving = false;
+
+function settingsNote(kind, text) {
+  settingsMessage.dataset.kind = kind;
+  settingsMessage.textContent = text;
+}
+
+// loadSettings fetches the saved settings into the form.
+async function loadSettings() {
+  if (saving) return;
+  settingsFields.disabled = true;
+  saveSettings.disabled = true;
+  let view;
+  try {
+    const resp = await fetch("settings", { cache: "no-store" });
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    view = await resp.json();
+  } catch (err) {
+    settingsNote("error", "Cannot load the settings (" + err.message + ").");
+    return;
+  }
+  fillSettings(view);
+  settingsNote("", pendingText(view));
+}
+
+function fillSettings(view) {
+  const s = view.settings;
+  saved = s;
+  setModel.value = s.model;
+  options(setProvider, view.choices.provider, s.provider, (v) => v);
+  setExec.checked = s.tools.exec;
+  setWebFetch.checked = s.tools.web_fetch;
+  options(setSandbox, view.choices.exec_sandbox, s.tools.exec_sandbox, (v) => v || "none");
+  setChannels.replaceChildren(
+    ...Object.keys(s.channels).sort().map((name) => {
+      const label = document.createElement("label");
+      label.className = "check";
+      const box = document.createElement("input");
+      box.type = "checkbox";
+      box.dataset.channel = name;
+      box.checked = s.channels[name].enabled;
+      label.append(box, " " + name + " channel");
+      return label;
+    }),
+  );
+  settingsFields.disabled = false;
+  saveSettings.disabled = false;
+}
+
+// options fills a select with choices, keeping a current value that is
+// not among them (such as another system's sandbox).
+function options(select, choices, current, label) {
+  const list = choices.includes(current) ? choices : [current, ...choices];
+  select.replaceChildren(
+    ...list.map((v) => {
+      const o = document.createElement("option");
+      o.value = v;
+      o.textContent = label(v);
+      return o;
+    }),
+  );
+  select.value = current;
+}
+
+function pendingText(view) {
+  const parts = [];
+  if (view.restart_required.length) parts.push("Restart the gateway to apply: " + view.restart_required.join(", ") + ".");
+  if (view.env_overrides.length) parts.push("Set by an environment variable, which wins over the saved value: " + view.env_overrides.join(", ") + ".");
+  return parts.join(" ");
+}
+
+// settingsPatch returns the fields of the form that differ from the
+// saved settings.
+function settingsPatch() {
+  const patch = {};
+  const tools = {};
+  const model = setModel.value.trim();
+  if (model !== saved.model) patch.model = model;
+  if (setProvider.value !== saved.provider) patch.provider = setProvider.value;
+  if (setExec.checked !== saved.tools.exec) tools.exec = setExec.checked;
+  if (setWebFetch.checked !== saved.tools.web_fetch) tools.web_fetch = setWebFetch.checked;
+  if (setSandbox.value !== saved.tools.exec_sandbox) tools.exec_sandbox = setSandbox.value;
+  if (Object.keys(tools).length) patch.tools = tools;
+  const channels = {};
+  for (const box of setChannels.querySelectorAll("input[data-channel]")) {
+    const name = box.dataset.channel;
+    if (saved.channels[name] && box.checked !== saved.channels[name].enabled) channels[name] = { enabled: box.checked };
+  }
+  if (Object.keys(channels).length) patch.channels = channels;
+  return patch;
+}
+
+// submitSettings saves the changed fields with PATCH /ui/settings.
+async function submitSettings() {
+  if (saving || !saved) return;
+  const patch = settingsPatch();
+  if (!Object.keys(patch).length) {
+    settingsNote("", "Nothing changed.");
+    return;
+  }
+  const off = patch.channels && patch.channels.websocket && !patch.channels.websocket.enabled;
+  if (off && !confirm("Disable the websocket channel?\n\nThis page will be gone after the gateway restarts.")) return;
+  saving = true;
+  saveSettings.disabled = true;
+  settingsFields.disabled = true;
+  settingsNote("", "Saving…");
+  try {
+    const resp = await fetch("settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!resp.ok) throw new Error((await resp.text()).trim() || "HTTP " + resp.status);
+    const view = await resp.json();
+    fillSettings(view);
+    settingsNote("ok", "Saved — restart the gateway to apply. " + pendingText(view));
+  } catch (err) {
+    settingsNote("error", "Not saved: " + err.message);
+  } finally {
+    saving = false;
+    saveSettings.disabled = !saved;
+    settingsFields.disabled = !saved;
+  }
+}
+
 function showStatus() {
   statusList.replaceChildren(statusRow("Status", "Loading…"));
+  settingsNote("", "Loading…");
   statusPanel.showModal();
   loadStatus();
+  loadSettings();
 }
 
 function showSidebar(open) {
@@ -425,7 +569,14 @@ stopButton.addEventListener("click", () => {
 newChat.addEventListener("click", () => switchChat(null));
 toggleChats.addEventListener("click", () => showSidebar(document.body.dataset.sidebar !== "open"));
 document.getElementById("show-status").addEventListener("click", showStatus);
-document.getElementById("refresh-status").addEventListener("click", loadStatus);
+document.getElementById("refresh-status").addEventListener("click", () => {
+  loadStatus();
+  loadSettings();
+});
+settingsForm.addEventListener("submit", (ev) => {
+  ev.preventDefault();
+  submitSettings();
+});
 document.getElementById("close-status").addEventListener("click", () => statusPanel.close());
 // Esc closes the dialog natively.
 statusPanel.addEventListener("close", () => input.focus());

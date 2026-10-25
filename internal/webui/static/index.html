@@ -28,11 +28,25 @@
 <dialog id="status-panel" aria-labelledby="status-title">
   <h2 id="status-title">Gateway status</h2>
   <dl id="status-list"></dl>
-  <p class="status-note">Read-only. Change settings in config.json and restart the gateway.</p>
-  <div class="status-actions">
-    <button id="refresh-status" type="button">Refresh</button>
-    <button id="close-status" type="button">Close</button>
-  </div>
+  <p class="status-note">What the gateway is running with now.</p>
+  <form id="settings-form" autocomplete="off">
+    <h3>Settings</h3>
+    <fieldset id="settings-fields" disabled>
+      <label>Model <input id="set-model" type="text" maxlength="200" spellcheck="false" required></label>
+      <label>Provider <select id="set-provider"></select></label>
+      <label class="check"><input id="set-exec" type="checkbox"> exec tool</label>
+      <label class="check"><input id="set-web-fetch" type="checkbox"> web_fetch tool</label>
+      <label>Exec sandbox <select id="set-exec-sandbox"></select></label>
+      <div id="set-channels"></div>
+    </fieldset>
+    <p class="status-note">Saved to config.json; the gateway uses saved settings after a restart. Keys, tokens and allow lists are edited in config.json only.</p>
+    <p id="settings-message" class="status-note" role="status"></p>
+    <div class="status-actions">
+      <button id="save-settings" type="submit" disabled>Save</button>
+      <button id="refresh-status" type="button">Refresh</button>
+      <button id="close-status" type="button">Close</button>
+    </div>
+  </form>
 </dialog>
 <script src="app.js"></script>
 </body>
