@@ -36,8 +36,9 @@ function StatusList({ status, error }: { status: Status | null; error: string })
   );
 }
 
-// StatusDialog shows GET /ui/status and edits the settings whitelist
-// with GET and PATCH /ui/settings. Esc or Close closes it.
+// StatusDialog shows GET /ui/status and edits the tool and channel
+// settings with GET and PATCH /ui/settings; the Models page owns the
+// model settings. Esc or Close closes it.
 export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<Status | null>(null);
@@ -122,28 +123,13 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
       <form id="settings-form" autoComplete="off" onSubmit={submit}>
         <h3>Settings</h3>
         <fieldset id="settings-fields" disabled={disabled}>
-          <label>
-            Model
-            <input
-              type="text"
-              maxLength={200}
-              spellCheck={false}
-              required
-              value={draft?.model ?? ""}
-              onChange={(ev) => edit((d) => ({ ...d, model: ev.target.value }))}
-            />
-          </label>
-          <label>
-            Provider
-            <select value={draft?.provider ?? ""} onChange={(ev) => edit((d) => ({ ...d, provider: ev.target.value }))}>
-              {draft &&
-                withCurrent(choices.provider, draft.provider).map((v) => (
-                  <option key={v} value={v}>
-                    {v}
-                  </option>
-                ))}
-            </select>
-          </label>
+          <p className="status-note">
+            Model, provider and fallback models are edited on the{" "}
+            <a href="#/models" onClick={() => dialog.current?.close()}>
+              Models page
+            </a>
+            .
+          </p>
           <label className="check">
             <input type="checkbox" checked={draft?.tools.exec ?? false} onChange={(ev) => tool("exec", ev.target.checked)} />{" "}
             exec tool

@@ -20,6 +20,10 @@ import (
 // maxModelLen caps a model name set from the WebUI.
 const maxModelLen = 200
 
+// maxFallbackModels caps agents.defaults.fallbackModels set from the
+// WebUI.
+const maxFallbackModels = 16
+
 // editableChannels are the channels whose "enabled" flag the WebUI may
 // set, and only when their section is already in the config file: a
 // section added from the page would lack its token.
@@ -30,8 +34,9 @@ var editableChannels = []string{telegram.Name, websocket.Name, weixin.Name}
 // fields on it in place and saves it, so keys, tokens and every other
 // setting in the file survive; the running config, which has the
 // environment applied, is never saved. Changes take effect on the next
-// start: running holds the settings the gateway runs with, to report
-// which saved ones differ.
+// start, the model, provider and fallbackModels included (the provider
+// chain is built once when the gateway starts): running holds the
+// settings the gateway runs with, to report which saved ones differ.
 type webSettings struct {
 	path    string
 	running websocket.Settings
@@ -113,14 +118,18 @@ func (s *webSettings) view(cfg *config.Config) websocket.SettingsView {
 func settingsOf(cfg *config.Config) websocket.Settings {
 	d := cfg.Agents.Defaults
 	st := websocket.Settings{
-		Model:    d.Model,
-		Provider: d.Provider,
+		Model:          d.Model,
+		Provider:       d.Provider,
+		FallbackModels: make([]websocket.FallbackModel, 0, len(d.FallbackModels)),
 		Tools: websocket.ToolSettings{
 			Exec:        cfg.Tools.Exec.Enable,
 			WebFetch:    cfg.Tools.Web.Enable,
 			ExecSandbox: cfg.Tools.Exec.Sandbox,
 		},
 		Channels: map[string]websocket.ChannelSettings{},
+	}
+	for _, fb := range d.FallbackModels {
+		st.FallbackModels = append(st.FallbackModels, websocket.FallbackModel{Provider: fb.Provider, Model: fb.Model})
 	}
 	for _, name := range editableChannels {
 		raw, ok := cfg.Channels[name]
@@ -147,6 +156,7 @@ func settingsDiff(saved, running websocket.Settings) []string {
 	}
 	add("model", saved.Model != running.Model)
 	add("provider", saved.Provider != running.Provider)
+	add("fallbackModels", !slices.Equal(saved.FallbackModels, running.FallbackModels))
 	add("tools.exec", saved.Tools.Exec != running.Tools.Exec)
 	add("tools.web_fetch", saved.Tools.WebFetch != running.Tools.WebFetch)
 	add("tools.exec_sandbox", saved.Tools.ExecSandbox != running.Tools.ExecSandbox)
@@ -167,26 +177,38 @@ func settingsDiff(saved, running websocket.Settings) []string {
 func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 	d := &cfg.Agents.Defaults
 	if p.Model != nil {
-		m := strings.TrimSpace(*p.Model)
-		switch {
-		case m == "":
-			return fmt.Errorf("model must not be empty")
-		case len(m) > maxModelLen:
-			return fmt.Errorf("model must be at most %d bytes", maxModelLen)
-		case strings.ContainsFunc(m, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }):
-			return fmt.Errorf("model must not contain spaces or control characters")
+		m, err := checkModel("model", *p.Model)
+		if err != nil {
+			return err
 		}
 		d.Model = m
 	}
 	if p.Provider != nil {
-		name := strings.TrimSpace(*p.Provider)
-		if name == "" {
-			name = config.ProviderAuto
-		}
-		if !slices.Contains(providerChoices(), name) {
-			return fmt.Errorf("provider %q is not one of %s", name, strings.Join(providerChoices(), ", "))
+		name, err := checkProvider("provider", *p.Provider)
+		if err != nil {
+			return err
 		}
 		d.Provider = name
+	}
+	if p.FallbackModels != nil {
+		list := *p.FallbackModels
+		if len(list) > maxFallbackModels {
+			return fmt.Errorf("fallbackModels must have at most %d entries", maxFallbackModels)
+		}
+		fbs := make([]config.FallbackModel, 0, len(list))
+		for i, fb := range list {
+			at := fmt.Sprintf("fallbackModels[%d]", i)
+			name, err := checkProvider(at+".provider", fb.Provider)
+			if err != nil {
+				return err
+			}
+			m, err := checkModel(at+".model", fb.Model)
+			if err != nil {
+				return err
+			}
+			fbs = append(fbs, config.FallbackModel{Provider: name, Model: m})
+		}
+		d.FallbackModels = fbs
 	}
 	if t := p.Tools; t != nil {
 		if t.Exec != nil {
@@ -222,6 +244,34 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 		cfg.Channels[name] = patched
 	}
 	return nil
+}
+
+// checkModel returns the model name m, trimmed, or an error naming it
+// as field.
+func checkModel(field, m string) (string, error) {
+	m = strings.TrimSpace(m)
+	switch {
+	case m == "":
+		return "", fmt.Errorf("%s must not be empty", field)
+	case len(m) > maxModelLen:
+		return "", fmt.Errorf("%s must be at most %d bytes", field, maxModelLen)
+	case strings.ContainsFunc(m, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }):
+		return "", fmt.Errorf("%s must not contain spaces or control characters", field)
+	}
+	return m, nil
+}
+
+// checkProvider returns the provider setting name, trimmed, with empty
+// meaning "auto", or an error naming it as field.
+func checkProvider(field, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = config.ProviderAuto
+	}
+	if !slices.Contains(providerChoices(), name) {
+		return "", fmt.Errorf("%s %q is not one of %s", field, name, strings.Join(providerChoices(), ", "))
+	}
+	return name, nil
 }
 
 // setEnabled returns the channel section raw with its "enabled" flag set

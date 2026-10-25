@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -46,8 +47,16 @@ func TestParseSettingsPatch(t *testing.T) {
 		*p.Tools.ExecSandbox != "seatbelt" || !*p.Channels["telegram"].Enabled {
 		t.Errorf("patch = %+v", p)
 	}
-	if p, err := ParseSettingsPatch([]byte(`{}`)); err != nil || p.Model != nil || p.Tools != nil || p.Channels != nil {
+	if p, err := ParseSettingsPatch([]byte(`{}`)); err != nil || p.Model != nil || p.Tools != nil || p.Channels != nil || p.FallbackModels != nil {
 		t.Errorf("empty patch = %+v, %v", p, err)
+	}
+	p, err = ParseSettingsPatch([]byte(`{"fallbackModels":[{"provider":"openai","model":"gpt-x"},{"model":"m2"}]}`))
+	if err != nil || p.FallbackModels == nil ||
+		!slices.Equal(*p.FallbackModels, []FallbackModel{{Provider: "openai", Model: "gpt-x"}, {Model: "m2"}}) {
+		t.Errorf("fallback patch = %+v, %v", p, err)
+	}
+	if p, err := ParseSettingsPatch([]byte(`{"fallbackModels":[]}`)); err != nil || p.FallbackModels == nil || len(*p.FallbackModels) != 0 {
+		t.Errorf("clearing fallback patch = %+v, %v", p, err)
 	}
 
 	for _, body := range []string{
@@ -80,6 +89,17 @@ func TestParseSettingsPatch(t *testing.T) {
 		`{"env":{}}`,
 		`{"secret":"x"}`,
 		`{"password":"x"}`,
+		`{"fallbackModels":null}`,
+		`{"fallbackModels":{}}`,
+		`{"fallbackModels":"m"}`,
+		`{"fallbackModels":["m"]}`,
+		`{"fallbackModels":[null]}`,
+		`{"fallbackModels":[[]]}`,
+		`{"fallbackModels":[{"model":1}]}`,
+		`{"fallbackModels":[{"model":null}]}`,
+		`{"fallbackModels":[{"model":"m","apiKey":"x"}]}`,
+		`{"fallbackModels":[{"model":"m","apiBase":"https://x"}]}`,
+		`{"fallbackModels":[{"Model":"m"}]}`,
 	} {
 		if p, err := ParseSettingsPatch([]byte(body)); err == nil {
 			t.Errorf("ParseSettingsPatch(%s) = %+v, want an error", body, p)
@@ -117,7 +137,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 
 	code, body := do(http.MethodGet, "", "", "")
-	want := `{"settings":{"model":"m","provider":"auto","tools":{"exec":true,"web_fetch":false,"exec_sandbox":""},"channels":{}},` +
+	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":""},"channels":{}},` +
 		`"restart_required":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[]}}` + "\n"
 	if code != http.StatusOK || body != want {
 		t.Errorf("GET = %d\n%s\nwant\n%s", code, body, want)

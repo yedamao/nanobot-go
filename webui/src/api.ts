@@ -83,9 +83,16 @@ export async function getStatus(): Promise<Status> {
 // GET and PATCH /ui/settings (PATCH takes only the changed fields of
 // "settings") both answer a SettingsView. Saved settings apply after a
 // gateway restart.
+export interface FallbackModel {
+  provider: string;
+  model: string;
+}
+
 export interface Settings {
   model: string;
   provider: string;
+  /** Tried in order when the primary provider fails. */
+  fallbackModels: FallbackModel[] | null;
   tools: { exec: boolean; web_fetch: boolean; exec_sandbox: string };
   channels: Record<string, { enabled: boolean }>;
 }
@@ -100,6 +107,8 @@ export interface SettingsView {
 export interface SettingsPatch {
   model?: string;
   provider?: string;
+  /** Replaces the whole list; [] clears it. */
+  fallbackModels?: FallbackModel[];
   tools?: Partial<Settings["tools"]>;
   channels?: Record<string, { enabled: boolean }>;
 }

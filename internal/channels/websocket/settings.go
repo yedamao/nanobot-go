@@ -38,11 +38,21 @@ type SettingsStore interface {
 // the config file. It never holds key material, tokens, allow lists,
 // headers, environment values or paths.
 type Settings struct {
-	Model    string       `json:"model"`
-	Provider string       `json:"provider"`
-	Tools    ToolSettings `json:"tools"`
+	Model    string `json:"model"`
+	Provider string `json:"provider"`
+	// FallbackModels are tried in order when the primary provider fails.
+	FallbackModels []FallbackModel `json:"fallbackModels"`
+	Tools          ToolSettings    `json:"tools"`
 	// Channels holds the configured built-in channels by name.
 	Channels map[string]ChannelSettings `json:"channels"`
+}
+
+// FallbackModel is one entry of Settings.FallbackModels: a provider
+// ("auto" or a preset) and a model. It names no key or endpoint; the
+// provider's credentials stay in config.json.
+type FallbackModel struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
 }
 
 // ToolSettings are the editable tool switches.
@@ -80,10 +90,13 @@ type SettingsChoices struct {
 // SettingsPatch is a decoded PATCH /ui/settings body: nil fields are left
 // unchanged.
 type SettingsPatch struct {
-	Model    *string                 `json:"model"`
-	Provider *string                 `json:"provider"`
-	Tools    *ToolSettingsPatch      `json:"tools"`
-	Channels map[string]ChannelPatch `json:"channels"`
+	Model    *string `json:"model"`
+	Provider *string `json:"provider"`
+	// FallbackModels, when set, replaces the whole list in order; an
+	// empty list clears it.
+	FallbackModels *[]FallbackModel        `json:"fallbackModels"`
+	Tools          *ToolSettingsPatch      `json:"tools"`
+	Channels       map[string]ChannelPatch `json:"channels"`
 }
 
 // ToolSettingsPatch changes ToolSettings.
@@ -99,12 +112,14 @@ type ChannelPatch struct {
 }
 
 // patchSchema is the exact shape of a settings change: objects list their
-// keys, nil marks a value and "*" stands for any channel name.
+// keys, a one-element slice is a list of its element, nil marks a value
+// and "*" stands for any channel name.
 var patchSchema = map[string]any{
-	"model":    nil,
-	"provider": nil,
-	"tools":    map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil},
-	"channels": map[string]any{"*": map[string]any{"enabled": nil}},
+	"model":          nil,
+	"provider":       nil,
+	"fallbackModels": []any{map[string]any{"provider": nil, "model": nil}},
+	"tools":          map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil},
+	"channels":       map[string]any{"*": map[string]any{"enabled": nil}},
 }
 
 // secretKeyRE matches key names that look like they hold a secret. They
@@ -142,6 +157,18 @@ func ParseSettingsPatch(data []byte) (SettingsPatch, error) {
 func checkKeys(v any, schema any, path string) error {
 	if v == nil {
 		return fmt.Errorf("%s must not be null", orBody(path))
+	}
+	if elem, ok := schema.([]any); ok {
+		list, ok := v.([]any)
+		if !ok {
+			return fmt.Errorf("%s must be a JSON array", orBody(path))
+		}
+		for i, e := range list {
+			if err := checkKeys(e, elem[0], fmt.Sprintf("%s[%d]", path, i)); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	fields, ok := schema.(map[string]any)
 	if !ok {
@@ -220,6 +247,9 @@ func (c *Channel) updateSettings(w http.ResponseWriter, r *http.Request) {
 // fillSettings replaces v's nil lists and maps with empty ones, so the
 // JSON always has them.
 func fillSettings(v SettingsView) SettingsView {
+	if v.Settings.FallbackModels == nil {
+		v.Settings.FallbackModels = []FallbackModel{}
+	}
 	if v.Settings.Channels == nil {
 		v.Settings.Channels = map[string]ChannelSettings{}
 	}

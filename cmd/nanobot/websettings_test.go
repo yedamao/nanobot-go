@@ -82,8 +82,9 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 	}
 	want := websocket.Settings{
 		Model: "claude-test", Provider: "anthropic",
-		Tools:    websocket.ToolSettings{Exec: true, WebFetch: true},
-		Channels: map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
+		FallbackModels: []websocket.FallbackModel{},
+		Tools:          websocket.ToolSettings{Exec: true, WebFetch: true},
+		Channels:       map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
 	}
 	if !reflect.DeepEqual(v.Settings, want) || len(v.RestartRequired) != 0 || len(v.EnvOverrides) != 0 {
 		t.Errorf("view = %+v, want settings %+v", v, want)
@@ -189,6 +190,10 @@ func TestWebSettingsRefusals(t *testing.T) {
 		{"custom channel", websocket.SettingsPatch{Channels: map[string]websocket.ChannelPatch{"custom": {Enabled: ptr(false)}}}},
 		{"unconfigured channel", websocket.SettingsPatch{Channels: map[string]websocket.ChannelPatch{"weixin": {Enabled: ptr(true)}}}},
 		{"valid then invalid", websocket.SettingsPatch{Model: ptr("ok"), Provider: ptr("acme")}},
+		{"fallback unknown provider", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Provider: "acme", Model: "m"}}}},
+		{"fallback empty model", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Provider: "openai", Model: " "}}}},
+		{"fallback model with spaces", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Model: "a b"}}}},
+		{"too many fallbacks", websocket.SettingsPatch{FallbackModels: ptr(slices.Repeat([]websocket.FallbackModel{{Model: "m"}}, maxFallbackModels+1))}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			path := writeSettingsConfig(t)
@@ -224,6 +229,61 @@ func TestWebSettingsSandboxAndProvider(t *testing.T) {
 	// The environment's model is the running one, so the saved one differs.
 	if !slices.Equal(v.EnvOverrides, []string{"model"}) || !slices.Contains(v.RestartRequired, "model") {
 		t.Errorf("env overrides = %v, restart = %v", v.EnvOverrides, v.RestartRequired)
+	}
+}
+
+func TestWebSettingsFallbackModels(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, map[string]string{"NANOBOT_GO_OPENAI_API_KEY": envSecret})
+
+	v, err := s.UpdateSettings(websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{
+		{Provider: "openai", Model: " gpt-test "},
+		{Provider: "", Model: "deepseek-chat"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []websocket.FallbackModel{{Provider: "openai", Model: "gpt-test"}, {Provider: "auto", Model: "deepseek-chat"}}
+	if !slices.Equal(v.Settings.FallbackModels, want) || !slices.Equal(v.RestartRequired, []string{"fallbackModels"}) {
+		t.Errorf("after update: fallbacks %+v, restart %v", v.Settings.FallbackModels, v.RestartRequired)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fbs := cfg.Agents.Defaults.FallbackModels; len(fbs) != 2 || fbs[0] != (config.FallbackModel{Provider: "openai", Model: "gpt-test"}) ||
+		fbs[1] != (config.FallbackModel{Provider: "auto", Model: "deepseek-chat"}) {
+		t.Errorf("saved fallbackModels = %+v", fbs)
+	}
+	if cfg.Providers.OpenAI.APIKey != fileSecret+"-openai" {
+		t.Error("the provider's key was not kept")
+	}
+
+	// The view never carries key material.
+	body, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{fileSecret, envSecret, "apiKey", "apiBase", "example.test"} {
+		if strings.Contains(string(body), leak) {
+			t.Errorf("settings JSON holds %q: %s", leak, body)
+		}
+	}
+
+	// Reordering is a change; an omitted list is left alone.
+	v, err = s.UpdateSettings(websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{want[1], want[0]}})
+	if err != nil || !slices.Equal(v.Settings.FallbackModels, []websocket.FallbackModel{want[1], want[0]}) {
+		t.Errorf("reorder = %+v, %v", v.Settings.FallbackModels, err)
+	}
+	v, err = s.UpdateSettings(websocket.SettingsPatch{Model: ptr("claude-test")})
+	if err != nil || len(v.Settings.FallbackModels) != 2 {
+		t.Errorf("unrelated patch = %+v, %v", v.Settings.FallbackModels, err)
+	}
+
+	// Clearing the list matches the running gateway again.
+	v, err = s.UpdateSettings(websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{}})
+	if err != nil || len(v.Settings.FallbackModels) != 0 || len(v.RestartRequired) != 0 {
+		t.Errorf("clear = %+v, restart %v, %v", v.Settings.FallbackModels, v.RestartRequired, err)
 	}
 }
 

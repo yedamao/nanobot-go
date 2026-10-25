@@ -815,21 +815,26 @@ and press Enter. Each reply is a full agent turn, tools included.
   It is a snapshot of the config the gateway started with, so it does
   not change when settings are saved.
 - **Settings.** Below the status, the same dialog edits a small
-  whitelist of settings in `config.json`. **Save changes nothing in the
-  running gateway: restart it to apply them.** The page says which saved
-  settings differ from the running ones.
+  whitelist of settings in `config.json`; the model settings (`model`,
+  `provider`, `fallbackModels`) are edited on the **Models** page
+  (`#/models`) instead, which sets the primary model and provider and
+  adds, removes and reorders the fallback list, through the same API.
+  **Save changes nothing in the running gateway: restart it to apply
+  them.** The page says which saved settings differ from the running
+  ones.
 
   | Setting | Config field | Values |
   | --- | --- | --- |
   | `model` | `agents.defaults.model` | non-empty, no spaces, at most 200 bytes |
   | `provider` | `agents.defaults.provider` | `auto` (or empty) or a preset name |
+  | `fallbackModels` | `agents.defaults.fallbackModels` | ordered list (at most 16) of `{"provider","model"}`, each as above; sent whole, `[]` clears it |
   | `tools.exec` | `tools.exec.enable` | true / false |
   | `tools.web_fetch` | `tools.web.enable` | true / false |
   | `tools.exec_sandbox` | `tools.exec.sandbox` | `""` (none) or this OS's backend (`seatbelt` on macOS, `bwrap` on Linux) |
   | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
 
   `GET /ui/settings` reads the file and answers
-  `{"settings":{"model":"...","provider":"auto","tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
+  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-4o"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
   `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings

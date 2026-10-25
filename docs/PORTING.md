@@ -288,6 +288,15 @@ Phase 2 is complete; phase 3 is in progress.
     keys), validates and saves it. Changes apply on restart: the view
     lists `restart_required` (saved differs from running) and
     `env_overrides`. The Status dialog has a form for them.
+  - Done (simplified): Models page (`#/models`). The settings whitelist
+    also takes `fallbackModels` (ordered `{provider, model}` list,
+    replaced whole; `[]` clears), checked like `model`/`provider` and
+    saved to `agents.defaults.fallbackModels` under the same lock; a
+    change vs the running gateway lists `fallbackModels` in
+    `restart_required`. The page edits the primary model/provider and
+    adds/removes/reorders fallbacks with one PATCH; the Status dialog
+    links to it instead of editing model/provider. Gaps vs nanobot: no
+    model catalog/picker, no per-provider key or endpoint editing.
   - Done: token streaming. `ChatRequest.OnDelta` makes the
     OpenAI-compatible provider (and so DeepSeek) and the Anthropic
     provider send `"stream": true` and parse the SSE events; `RunSpec.Stream` passes each delta to
@@ -439,7 +448,7 @@ Phase 2 is complete; phase 3 is in progress.
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
   - Next WebUI slices: i18n, a richer layout and components (nanobot's
-    Radix/Tailwind UI), models page (models/fallbackModels), MCP
+    Radix/Tailwind UI), a model catalog/picker, MCP
     presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
@@ -1236,7 +1245,7 @@ Phase 2 is complete; phase 3 is in progress.
   small `Status` DTO callback from the gateway rather than importing
   the config package. The config part is a snapshot taken at startup;
   uptime and running channels are read per request.
-  `/ui/settings` edits only six kinds of field and never sees a secret:
+  `/ui/settings` edits only seven kinds of field and never sees a secret:
   the channel decodes the body against an exact key schema (no
   case-insensitive matching, no nulls, secret-looking names refused at
   any depth) into a `SettingsPatch` DTO, and the gateway applies it to a

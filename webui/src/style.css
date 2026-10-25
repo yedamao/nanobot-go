@@ -396,6 +396,10 @@ button:disabled { opacity: 0.5; cursor: default; }
 .skill-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .skill-head .page-actions { margin-left: auto; }
 
+.models-fallbacks { margin: 0 0 8px; }
+.models-fallbacks li { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.models-fallbacks .cron-fields { flex: 1; min-width: 240px; }
+
 /* Cron create / edit */
 .cron-form {
   margin: 0 0 20px;

@@ -6,6 +6,7 @@ import { diffSettings, duration, pendingText, withCurrent } from "./settings.ts"
 const saved: Settings = {
   model: "deepseek-chat",
   provider: "auto",
+  fallbackModels: [{ provider: "openai", model: "gpt-4o" }],
   tools: { exec: true, web_fetch: true, exec_sandbox: "" },
   channels: { websocket: { enabled: true }, telegram: { enabled: false } },
 };
