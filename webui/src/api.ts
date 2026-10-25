@@ -37,3 +37,63 @@ export function renameChat(id: string, title: string): Promise<void> {
 export function deleteChat(id: string): Promise<void> {
   return chatRequest(id, "DELETE");
 }
+
+// GET /ui/status is what the gateway runs with now.
+export interface Status {
+  version: string;
+  go?: string;
+  started_at?: string;
+  uptime_seconds: number;
+  model: string;
+  provider: string;
+  workspace: string;
+  channels: { name: string; enabled: boolean; running: boolean }[] | null;
+  api_enabled: boolean;
+  tools: { exec: boolean; web_fetch: boolean };
+}
+
+export async function getStatus(): Promise<Status> {
+  const resp = await fetch("status", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+// GET and PATCH /ui/settings (PATCH takes only the changed fields of
+// "settings") both answer a SettingsView. Saved settings apply after a
+// gateway restart.
+export interface Settings {
+  model: string;
+  provider: string;
+  tools: { exec: boolean; web_fetch: boolean; exec_sandbox: string };
+  channels: Record<string, { enabled: boolean }>;
+}
+
+export interface SettingsView {
+  settings: Settings;
+  restart_required: string[] | null;
+  env_overrides: string[] | null;
+  choices: { provider: string[] | null; exec_sandbox: string[] | null };
+}
+
+export interface SettingsPatch {
+  model?: string;
+  provider?: string;
+  tools?: Partial<Settings["tools"]>;
+  channels?: Record<string, { enabled: boolean }>;
+}
+
+export async function getSettings(): Promise<SettingsView> {
+  const resp = await fetch("settings", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function saveSettings(patch: SettingsPatch): Promise<SettingsView> {
+  const resp = await fetch("settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}

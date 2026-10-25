@@ -159,3 +159,35 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 #send { background: var(--user); color: var(--user-text); border-color: var(--user); }
 #stop { color: var(--error); border-color: var(--error); }
+#status-panel {
+  width: min(480px, calc(100% - 32px));
+  padding: 16px 20px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+#status-panel::backdrop { background: rgb(0 0 0 / 0.4); }
+#status-panel h2 { font-size: 16px; margin: 0 0 12px; }
+#status-list { margin: 0; display: grid; gap: 6px; }
+#status-list div { display: grid; grid-template-columns: 110px 1fr; gap: 8px; }
+#status-list dt { color: var(--muted); }
+#status-list dd { margin: 0; overflow-wrap: anywhere; }
+.status-note { font-size: 12px; color: var(--muted); margin: 12px 0 0; }
+.status-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+#settings-form { margin-top: 16px; border-top: 1px solid var(--border); padding-top: 12px; }
+#settings-form h3 { font-size: 14px; margin: 0 0 8px; }
+#settings-fields { border: 0; margin: 0; padding: 0; display: grid; gap: 8px; }
+#settings-fields label { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; color: var(--muted); }
+#settings-fields label.check { display: flex; gap: 8px; color: var(--text); }
+#settings-fields input[type="text"], #settings-fields select {
+  font: inherit;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+#set-channels { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+#settings-message[data-kind="ok"] { color: #2e9e5b; }
+#settings-message[data-kind="error"] { color: var(--error); }

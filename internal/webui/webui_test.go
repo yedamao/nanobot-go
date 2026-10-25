@@ -82,13 +82,13 @@ func TestBundle(t *testing.T) {
 	for _, lit := range []string{
 		"/ws", "?chat_id=", "nanobot-go.chatId",
 		"hello", "history", "progress", "delta", "message", "error", "chat", "stop",
-		"chats", "chats/", "PATCH", "DELETE",
+		"chats", "chats/", "PATCH", "DELETE", "status", "settings",
 	} {
 		if !quoted(lit).MatchString(bundle["js"]) {
 			t.Errorf("JS bundle lacks the literal %q", lit)
 		}
 	}
-	for _, sel := range []string{".msg.assistant.streaming", "#composer", "#sidebar", ".status[data-state=open]", ".chat-actions"} {
+	for _, sel := range []string{".msg.assistant.streaming", "#composer", "#sidebar", ".status[data-state=open]", ".chat-actions", "#status-panel", "#settings-form"} {
 		if !strings.Contains(strings.ReplaceAll(bundle["css"], `"`, ""), sel) {
 			t.Errorf("CSS bundle lacks %q", sel)
 		}

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { ChatList, useChats } from "./ChatList";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
+import { StatusDialog } from "./StatusDialog";
 import { useChat, type Connection } from "./useChat";
 
 function statusText(c: Connection): string {
@@ -17,6 +18,7 @@ function statusText(c: Connection): string {
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
   const { chats, setChats, reload } = useChats();
   const { transcript, conn, chatId, send, stop, switchChat } = useChat(reload);
 
@@ -61,10 +63,20 @@ export default function App() {
           <span className="status" data-state={conn.state} role="status">
             {statusText(conn)}
           </span>
+          <button
+            id="show-status"
+            type="button"
+            title="Show the gateway status"
+            aria-controls="status-panel"
+            onClick={() => setStatusOpen(true)}
+          >
+            Status
+          </button>
         </header>
         <MessageList transcript={transcript} conn={conn.state} />
         <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
       </div>
+      <StatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </div>
   );
 }
