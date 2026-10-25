@@ -5,7 +5,7 @@ import { pendingText, withCurrent } from "./settings";
 
 // ModelsPage edits agents.defaults.model, .provider and the ordered
 // .fallbackModels through GET and PATCH /ui/settings, the same store the
-// Status dialog reads. Provider keys stay in config.json.
+// Status dialog reads. Provider keys are set on the Providers page.
 export function ModelsPage() {
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<ModelsDraft | null>(null);
@@ -194,7 +194,7 @@ export function ModelsPage() {
       )}
       <p className="page-empty">
         Saved to <code>agents.defaults</code> in config.json and applied when the gateway restarts. API keys and
-        endpoints are set per provider in config.json or the environment, never here.
+        endpoints are set per provider on the <a href="#/providers">Providers</a> page.
       </p>
     </section>
   );

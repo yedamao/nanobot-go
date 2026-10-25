@@ -65,14 +65,16 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   plus **Cron** (list/run/create/edit/enable/remove; system jobs protected),
   **Channels** (with pairing approve/deny/revoke), **Skills**
   (enable/disable, install bundled, delete) and **MCP** (list with live
-  state, add stdio/HTTP, enable/disable, remove; restart to apply) pages.
+  state, add stdio/HTTP, enable/disable, remove; restart to apply),
+  **Models** and **Providers** (set/clear API keys, never shown back;
+  edit endpoints) pages.
   `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
-triggers, the fuller WebUI (provider keys, MCP presets/OAuth/apps, a
-skill marketplace, ...). See
+triggers, the fuller WebUI (provider OAuth logins, custom providers, a
+model catalog, MCP presets/OAuth/apps, a skill marketplace, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -155,6 +157,17 @@ Missing fields keep their defaults; unknown keys are an error.
   "api": {"enabled": false, "host": "127.0.0.1", "port": 8900, "timeout": 120, "apiKey": ""}
 }
 ```
+
+The WebUI's **Providers** page (`#/providers`) sets or clears each
+known provider's `apiKey` and edits its `apiBase`. Saved keys are never
+sent back to the browser: `GET /ui/providers` reports `hasApiKey` and a
+hint (`sk-a••••xyz1`, or `••••` for a key of 8 characters or fewer).
+`PATCH /ui/providers/{name}` takes `{"apiKey":"…"}` (trimmed; a redacted
+placeholder such as `***` or a hint is refused with 400),
+`{"clearApiKey":true}` and/or `{"apiBase":"https://…"}` (`""` removes
+it). Provider clients are built when the gateway starts, so a change
+shows **restart required** until it restarts; `env_overrides` names the
+fields `NANOBOT_GO_<NAME>_API_KEY` / `_API_BASE` override.
 
 With `"provider": "auto"` the provider is chosen from the model name: a
 `<provider>/` prefix (`deepseek/deepseek-chat`), then a known model family
@@ -728,13 +741,15 @@ and press Enter. Each reply is a full agent turn, tools included.
   pairing (`GET /ui/pairing`, `POST …/approve|deny|revoke`),
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
   `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
-  `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), workspace files (`GET /ui/media/…`,
+  `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), provider credentials
+  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
-  The header nav switches Chat / Cron / Channels / Skills / MCP (`#/`,
-  `#/cron`, `#/channels`, `#/skills`, `#/mcp`).
+  The header nav switches Chat / Cron / Channels / Models / Providers /
+  Skills / MCP (`#/`, `#/cron`, `#/channels`, `#/models`, `#/providers`,
+  `#/skills`, `#/mcp`).
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
   keeps its chat id in the browser's `localStorage` and reconnects with
   it, so a reload continues the same session; **New chat** starts a new

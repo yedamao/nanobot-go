@@ -391,3 +391,42 @@ export async function setMCPServerEnabled(name: string, enabled: boolean): Promi
 export async function deleteMCPServer(name: string): Promise<void> {
   await mcpRequest(name, "DELETE");
 }
+
+// GET /ui/providers lists the known providers' credentials: never an
+// apiKey, only hasApiKey and a short apiKeyHint (sk-a••••xyz1). PATCH
+// /ui/providers/{name} sets (apiKey) or clears (clearApiKey) the key and
+// sets apiBase ("" removes it). Provider clients are built when the
+// gateway starts: changes need a restart (restart_required).
+export interface Provider {
+  name: string;
+  hasApiKey: boolean;
+  apiKeyHint: string;
+  apiBase: string;
+  defaultApiBase?: string;
+  restart_required: boolean;
+  /** "apiKey" and/or "apiBase" when NANOBOT_GO_<NAME>_API_KEY/_API_BASE win over the file. */
+  env_overrides: string[];
+}
+
+/** The body of PATCH /ui/providers/{name}. */
+export interface ProviderPatch {
+  apiKey?: string;
+  clearApiKey?: boolean;
+  apiBase?: string;
+}
+
+export async function listProviders(): Promise<Provider[]> {
+  const resp = await fetch("providers", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return ((await resp.json()) as { providers?: Provider[] }).providers ?? [];
+}
+
+export async function saveProvider(name: string, patch: ProviderPatch): Promise<Provider> {
+  const resp = await fetch("providers/" + encodeURIComponent(name), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}

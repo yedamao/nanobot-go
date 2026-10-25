@@ -296,7 +296,17 @@ Phase 2 is complete; phase 3 is in progress.
     `restart_required`. The page edits the primary model/provider and
     adds/removes/reorders fallbacks with one PATCH; the Status dialog
     links to it instead of editing model/provider. Gaps vs nanobot: no
-    model catalog/picker, no per-provider key or endpoint editing.
+    model catalog/picker.
+  - Done (simplified): Providers page (`#/providers`). `GET
+    /ui/providers` lists the four presets with `hasApiKey`, an
+    `apiKeyHint` (nanobot's `mask_secret_hint`), `apiBase`,
+    `env_overrides` and `restart_required` (saved credentials with the
+    environment applied differ from the running ones); the key itself is
+    never returned. `PATCH /ui/providers/{name}` sets (`apiKey`), clears
+    (`clearApiKey`) or edits `apiBase`, refusing `***`/hint placeholders,
+    and saves under the settings' lock (`cmd/nanobot/webproviders.go`).
+    Gaps vs nanobot: no OAuth/login providers, no custom providers, no
+    model catalog, no key test call.
   - Done: token streaming. `ChatRequest.OnDelta` makes the
     OpenAI-compatible provider (and so DeepSeek) and the Anthropic
     provider send `"stream": true` and parse the SSE events; `RunSpec.Stream` passes each delta to
@@ -448,12 +458,12 @@ Phase 2 is complete; phase 3 is in progress.
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
   - Next WebUI slices: i18n, a richer layout and components (nanobot's
-    Radix/Tailwind UI), a model catalog/picker, MCP
-    presets/OAuth/apps, marketplace skills.
+    Radix/Tailwind UI), a model catalog/picker, provider OAuth and
+    custom providers, MCP presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
-    provider key forms, channel tokens and allow lists, SSRF whitelist,
+    provider OAuth/custom-provider forms, channel tokens and allow lists, SSRF whitelist,
     MCP servers and OAuth, a restart button, hot-applying saved
     settings), topics list,
     chat archive, pins, search, bulk delete, generated titles,

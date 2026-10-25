@@ -8,6 +8,7 @@ import { Login } from "./Login";
 import { MCPPage } from "./MCPPage";
 import { MessageList } from "./MessageList";
 import { ModelsPage } from "./ModelsPage";
+import { ProvidersPage } from "./ProvidersPage";
 import { SkillsPage } from "./SkillsPage";
 import { StatusDialog } from "./StatusDialog";
 import { useChat, type Connection } from "./useChat";
@@ -24,11 +25,11 @@ function statusText(c: Connection): string {
 }
 
 type Gate = "checking" | "sign-in" | "ready";
-type View = "chat" | "cron" | "channels" | "models" | "skills" | "mcp";
+type View = "chat" | "cron" | "channels" | "models" | "providers" | "skills" | "mcp";
 
 function readView(): View {
   const h = (typeof location !== "undefined" ? location.hash : "").replace(/^#\/?/, "");
-  if (h === "cron" || h === "channels" || h === "models" || h === "skills" || h === "mcp") return h;
+  if (h === "cron" || h === "channels" || h === "models" || h === "providers" || h === "skills" || h === "mcp") return h;
   return "chat";
 }
 
@@ -136,6 +137,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
                 ["cron", "Cron"],
                 ["channels", "Channels"],
                 ["models", "Models"],
+                ["providers", "Providers"],
                 ["skills", "Skills"],
                 ["mcp", "MCP"],
               ] as const
@@ -178,6 +180,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
         {view === "cron" && <CronPage />}
         {view === "channels" && <ChannelsPage />}
         {view === "models" && <ModelsPage />}
+        {view === "providers" && <ProvidersPage />}
         {view === "skills" && <SkillsPage />}
         {view === "mcp" && <MCPPage />}
       </div>
