@@ -29,7 +29,7 @@ in which we port them.
 | `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
 | `nanobot/api`                            | `internal/api`                   | OpenAI-compatible HTTP API |
 | `nanobot/channels/websocket`             | `internal/channels/websocket`    | Browser chat over WebSocket, mounted on the gateway's HTTP server |
-| `webui/`                                 | `internal/webui` (embedded via `embed`) | Plain HTML/CSS/JS chat page served by the websocket channel (first slice) |
+| `webui/`                                 | `webui/` (source), `internal/webui` (committed build, embedded via `embed`) | Lean Vite + React chat app served by the websocket channel (first slice) |
 
 ## Phased plan
 
@@ -279,7 +279,20 @@ Phase 2 is complete; phase 3 is in progress.
     (`bus.IsDelta`) holding only the new text. The channel sends it as a
     `delta` frame; the page appends it to a live assistant bubble, which
     the final `message` frame replaces. Deltas are never saved.
-  - Not ported: the React/Vite app and its build, settings/models/
+  - Done: React scaffold. `webui/` is a new Vite + React + TypeScript
+    app (React its only runtime dependency) that replaces the plain
+    page with the same protocols: the socket client (chat id in
+    `localStorage`, backoff reconnect, `hello`/`history`/`progress`/
+    `delta`/`message`/`error`, `chat` and `stop`), the live streaming
+    bubble, the chat list with rename/delete and the Status and
+    settings dialog. `npm run build` writes it to
+    `internal/webui/static/`, which is committed and embedded, so Go
+    needs no Node.
+  - Next WebUI slices: markdown and code rendering, i18n, a richer
+    layout and components (nanobot's Radix/Tailwind UI), file previews,
+    the skills, models and channel pages listed below.
+  - Not ported: nanobot's React app itself (its component tree, Tailwind,
+    Radix, i18n, markdown/KaTeX), settings/models/
     channels/skills/apps/automations/cron/pairing pages (settings beyond
     the whitelist, the full model catalog and picker, provider key
     forms, channel tokens and allow lists, SSRF whitelist, MCP servers
@@ -1065,7 +1078,12 @@ Phase 2 is complete; phase 3 is in progress.
   would cut sockets after the upgrade), sets a 2-minute `IdleTimeout` and
   64 KiB of headers (localhost cookies); the channel pings every 30
   seconds, bounds writes to 10 seconds and frames to 64 KiB.
-- **No build step.** The page is plain HTML, CSS and JavaScript embedded
-  with `embed`, served with a strict CSP (`default-src 'self'`); no
-  React, Vite or npm. The `nanobot webui` launcher is not ported: enable
-  the channel and run `nanobot gateway`.
+- **Committed build, no Node at Go time.** The page is a lean React app
+  of its own in `webui/` (not a copy of nanobot's), built by Vite into
+  `internal/webui/static/` and committed, so `go build`/`go test` need
+  no npm; run `cd webui && npm install && npm run build` after changing
+  it. The build has no inline scripts or styles and is served with the
+  same strict CSP (`default-src 'self'`). The gateway never proxies a
+  Vite dev server (`npm run dev` proxies to the gateway instead). The
+  `nanobot webui` launcher is not ported: enable the channel and run
+  `nanobot gateway`.

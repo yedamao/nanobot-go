@@ -57,7 +57,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   MCP servers), `version`.
 
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
-  gateway serves a plain browser chat page and a WebSocket on its own
+  gateway serves a browser chat page (a small React app embedded in the
+  binary) and a WebSocket on its own
   loopback address; each chat runs a full agent turn, and a reload shows
   the chat's earlier messages again. The page lists, renames and deletes
   its chats, streams the reply as it is written (OpenAI-compatible
@@ -579,8 +580,9 @@ replaced exactly that token.
 ### WebUI
 
 A minimal browser chat page (phase 4, first slice), served by the
-`websocket` channel on the gateway's own address. Enable it and start the
-gateway:
+`websocket` channel on the gateway's own address. The page is a small
+React app (see [Building the page](#building-the-page)) built into the
+binary, so running it needs no Node. Enable it and start the gateway:
 
 ```json
 {
@@ -751,6 +753,29 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 
 `ws://127.0.0.1:18790/ws?chat_id=<id>` joins an existing chat (1-64
 letters, digits, `-`, `_`); without it the server picks a random id.
+
+#### Building the page
+
+The page's source is the Vite + React + TypeScript app in `webui/`
+(React is its only runtime dependency; no Tailwind, router or markdown
+yet). Its production build is written to `internal/webui/static/`
+(`index.html` and hashed `assets/`) and **committed**: the Go package
+embeds that directory with `//go:embed`, so `go build` and `go test`
+need no Node. After changing `webui/`, regenerate and commit it:
+
+```sh
+cd webui
+npm install
+npm test        # reducer and settings tests (Node's built-in runner)
+npm run build   # type-checks, then rewrites internal/webui/static/
+```
+
+The build has no inline scripts or styles, so the page keeps its strict
+CSP (`default-src 'self'`). `npm run dev` serves the app with hot reload
+on `http://localhost:5173/ui/` and proxies `/ws` and
+`/ui/{chats,status,settings}` to a gateway already running on
+`127.0.0.1:18790`; the gateway itself never serves the dev server. The
+gateway stays loopback-only either way.
 
 ### OpenAI-compatible API
 
@@ -1026,5 +1051,6 @@ go test -race ./...
 ```
 
 Tests use fakes, `httptest` and in-memory MCP servers (the stdio test
-re-runs the test binary as a server); they need no network access or API
-keys.
+re-runs the test binary as a server); they need no network access, API
+keys or Node (the WebUI build is committed; see
+[Building the page](#building-the-page)).
