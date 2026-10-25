@@ -84,6 +84,20 @@ func (s *webSettings) UpdateSettings(p websocket.SettingsPatch) (websocket.Setti
 	return s.view(cfg), nil
 }
 
+// saveDisabledSkills saves names as agents.defaults.disabledSkills: the
+// persist function of the gateway's skills.Manager. It shares the
+// settings' lock so the two never save over each other's change.
+func (s *webSettings) saveDisabledSkills(names []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg, err := config.Load(s.path)
+	if err != nil {
+		return err
+	}
+	cfg.Agents.Defaults.DisabledSkills = slices.Clone(names)
+	return cfg.Save(s.path)
+}
+
 func (s *webSettings) view(cfg *config.Config) websocket.SettingsView {
 	saved := settingsOf(cfg)
 	return websocket.SettingsView{

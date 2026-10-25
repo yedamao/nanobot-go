@@ -368,8 +368,7 @@ func (c *Channel) createCron(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	w.WriteHeader(http.StatusCreated)
-	writeJSON(w, cronJobView(job))
+	writeJSONStatus(w, http.StatusCreated, cronJobView(job))
 }
 
 // patchCron answers PATCH /ui/cron/{id}: update a non-system job.

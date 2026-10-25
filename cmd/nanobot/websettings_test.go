@@ -256,3 +256,25 @@ func TestWebSettingsMissingFile(t *testing.T) {
 		t.Error("an unreadable config was overwritten")
 	}
 }
+
+func TestWebSettingsSaveDisabledSkills(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, map[string]string{"NANOBOT_GO_OPENAI_API_KEY": envSecret})
+	if err := s.saveDisabledSkills([]string{"cron", "deploy"}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Agents.Defaults.DisabledSkills; !slices.Equal(got, []string{"cron", "deploy"}) {
+		t.Errorf("disabledSkills = %v", got)
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), envSecret) || !strings.Contains(string(data), fileSecret+"-mcp") {
+		t.Error("saving disabledSkills changed the config's secrets")
+	}
+	if cfg.Agents.Defaults.Model != "claude-test" {
+		t.Errorf("model = %q", cfg.Agents.Defaults.Model)
+	}
+}

@@ -48,6 +48,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/nanobot-go/internal/skills"
 	"github.com/yedamao/nanobot-go/internal/webui"
 )
 
@@ -215,9 +216,13 @@ type Options struct {
 	// Workspace is the agent's workspace, whose files GET /ui/media/ serves
 	// and POST /ui/upload saves to. Replies' markdown images that name a
 	// workspace file are pointed at the media route. Nil leaves both
-	// unmounted and replies as written. Skills listing (GET /ui/skills)
-	// also reads skills/ under it.
+	// unmounted and replies as written. GET /ui/skills also lists
+	// skills/ under it when Skills is nil.
 	Workspace *security.Workspace
+	// Skills backs GET /ui/skills and the skill mutations: PATCH and
+	// DELETE /ui/skills/{name} and POST /ui/skills/install. Nil leaves
+	// the mutations unmounted (404).
+	Skills *skills.Manager
 	// Cron is the gateway's scheduled-job service for GET /ui/cron and
 	// run/remove. Nil leaves those paths unmounted (404).
 	Cron *cron.Service
@@ -297,6 +302,7 @@ type Channel struct {
 	sessions SessionStore
 	status   func() Status
 	settings SettingsStore
+	skills   *skills.Manager
 	auth     *auth
 	// workspace is Options.Workspace.
 	workspace *security.Workspace
@@ -334,7 +340,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -352,7 +358,7 @@ func (c *Channel) Name() string { return Name }
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
 // requests are served. Cross-origin renames, deletes, settings changes,
-// uploads, cron/pairing mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
+// uploads, cron/pairing/skill mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	a := c.auth
 	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
@@ -372,7 +378,14 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	if c.workspace != nil {
 		mux.Handle("GET "+MediaPath+"{path...}", a.protect(http.HandlerFunc(c.serveMedia)))
 		mux.Handle("POST "+UploadPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.upload))))
+	}
+	if c.workspace != nil || c.skills != nil {
 		mux.Handle("GET "+SkillsPath, a.protect(http.HandlerFunc(c.serveSkills)))
+	}
+	if c.skills != nil {
+		mux.Handle("PATCH "+SkillsPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchSkill))))
+		mux.Handle("DELETE "+SkillsPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.deleteSkill))))
+		mux.Handle("POST "+SkillsPath+"/install", a.protect(sameOrigin.Handler(http.HandlerFunc(c.installSkill))))
 	}
 	if c.cron != nil {
 		mux.Handle("GET "+CronPath, a.protect(http.HandlerFunc(c.serveCron)))
@@ -777,10 +790,15 @@ func (c *Channel) serveStatus(w http.ResponseWriter, _ *http.Request) {
 }
 
 func writeJSON(w http.ResponseWriter, v any) {
+	writeJSONStatus(w, http.StatusOK, v)
+}
+
+func writeJSONStatus(w http.ResponseWriter, status int, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(v)
 }
 

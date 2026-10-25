@@ -1,187 +1,119 @@
 package websocket
 
 import (
-	"bufio"
 	"errors"
-	"io"
-	"io/fs"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
-	"sort"
-	"strings"
+
+	"github.com/yedamao/nanobot-go/internal/skills"
 )
 
 const (
-	// SkillsPath lists workspace skills as JSON (GET /ui/skills).
+	// SkillsPath lists skills as JSON (GET /ui/skills); PATCH and DELETE
+	// /ui/skills/{name} enable/disable and delete one, and POST
+	// /ui/skills/install installs a bundled builtin.
 	SkillsPath = "/ui/skills"
-	// skillsDir is the workspace-relative directory holding skills.
-	skillsDir = "skills"
-	// skillFile is the markdown file each skill directory must contain.
-	skillFile = "SKILL.md"
-	// maxSkillDescRunes caps description in the list response.
-	maxSkillDescRunes = 280
+	// maxSkillBody caps the JSON body of skill mutations.
+	maxSkillBody = 1 << 10
 )
 
 // SkillsList is the body of GET /ui/skills.
 type SkillsList struct {
 	Skills []SkillView `json:"skills"`
+	// Persistent reports whether enable/disable is saved to the config.
+	Persistent bool `json:"persistent"`
 }
 
-// SkillView is one workspace skill without absolute paths or raw body.
-type SkillView struct {
-	Name        string `json:"name"`
-	Description string `json:"description,omitempty"`
-	// Path is workspace-relative, slash-separated (skills/<name>/SKILL.md).
-	Path string `json:"path"`
+// SkillView is one skill without absolute paths or its raw body: a
+// workspace skill (source "workspace", installed) or a bundled builtin
+// not installed yet (source "builtin").
+type SkillView = skills.Skill
+
+// skillsManager returns the manager behind /ui/skills: Options.Skills,
+// or a read-only one over the workspace.
+func (c *Channel) skillsManager() *skills.Manager {
+	if c.skills != nil {
+		return c.skills
+	}
+	return skills.NewManager(c.workspace.Root, nil)
 }
 
-// serveSkills answers GET /ui/skills with skills discovered under
-// skills/*/SKILL.md in the workspace.
+// serveSkills answers GET /ui/skills.
 func (c *Channel) serveSkills(w http.ResponseWriter, _ *http.Request) {
-	out := SkillsList{Skills: []SkillView{}}
-	skills, err := listWorkspaceSkills(c.workspace.Root)
+	m := c.skillsManager()
+	list, err := m.List()
 	if err != nil {
 		c.log.Warn("websocket: list skills", "error", err)
 		http.Error(w, "cannot list skills", http.StatusInternalServerError)
 		return
 	}
-	out.Skills = skills
-	writeJSON(w, out)
+	writeJSON(w, SkillsList{Skills: list, Persistent: m.Persistent()})
 }
 
-// listWorkspaceSkills reads skills/<name>/SKILL.md under root through
-// os.Root so symlinks cannot leave the workspace.
-func listWorkspaceSkills(root string) ([]SkillView, error) {
-	r, err := os.OpenRoot(root)
+type skillEnabledBody struct {
+	Enabled *bool `json:"enabled"`
+}
+
+// patchSkill answers PATCH /ui/skills/{name} {"enabled":bool}.
+func (c *Channel) patchSkill(w http.ResponseWriter, r *http.Request) {
+	var body skillEnabledBody
+	if err := decodeJSONBody(r, &body, maxSkillBody); err != nil || body.Enabled == nil {
+		http.Error(w, `body must be {"enabled":true|false}`, http.StatusBadRequest)
+		return
+	}
+	s, err := c.skills.SetEnabled(r.PathValue("name"), *body.Enabled)
 	if err != nil {
-		return nil, err
+		c.skillError(w, "update", err)
+		return
 	}
-	defer r.Close()
+	writeJSON(w, s)
+}
 
-	entries, err := fs.ReadDir(r.FS(), skillsDir)
+type skillInstallBody struct {
+	Name string `json:"name"`
+}
+
+// installSkill answers POST /ui/skills/install {"name":"..."}: copy a
+// bundled builtin into skills/<name>/.
+func (c *Channel) installSkill(w http.ResponseWriter, r *http.Request) {
+	var body skillInstallBody
+	if err := decodeJSONBody(r, &body, maxSkillBody); err != nil || body.Name == "" {
+		http.Error(w, `body must be {"name":"..."}`, http.StatusBadRequest)
+		return
+	}
+	s, err := c.skills.Install(body.Name)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return []SkillView{}, nil
+		if errors.Is(err, skills.ErrNotFound) {
+			http.Error(w, "no bundled skill of that name", http.StatusBadRequest)
+			return
 		}
-		return nil, err
+		c.skillError(w, "install", err)
+		return
 	}
-
-	var out []SkillView
-	for _, e := range entries {
-		name := e.Name()
-		if !e.IsDir() || name == "" || strings.HasPrefix(name, ".") {
-			continue
-		}
-		rel := path.Join(skillsDir, name, skillFile)
-		f, err := r.Open(filepath.FromSlash(rel))
-		if err != nil {
-			continue
-		}
-		meta, err := readSkillMeta(f)
-		f.Close()
-		if err != nil {
-			continue
-		}
-		if meta.Name == "" {
-			meta.Name = name
-		}
-		out = append(out, SkillView{
-			Name:        meta.Name,
-			Description: truncateRunes(meta.Description, maxSkillDescRunes),
-			Path:        rel,
-		})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
-	})
-	return out, nil
+	writeJSONStatus(w, http.StatusCreated, s)
 }
 
-type skillMeta struct {
-	Name        string
-	Description string
+// deleteSkill answers DELETE /ui/skills/{name}: remove a workspace skill.
+func (c *Channel) deleteSkill(w http.ResponseWriter, r *http.Request) {
+	if err := c.skills.Delete(r.PathValue("name")); err != nil {
+		c.skillError(w, "delete", err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
-// readSkillMeta parses optional YAML frontmatter for name/description,
-// else uses the first non-empty body line as description.
-func readSkillMeta(r io.Reader) (skillMeta, error) {
-	br := bufio.NewReader(r)
-	var meta skillMeta
-
-	first, err := br.ReadString('\n')
-	if err != nil && err != io.EOF {
-		return meta, err
+// skillError answers a failed skill mutation.
+func (c *Channel) skillError(w http.ResponseWriter, op string, err error) {
+	switch {
+	case errors.Is(err, skills.ErrInvalidName):
+		http.Error(w, "invalid skill name", http.StatusBadRequest)
+	case errors.Is(err, skills.ErrNotFound):
+		http.Error(w, "no such skill", http.StatusNotFound)
+	case errors.Is(err, skills.ErrExists):
+		http.Error(w, "skill already installed", http.StatusConflict)
+	case errors.Is(err, skills.ErrBuiltin):
+		http.Error(w, "built-in skills cannot be deleted", http.StatusForbidden)
+	default:
+		c.log.Warn("websocket: "+op+" skill", "error", err)
+		http.Error(w, "cannot "+op+" the skill", http.StatusInternalServerError)
 	}
-	if strings.TrimSpace(first) != "---" {
-		// No frontmatter: first line (and maybe more) as description.
-		line := strings.TrimSpace(first)
-		if line == "" {
-			line = firstNonEmpty(br)
-		}
-		meta.Description = stripMarkdownHeading(line)
-		return meta, nil
-	}
-
-	for {
-		line, err := br.ReadString('\n')
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "---" || (err == io.EOF && trimmed == "") {
-			if err == io.EOF && trimmed != "---" {
-				break
-			}
-			if meta.Description == "" {
-				meta.Description = stripMarkdownHeading(firstNonEmpty(br))
-			}
-			return meta, nil
-		}
-		if err != nil && err != io.EOF {
-			return meta, err
-		}
-		key, val, ok := strings.Cut(trimmed, ":")
-		if !ok {
-			if err == io.EOF {
-				break
-			}
-			continue
-		}
-		key = strings.ToLower(strings.TrimSpace(key))
-		val = strings.TrimSpace(val)
-		val = strings.Trim(val, `"'`)
-		switch key {
-		case "name":
-			meta.Name = val
-		case "description":
-			meta.Description = val
-		}
-		if err == io.EOF {
-			break
-		}
-	}
-	if meta.Description == "" {
-		meta.Description = stripMarkdownHeading(firstNonEmpty(br))
-	}
-	return meta, nil
-}
-
-func firstNonEmpty(br *bufio.Reader) string {
-	for {
-		line, err := br.ReadString('\n')
-		s := strings.TrimSpace(line)
-		if s != "" {
-			return s
-		}
-		if err != nil {
-			return ""
-		}
-	}
-}
-
-func stripMarkdownHeading(s string) string {
-	s = strings.TrimSpace(s)
-	for strings.HasPrefix(s, "#") {
-		s = strings.TrimSpace(strings.TrimPrefix(s, "#"))
-	}
-	return s
 }
