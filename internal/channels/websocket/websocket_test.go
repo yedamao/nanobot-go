@@ -170,6 +170,30 @@ func TestProgressFrames(t *testing.T) {
 	}
 }
 
+func TestDeltaFrames(t *testing.T) {
+	h := newHarness(t, true)
+	conn, chatID := h.dial(t, "")
+	delta := map[string]any{bus.MetaDelta: true}
+	for _, d := range []string{"Hel", "lo"} {
+		if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: d, Metadata: delta}); err != nil {
+			t.Fatal(err)
+		}
+		if f := readFrame(t, conn); f.Type != TypeDelta || f.Content != d || f.Role != "" {
+			t.Errorf("delta frame = %+v", f)
+		}
+	}
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "Hello"}); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeMessage || f.Role != "assistant" || f.Content != "Hello" {
+		t.Errorf("reply frame = %+v", f)
+	}
+	// A delta for a closed tab is not worth an error.
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: "nobody", Content: "x", Metadata: delta}); err != nil {
+		t.Errorf("Send(delta) to unknown chat = %v", err)
+	}
+}
+
 func TestClientFrames(t *testing.T) {
 	h := newHarness(t, true)
 	conn, _ := h.dial(t, "")

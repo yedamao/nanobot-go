@@ -208,12 +208,13 @@ func (m *Manager) dispatch(ctx context.Context) {
 }
 
 // route queues msg for its channel, or drops it if no such channel is
-// running. Progress updates for such a channel are dropped quietly.
+// running. Progress updates and deltas for such a channel are dropped
+// quietly.
 func (m *Manager) route(msg bus.OutboundMessage) {
 	s, ok := m.running[msg.Channel]
 	if !ok {
-		if bus.IsProgress(msg) {
-			m.log.Debug("drop progress update for unknown channel", "channel", msg.Channel, "chat_id", msg.ChatID)
+		if transient(msg) {
+			m.log.Debug("drop progress update for unknown channel", "channel", msg.Channel, "chat_id", msg.ChatID, "delta", bus.IsDelta(msg))
 			return
 		}
 		m.log.Warn("drop outbound message for unknown channel", "channel", msg.Channel, "chat_id", msg.ChatID)
@@ -234,8 +235,8 @@ func (m *Manager) sendLoop(s *sender) {
 
 // deliver sends msg, retrying after each delay unless the error is
 // Permanent or the Manager is giving up on pending deliveries. A progress
-// update is tried once: a retried status would be stale and would hold up
-// the reply behind it.
+// update or delta is tried once: a retried status would be stale and would
+// hold up the reply behind it, which carries a delta's text anyway.
 func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 	ctx := m.sendCtx
 	for attempt := 1; ; attempt++ {
@@ -245,8 +246,8 @@ func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 		}
 		log := m.log.With("channel", msg.Channel, "chat_id", msg.ChatID, "attempt", attempt, "error", err)
 		switch {
-		case bus.IsProgress(msg):
-			log.Debug("drop progress update")
+		case transient(msg):
+			log.Debug("drop progress update", "delta", bus.IsDelta(msg))
 			return
 		case ctx.Err() != nil:
 			log.Warn("drop outbound message: shutting down")
@@ -266,6 +267,10 @@ func (m *Manager) deliver(ch Channel, msg bus.OutboundMessage) {
 		}
 	}
 }
+
+// transient reports whether msg is a progress update or a streamed delta,
+// which are delivered best-effort.
+func transient(msg bus.OutboundMessage) bool { return bus.IsProgress(msg) || bus.IsDelta(msg) }
 
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	t := time.NewTimer(d)

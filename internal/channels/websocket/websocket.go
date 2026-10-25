@@ -112,7 +112,11 @@ const (
 	// TypeProgress carries a transient status of the running turn, such
 	// as the tool being run; the next message frame supersedes it.
 	TypeProgress = "progress"
-	TypeError    = "error"
+	// TypeDelta carries the next piece of the reply being streamed, to
+	// append to the pieces before it; the message frame that follows
+	// holds the whole reply and replaces them.
+	TypeDelta = "delta"
+	TypeError = "error"
 )
 
 // Frame is one JSON message on the socket, in either direction.
@@ -340,23 +344,26 @@ func (c *Channel) Stop(ctx context.Context) error {
 }
 
 // Send writes msg as a "message" frame to every connection of its chat,
-// or as a "progress" frame when it is a progress update (bus.IsProgress).
-// A chat with no open connection (the tab was closed) is a Permanent
-// error for a reply: it is dropped with a log line instead of being
-// retried, which would hold up the other chats' replies. A progress
-// update for such a chat is dropped silently.
+// as a "progress" frame when it is a progress update (bus.IsProgress), or
+// as a "delta" frame when it is a streamed piece of a reply
+// (bus.IsDelta). A chat with no open connection (the tab was closed) is a
+// Permanent error for a reply: it is dropped with a log line instead of
+// being retried, which would hold up the other chats' replies. A progress
+// update or delta for such a chat is dropped silently.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
-	progress := bus.IsProgress(msg)
+	frame := Frame{Type: TypeMessage, Role: "assistant", Content: msg.Content}
+	switch {
+	case bus.IsProgress(msg):
+		frame = Frame{Type: TypeProgress, Content: msg.Content}
+	case bus.IsDelta(msg):
+		frame = Frame{Type: TypeDelta, Content: msg.Content}
+	}
 	conns := c.connsFor(msg.ChatID)
 	if len(conns) == 0 {
-		if progress {
+		if frame.Type != TypeMessage {
 			return nil
 		}
 		return channels.Permanent(fmt.Errorf("websocket: no open connection for chat %q", msg.ChatID))
-	}
-	frame := Frame{Type: TypeMessage, Role: "assistant", Content: msg.Content}
-	if progress {
-		frame = Frame{Type: TypeProgress, Content: msg.Content}
 	}
 	var errs []error
 	for _, conn := range conns {

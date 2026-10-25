@@ -506,9 +506,10 @@ func (c *Channel) replyContext(r *message) string {
 // Send delivers msg as plain text, split into messages of at most 4096
 // characters, in the topic it came from. With replyToMessage (or an
 // explicit msg.ReplyTo) the messages reply to the inbound message.
-// Progress updates (bus.IsProgress) are dropped.
+// Progress updates (bus.IsProgress) and streamed deltas (bus.IsDelta) are
+// dropped; the final reply carries the whole text.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
-	if bus.IsProgress(msg) {
+	if bus.IsProgress(msg) || bus.IsDelta(msg) {
 		return nil // no status display; the typing indicator keeps running
 	}
 	chatID, err := strconv.ParseInt(msg.ChatID, 10, 64)

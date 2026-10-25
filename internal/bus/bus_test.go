@@ -27,6 +27,25 @@ func TestIsProgress(t *testing.T) {
 	}
 }
 
+func TestIsDelta(t *testing.T) {
+	tests := []struct {
+		name string
+		meta map[string]any
+		want bool
+	}{
+		{"nil metadata", nil, false},
+		{"progress", map[string]any{MetaProgress: true}, false},
+		{"marked", map[string]any{MetaDelta: true}, true},
+		{"false", map[string]any{MetaDelta: false}, false},
+		{"not a bool", map[string]any{MetaDelta: 1}, false},
+	}
+	for _, tt := range tests {
+		if got := IsDelta(OutboundMessage{Metadata: tt.meta}); got != tt.want {
+			t.Errorf("%s: IsDelta = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestSessionKey(t *testing.T) {
 	tests := []struct {
 		name string

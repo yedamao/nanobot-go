@@ -262,7 +262,7 @@ func TestManagerProgressIsBestEffort(t *testing.T) {
 	b := bus.NewMessageBus(16)
 	f := newFake("alpha", nil)
 	f.send = func(_ context.Context, _ int, msg bus.OutboundMessage) error {
-		if bus.IsProgress(msg) {
+		if bus.IsProgress(msg) || bus.IsDelta(msg) {
 			return errors.New("flaky")
 		}
 		return nil
@@ -271,9 +271,12 @@ func TestManagerProgressIsBestEffort(t *testing.T) {
 	log, buf := testLogger()
 	startManager(t, b, []Channel{f}, WithSleep(s.sleep), WithLogger(log))
 	progress := map[string]any{bus.MetaProgress: true}
+	delta := map[string]any{bus.MetaDelta: true}
 	for _, msg := range []bus.OutboundMessage{
 		{Channel: "nowhere", ChatID: "c1", Content: "lost", Metadata: progress},
+		{Channel: "nowhere", ChatID: "c1", Content: "lost", Metadata: delta},
 		{Channel: "alpha", ChatID: "c1", Content: "status", Metadata: progress},
+		{Channel: "alpha", ChatID: "c1", Content: "rep", Metadata: delta},
 		{Channel: "alpha", ChatID: "c1", Content: "reply"},
 	} {
 		if err := b.PublishOutbound(context.Background(), msg); err != nil {
@@ -281,9 +284,9 @@ func TestManagerProgressIsBestEffort(t *testing.T) {
 		}
 	}
 	waitSent(t, f)
-	// The failed progress update was tried once, not retried.
-	if got := f.attemptCount(); got != 2 {
-		t.Errorf("attempts = %d, want 2", got)
+	// The failed progress update and delta were tried once, not retried.
+	if got := f.attemptCount(); got != 3 {
+		t.Errorf("attempts = %d, want 3", got)
 	}
 	if got := s.list(); len(got) != 0 {
 		t.Errorf("sleeps = %v, want none", got)

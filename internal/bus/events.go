@@ -51,3 +51,17 @@ func IsProgress(msg OutboundMessage) bool {
 	v, _ := msg.Metadata[MetaProgress].(bool)
 	return v
 }
+
+// MetaDelta is the Metadata key that marks an OutboundMessage as a piece
+// of a reply being streamed: Content is the new text only, to append to
+// what came before. The turn's final OutboundMessage still carries the
+// whole reply and supersedes the deltas. Channels that cannot show a
+// growing reply must ignore such messages; see IsDelta.
+const MetaDelta = "_delta"
+
+// IsDelta reports whether msg is a streamed piece of a reply. Channels
+// that only send whole messages drop these.
+func IsDelta(msg OutboundMessage) bool {
+	v, _ := msg.Metadata[MetaDelta].(bool)
+	return v
+}
