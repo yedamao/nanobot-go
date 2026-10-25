@@ -98,11 +98,21 @@ func formatHint(channel string) string {
 type ContextBuilder struct {
 	workspace string
 	now       func() time.Time
+	// skills returns the skills section (see WithSkills).
+	skills func() string
 }
 
 // NewContextBuilder returns a builder for the given absolute workspace.
 func NewContextBuilder(workspace string) *ContextBuilder {
 	return &ContextBuilder{workspace: workspace, now: time.Now}
+}
+
+// WithSkills sets the source of the skills section, called for every
+// prompt so enabling, disabling or installing a skill applies to the next
+// turn (see skills.Manager.Summary). It returns b.
+func (b *ContextBuilder) WithSkills(summary func() string) *ContextBuilder {
+	b.skills = summary
+	return b
 }
 
 // SystemPrompt builds the system prompt for a turn on channel.
@@ -112,6 +122,11 @@ func (b *ContextBuilder) SystemPrompt(channel string) string {
 		parts = append(parts, s)
 	}
 	parts = append(parts, toolGuidance)
+	if b.skills != nil {
+		if s := strings.TrimSpace(b.skills()); s != "" {
+			parts = append(parts, s)
+		}
+	}
 	// Like nanobot, long-term memory follows the static parts: it changes
 	// whenever Dream runs.
 	if s, ok := b.readWorkspaceFile(MemoryFile); ok {

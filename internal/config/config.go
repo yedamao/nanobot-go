@@ -106,6 +106,10 @@ type AgentDefaults struct {
 	// FallbackModels are tried in order when the primary provider fails
 	// with a failover-worthy error.
 	FallbackModels []FallbackModel `json:"fallbackModels"`
+	// DisabledSkills names workspace skills (skills/<name>/) left out of
+	// the system prompt, like nanobot's disabled_skills. The WebUI's
+	// Skills page edits it.
+	DisabledSkills []string `json:"disabledSkills"`
 }
 
 // ConsolidationConfig configures history consolidation: summarizing old
@@ -234,6 +238,7 @@ func Default() *Config {
 			Consolidation:       ConsolidationConfig{Enable: true, SummaryMaxTokens: DefaultSummaryMaxTokens},
 			Dream:               DreamConfig{BatchEntries: DefaultDreamBatchEntries, MaxHistoryEntries: DefaultMaxHistoryEntries, IntervalH: DefaultDreamIntervalH},
 			FallbackModels:      []FallbackModel{},
+			DisabledSkills:      []string{},
 		}},
 		Tools: ToolsConfig{
 			RestrictToWorkspace: true,

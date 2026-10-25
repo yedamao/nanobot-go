@@ -20,6 +20,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/nanobot-go/internal/skills"
 	"github.com/yedamao/nanobot-go/internal/tools"
 	"github.com/yedamao/nanobot-go/internal/tools/builtin"
 )
@@ -145,6 +146,10 @@ type agentRuntime struct {
 	channels func() []string
 	// runBound runs agent-turn jobs.
 	runBound cron.RunFunc
+	// skills lists the workspace skills and holds which are disabled; the
+	// agent's prompt summarizes the enabled ones. Changes are not saved
+	// until the gateway sets its persist function.
+	skills *skills.Manager
 }
 
 // runCronJob runs one cron job: the Dream or heartbeat system job, or an
@@ -269,12 +274,13 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		return nil, err
 	}
 	sessions := session.NewManager(store)
+	rt.skills = skills.NewManager(ws.Root, d.DisabledSkills)
 	loop, err := agent.NewLoop(agent.LoopConfig{
 		Bus:                opts.bus,
 		Provider:           provider,
 		Tools:              reg,
 		Sessions:           sessions,
-		Context:            agent.NewContextBuilder(ws.Root),
+		Context:            agent.NewContextBuilder(ws.Root).WithSkills(rt.skills.Summary),
 		MaxIterations:      d.MaxToolIterations,
 		MaxTokens:          d.MaxTokens,
 		Temperature:        &d.Temperature,

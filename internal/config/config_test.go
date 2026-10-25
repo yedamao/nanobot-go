@@ -47,7 +47,7 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	data := `{
 	  "agents": {"defaults": {"model": "deepseek-chat", "maxTokens": 1024,
 	    "contextWindowTokens": 64000, "consolidation": {"enable": false}, "dream": {"batchEntries": 5},
-	    "fallbackModels": [{"provider": "openai", "model": "gpt-4o"}]}},
+	    "fallbackModels": [{"provider": "openai", "model": "gpt-4o"}], "disabledSkills": ["weather"]}},
 	  "providers": {"deepseek": {"apiKey": "sk-ds"}},
 	  "tools": {"exec": {"timeout": 5, "allowedEnvKeys": ["GOPATH"]}}
 	}`
@@ -83,6 +83,9 @@ func TestLoadMergesOverDefaults(t *testing.T) {
 	}
 	if want := []FallbackModel{{Provider: "openai", Model: "gpt-4o"}}; !reflect.DeepEqual(d.FallbackModels, want) {
 		t.Errorf("fallbackModels = %+v, want %+v", d.FallbackModels, want)
+	}
+	if want := []string{"weather"}; !reflect.DeepEqual(d.DisabledSkills, want) {
+		t.Errorf("disabledSkills = %v, want %v", d.DisabledSkills, want)
 	}
 }
 

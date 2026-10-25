@@ -100,6 +100,23 @@ func TestSystemPromptWithoutBootstrapFiles(t *testing.T) {
 	}
 }
 
+func TestSystemPromptSkills(t *testing.T) {
+	ws := t.TempDir()
+	os.MkdirAll(filepath.Join(ws, "memory"), 0o700)
+	os.WriteFile(filepath.Join(ws, "memory", "MEMORY.md"), []byte("remember this"), 0o600)
+	summary := "# Skills\n\n- **deploy**: Ship it"
+	b := NewContextBuilder(ws).WithSkills(func() string { return summary })
+	p := b.SystemPrompt("")
+	i, j, k := strings.Index(p, "# Tool Usage Notes"), strings.Index(p, "# Skills"), strings.Index(p, "# Memory")
+	if i < 0 || j < i || k < j {
+		t.Errorf("skills not between tool notes and memory (%d %d %d):\n%s", i, j, k, p)
+	}
+	summary = ""
+	if p := b.SystemPrompt(""); strings.Contains(p, "# Skills") {
+		t.Errorf("empty summary still in prompt")
+	}
+}
+
 func TestSystemPromptTruncatesHugeBootstrapFile(t *testing.T) {
 	ws := t.TempDir()
 	// Multi-byte runes, far past the cap: only a bounded prefix is read.
