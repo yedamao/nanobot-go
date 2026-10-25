@@ -65,7 +65,7 @@ func (o *OpenAI) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, erro
 	}
 	url := o.cfg.BaseURL + "/chat/completions"
 	if req.OnDelta != nil {
-		return o.chatStream(ctx, url, h, body, req.OnDelta)
+		return o.chatStream(ctx, url, h, body, req.OnDelta, req.OnThinking)
 	}
 	out, err := o.ep.post(ctx, url, h, body)
 	if err != nil {

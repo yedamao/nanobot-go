@@ -15,8 +15,10 @@ type fakeProvider struct {
 	name   string
 	errs   []error
 	models []string
-	// deltas are streamed to a request's OnDelta before it is answered.
-	deltas []string
+	// deltas are streamed to a request's OnDelta before it is answered,
+	// after thinking to its OnThinking.
+	deltas   []string
+	thinking []string
 }
 
 func (f *fakeProvider) Name() string { return f.name }
@@ -24,6 +26,11 @@ func (f *fakeProvider) Name() string { return f.name }
 func (f *fakeProvider) Chat(_ context.Context, req ChatRequest) (*ChatResponse, error) {
 	n := len(f.models)
 	f.models = append(f.models, req.Model)
+	if req.OnThinking != nil {
+		for _, d := range f.thinking {
+			req.OnThinking(d)
+		}
+	}
 	if req.OnDelta != nil {
 		for _, d := range f.deltas {
 			req.OnDelta(d)
@@ -136,6 +143,17 @@ func TestFallbackStreaming(t *testing.T) {
 	if !errors.As(err, &e) || e.Kind != KindServerError || len(fb.models) != 0 || !slices.Equal(got, []string{"part"}) {
 		t.Fatalf("err = %v, fallback calls = %d, deltas = %q", err, len(fb.models), got)
 	}
+
+	// Failing after thinking alone does not fail over either.
+	got = nil
+	primary.deltas, primary.thinking = nil, []string{"hmm"}
+	fb.models = nil
+	var thought []string
+	_, err = p.Chat(context.Background(), ChatRequest{OnDelta: onDelta, OnThinking: func(d string) { thought = append(thought, d) }})
+	if !errors.As(err, &e) || len(fb.models) != 0 || len(got) != 0 || !slices.Equal(thought, []string{"hmm"}) {
+		t.Fatalf("err = %v, fallback calls = %d, deltas = %q, thinking = %q", err, len(fb.models), got, thought)
+	}
+	primary.thinking = nil
 
 	// Without OnDelta nothing is streamed and failover is unchanged.
 	if resp, err := p.Chat(context.Background(), ChatRequest{}); err != nil || resp.Content != "fb" {

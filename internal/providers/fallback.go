@@ -94,14 +94,21 @@ func ShouldFailover(err error) bool {
 // Chat implements Provider.
 //
 // A streamed request (ChatRequest.OnDelta) fails over only while no delta
-// has been passed on: once a provider has streamed part of a reply, another
-// provider's reply would be appended to it, so its failure is returned.
+// or thinking has been passed on: once a provider has streamed part of a
+// reply, another provider's reply would be appended to it, so its failure
+// is returned.
 func (f *FallbackProvider) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	var streamed atomic.Bool
 	if onDelta := req.OnDelta; onDelta != nil {
 		req.OnDelta = func(d string) {
 			streamed.Store(true)
 			onDelta(d)
+		}
+	}
+	if onThinking := req.OnThinking; onThinking != nil {
+		req.OnThinking = func(d string) {
+			streamed.Store(true)
+			onThinking(d)
 		}
 	}
 	var lastErr error

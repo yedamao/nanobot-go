@@ -69,6 +69,38 @@ func TestAnthropicStreamText(t *testing.T) {
 	}
 }
 
+func TestAnthropicStreamThinking(t *testing.T) {
+	srv := newSSEServer(t, sseLines(sseEvents(
+		sseEvent("message_start", anthropicMessageStart),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"Let me "}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"think."}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":0}`),
+		sseEvent("content_block_start", `{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`),
+		sseEvent("content_block_delta", `{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Hi!"}}`),
+		sseEvent("content_block_stop", `{"type":"content_block_stop","index":1}`),
+		sseEvent("message_delta", `{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":6}}`),
+		sseEvent("message_stop", anthropicMessageStop),
+	)...))
+	p := NewAnthropic(AnthropicConfig{BaseURL: srv.URL, Model: "m", Retry: noRetry})
+	var deltas, thinking []string
+	resp, err := p.Chat(context.Background(), ChatRequest{
+		Messages:   []Message{{Role: RoleUser, Content: "hi"}},
+		OnDelta:    func(d string) { deltas = append(deltas, d) },
+		OnThinking: func(d string) { thinking = append(thinking, d) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(thinking, []string{"Let me ", "think."}) {
+		t.Errorf("thinking = %q", thinking)
+	}
+	if !slices.Equal(deltas, []string{"Hi!"}) || resp.Content != "Hi!" {
+		t.Errorf("deltas = %q, content = %q", deltas, resp.Content)
+	}
+}
+
 func TestAnthropicWithoutOnDeltaDoesNotStream(t *testing.T) {
 	var c capture
 	srv := newServer(t, &c, 200, `{"content":[{"type":"text","text":"hi"}],"stop_reason":"end_turn"}`)

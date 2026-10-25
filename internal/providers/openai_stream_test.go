@@ -101,6 +101,36 @@ func TestOpenAIStreamText(t *testing.T) {
 	assertJSONEqual(t, srv.body["stream_options"], `{"include_usage": true}`)
 }
 
+func TestOpenAIStreamReasoning(t *testing.T) {
+	srv := newSSEServer(t, sseLines(
+		`data: {"choices":[{"delta":{"role":"assistant","reasoning_content":"Let me "}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"reasoning_content":"think.","content":null}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"reasoning_content":"","content":"Hi"}}]}`,
+		"",
+		`data: {"choices":[{"delta":{"content":"!"},"finish_reason":"stop"}]}`,
+		"",
+		"data: [DONE]",
+		"",
+	))
+	p := NewOpenAI(OpenAIConfig{BaseURL: srv.URL, Model: "m", Retry: noRetry})
+	var deltas, thinking []string
+	resp, err := p.Chat(context.Background(), ChatRequest{
+		OnDelta:    func(d string) { deltas = append(deltas, d) },
+		OnThinking: func(d string) { thinking = append(thinking, d) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(thinking, []string{"Let me ", "think."}) {
+		t.Errorf("thinking = %q", thinking)
+	}
+	if !slices.Equal(deltas, []string{"Hi", "!"}) || resp.Content != "Hi!" {
+		t.Errorf("deltas = %q, content = %q", deltas, resp.Content)
+	}
+}
+
 func TestOpenAIWithoutOnDeltaDoesNotStream(t *testing.T) {
 	var c capture
 	srv := newServer(t, &c, 200, `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`)

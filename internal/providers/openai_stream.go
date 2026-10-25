@@ -13,13 +13,15 @@ import (
 const sseDone = "[DONE]"
 
 // chatStream posts a "stream": true request and assembles the response
-// from its server-sent events, passing each piece of content to onDelta as
-// it arrives. Canceling ctx aborts the stream. Only failures before the
-// first event are retried (see httpEndpoint.stream).
-func (o *OpenAI) chatStream(ctx context.Context, url string, h http.Header, body []byte, onDelta func(string)) (*ChatResponse, error) {
+// from its server-sent events, passing each piece of content to onDelta
+// and each piece of reasoning_content (DeepSeek and other compatible
+// servers) to onThinking (when non-nil) as it arrives. Canceling ctx
+// aborts the stream. Only failures before the first event are retried
+// (see httpEndpoint.stream).
+func (o *OpenAI) chatStream(ctx context.Context, url string, h http.Header, body []byte, onDelta, onThinking func(string)) (*ChatResponse, error) {
 	var acc openAIStream
 	err := o.ep.stream(ctx, url, h, body, func(r io.Reader) error {
-		acc = openAIStream{provider: o.cfg.Name, onDelta: onDelta}
+		acc = openAIStream{provider: o.cfg.Name, onDelta: onDelta, onThinking: onThinking}
 		return acc.read(r)
 	})
 	if err != nil {
@@ -32,8 +34,11 @@ func (o *OpenAI) chatStream(ctx context.Context, url string, h http.Header, body
 type openAIChunk struct {
 	Choices []struct {
 		Delta struct {
-			Content   string `json:"content"`
-			ToolCalls []struct {
+			Content string `json:"content"`
+			// ReasoningContent is the thinking some compatible servers
+			// (DeepSeek, for one) stream ahead of the content.
+			ReasoningContent string `json:"reasoning_content"`
+			ToolCalls        []struct {
 				// Index is missing on some compatible servers.
 				Index    *int   `json:"index"`
 				ID       string `json:"id"`
@@ -65,8 +70,9 @@ type streamToolCall struct {
 
 // openAIStream assembles a streamed response.
 type openAIStream struct {
-	provider string
-	onDelta  func(string)
+	provider   string
+	onDelta    func(string)
+	onThinking func(string) // may be nil
 
 	content strings.Builder
 	calls   []*streamToolCall
@@ -171,6 +177,10 @@ func (s *openAIStream) event(data []byte) error {
 	}
 	s.choices = true
 	ch := c.Choices[0]
+	// Reasoning is passed on but kept out of the reply.
+	if d := ch.Delta.ReasoningContent; d != "" && s.onThinking != nil {
+		s.onThinking(d)
+	}
 	if d := ch.Delta.Content; d != "" {
 		s.content.WriteString(d)
 		s.onDelta(d)

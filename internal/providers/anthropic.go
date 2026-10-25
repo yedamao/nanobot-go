@@ -69,7 +69,7 @@ func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, e
 	h.Set("anthropic-version", a.cfg.Version)
 	url := a.cfg.BaseURL + "/v1/messages"
 	if req.OnDelta != nil {
-		return a.chatStream(ctx, url, h, body, req.OnDelta)
+		return a.chatStream(ctx, url, h, body, req.OnDelta, req.OnThinking)
 	}
 	out, err := a.ep.post(ctx, url, h, body)
 	if err != nil {

@@ -10,13 +10,14 @@ import (
 )
 
 // chatStream posts a "stream": true request and assembles the response
-// from its server-sent events, passing each piece of text to onDelta as it
-// arrives. Canceling ctx aborts the stream. Only failures before the first
-// event are retried (see httpEndpoint.stream).
-func (a *Anthropic) chatStream(ctx context.Context, url string, h http.Header, body []byte, onDelta func(string)) (*ChatResponse, error) {
+// from its server-sent events, passing each piece of text to onDelta and
+// each piece of thinking to onThinking (when non-nil) as it arrives.
+// Canceling ctx aborts the stream. Only failures before the first event
+// are retried (see httpEndpoint.stream).
+func (a *Anthropic) chatStream(ctx context.Context, url string, h http.Header, body []byte, onDelta, onThinking func(string)) (*ChatResponse, error) {
 	var acc anthropicStream
 	err := a.ep.stream(ctx, url, h, body, func(r io.Reader) error {
-		acc = anthropicStream{onDelta: onDelta}
+		acc = anthropicStream{onDelta: onDelta, onThinking: onThinking}
 		return acc.read(r)
 	})
 	if err != nil {
@@ -40,6 +41,7 @@ type anthropicEvent struct {
 	Delta *struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
+		Thinking    string `json:"thinking"`
 		PartialJSON string `json:"partial_json"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
@@ -59,7 +61,8 @@ type anthropicUsage struct {
 
 // anthropicStream assembles a streamed response.
 type anthropicStream struct {
-	onDelta func(string)
+	onDelta    func(string)
+	onThinking func(string) // may be nil
 
 	content strings.Builder
 	calls   []*streamToolCall // tool_use blocks, by content block index
@@ -156,8 +159,13 @@ func (s *anthropicStream) event(data []byte) error {
 			if c := s.toolCall(e.Index); c != nil {
 				c.arguments.WriteString(e.Delta.PartialJSON)
 			}
+		case "thinking_delta":
+			// Thinking is passed on but kept out of the reply.
+			if e.Delta.Thinking != "" && s.onThinking != nil {
+				s.onThinking(e.Delta.Thinking)
+			}
 		}
-		// thinking_delta and signature_delta are not exposed.
+		// signature_delta is not exposed.
 	case "message_delta":
 		if e.Delta != nil && e.Delta.StopReason != "" {
 			s.stop = e.Delta.StopReason

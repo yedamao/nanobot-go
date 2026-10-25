@@ -101,6 +101,11 @@ type ChatRequest struct {
 	// response. The Anthropic and OpenAI-compatible providers both
 	// stream; a provider that cannot ignores it and never calls it.
 	OnDelta func(delta string)
+	// OnThinking, when set alongside OnDelta, is called the same way with
+	// each piece of the model's thinking as it streams: Anthropic
+	// thinking_delta and OpenAI-compatible reasoning_content. Thinking is
+	// never part of the response Content. Without it thinking is dropped.
+	OnThinking func(delta string)
 }
 
 // ChatResponse is a provider-neutral chat response.
