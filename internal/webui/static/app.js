@@ -3,7 +3,8 @@
 // Server → client: {"type":"hello","chat_id":"..."},
 //                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
 //                  {"type":"progress","content":"..."},  (transient status)
-//                  {"type":"message","role":"assistant","content":"..."},
+//                  {"type":"delta","content":"..."},  (next piece of the streamed reply)
+//                  {"type":"message","role":"assistant","content":"..."},  (the whole reply)
 //                  {"type":"error","content":"..."}
 // The sidebar lists stored chats from GET /ui/chats:
 //   {"chats":[{"chat_id":"...","updated_at":"...","title":"...","preview":"..."}]}
@@ -31,6 +32,7 @@ let retryDelay = 1000;
 let retryTimer = null;
 let pending = null; // the "thinking" bubble while replies are due
 let waiting = 0; // messages sent and not answered yet
+let live = null; // the bubble the reply streams into, until its message frame
 
 const THINKING = "nanobot is thinking…";
 
@@ -47,6 +49,7 @@ function setStatus(state, text) {
 // shown before the connection dropped and any reply that raced it.
 function showHistory(list) {
   setWaiting(0);
+  live = null;
   messages.replaceChildren();
   for (const m of list || []) {
     if (m.role === "user" || m.role === "assistant") append(m.role, m.content);
@@ -87,6 +90,36 @@ function showProgress(text) {
   const hint = document.createElement("code");
   hint.textContent = text;
   pending.appendChild(hint);
+  pending.hidden = false; // under any text streamed so far
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// showDelta appends a streamed piece of the reply to its bubble, which
+// the first piece creates above the thinking bubble. The thinking bubble
+// hides while text streams; progress brings it back below the text.
+function showDelta(text) {
+  if (waiting === 0) setWaiting(1);
+  if (!live) live = append("assistant streaming", "");
+  live.textContent += text;
+  pending.hidden = true;
+  messages.scrollTop = messages.scrollHeight;
+}
+
+// showReply shows a turn's whole reply. It replaces the streamed text,
+// which it supersedes (a stopped turn's partial text becomes "Stopped.").
+function showReply(text) {
+  if (live) {
+    live.textContent = text;
+    live.classList.remove("streaming");
+    live = null;
+  } else {
+    append("assistant", text);
+  }
+  setWaiting(waiting - 1);
+  if (pending) {
+    pending.textContent = THINKING; // the next reply is due
+    pending.hidden = false;
+  }
   messages.scrollTop = messages.scrollHeight;
 }
 
@@ -330,10 +363,11 @@ function connect() {
       case "progress":
         showProgress(frame.content || "");
         break;
+      case "delta":
+        showDelta(frame.content || "");
+        break;
       case "message":
-        setWaiting(waiting - 1);
-        if (pending) pending.textContent = THINKING; // the next reply is due
-        append("assistant", frame.content);
+        showReply(frame.content || "");
         loadChats(); // the turn is saved before its reply is sent
         break;
       case "error":
@@ -344,6 +378,7 @@ function connect() {
   sock.onclose = () => {
     if (ws !== sock) return; // replaced by "New chat"
     setWaiting(0);
+    live = null; // the reconnect's history frame replaces partial text
     setStatus("closed", "Disconnected; reconnecting in " + Math.round(retryDelay / 1000) + "s…");
     retryTimer = setTimeout(connect, retryDelay);
     retryDelay = Math.min(retryDelay * 2, 10000);
