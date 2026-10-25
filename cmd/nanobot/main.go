@@ -1,6 +1,7 @@
 // Command nanobot is the nanobot-go CLI: onboarding, an interactive or
 // one-shot agent, the long-running gateway (which also runs scheduled
-// jobs and the Telegram and WeChat channels), the OpenAI-compatible API,
+// jobs and the Telegram, WeChat and WebUI channels), the WebUI launcher,
+// the OpenAI-compatible API,
 // managing scheduled jobs and paired chat senders, the WeChat QR login, a
 // Dream pass over archived history, and status reporting.
 package main
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"os/signal"
 	"runtime"
 	"syscall"
@@ -44,6 +46,9 @@ Commands:
             WeChat QR code)
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
+  webui     open the browser WebUI: enable it in the config, attach to
+            the gateway serving it or start one, and open the browser
+            (--dev adds Vite live reload)
   status    show the configuration (API keys are never printed);
             --mcp also connects to the MCP servers
   version   print the version
@@ -123,6 +128,19 @@ type app struct {
 	// apiReady, when set, is called with the API's address once `serve`
 	// or the gateway serves it (for tests).
 	apiReady func(apiAddr string)
+	// For `webui` (tests replace them): openBrowser opens a URL (nil
+	// uses the desktop's opener), isTerminal reports whether stdin can
+	// answer a prompt (nil checks stdin), executable finds this binary
+	// (nil uses os.Executable), lookPath finds npm (nil uses
+	// exec.LookPath), newCommand builds child processes (nil uses
+	// exec.Command) and viteAddr is where --dev runs Vite (empty means
+	// 127.0.0.1:5173).
+	openBrowser func(url string) error
+	isTerminal  func() bool
+	executable  func() (string, error)
+	lookPath    func(file string) (string, error)
+	newCommand  func(name string, args ...string) *exec.Cmd
+	viteAddr    string
 }
 
 // run dispatches a subcommand and returns the exit code.
@@ -151,6 +169,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.serve(ctx, args[1:])
 	case "status":
 		err = a.status(ctx, args[1:])
+	case "webui":
+		err = a.webui(ctx, args[1:])
 	case "version", "-v", "--version":
 		fmt.Fprintf(a.stdout, "nanobot-go %s (%s %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	case "help", "-h", "--help":
