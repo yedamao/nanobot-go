@@ -59,6 +59,12 @@ export function useChat(onSaved: () => void) {
           case "delta":
             dispatch({ type: "delta", content: frame.content ?? "" });
             break;
+          case "thinking":
+            dispatch({ type: "thinking", content: frame.content ?? "" });
+            break;
+          case "thinking_end":
+            dispatch({ type: "thinking_end" });
+            break;
           case "message":
             dispatch({ type: "message", content: frame.content ?? "", media: mediaRefs(frame.media) });
             savedRef.current(); // the turn is saved before its reply is sent

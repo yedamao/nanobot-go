@@ -15,8 +15,22 @@ function attachments(m: Message): MediaRef[] {
   return [...media, ...imagesInText(m.content).filter((i) => !media.some((r) => r.url === i.url))];
 }
 
-// MessageList shows the chat's messages, the live streaming bubble and,
-// while a reply is due, the thinking bubble with the turn's progress.
+// Thinking shows a turn's streamed model thinking as plain text in a
+// panel that is open while it streams and collapses when it ends; the
+// reader can still open it again.
+function Thinking({ message }: { message: Message }) {
+  const live = !!message.streaming;
+  return (
+    <details className={"msg thinking" + (live ? " streaming" : "")} open={live}>
+      <summary>{live ? "Thinking…" : "Thought"}</summary>
+      <div className="thinking-text">{message.content}</div>
+    </details>
+  );
+}
+
+// MessageList shows the chat's messages, the turn's thinking panel, the
+// live streaming bubble and, while a reply is due, the pending bubble
+// with the turn's progress.
 export function MessageList({ transcript, conn }: { transcript: Transcript; conn: ConnState }) {
   const ref = useRef<HTMLElement>(null);
   const { messages, waiting, progress, pendingHidden } = transcript;
@@ -35,12 +49,16 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
           {conn === "open" ? "No messages yet. Say hello to start the conversation." : "Loading the conversation…"}
         </p>
       )}
-      {messages.map((m) => (
-        <div key={m.id} className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
-          {m.kind === "assistant" ? <Markdown text={m.content} /> : m.content}
-          <Attachments media={attachments(m)} />
-        </div>
-      ))}
+      {messages.map((m) =>
+        m.kind === "thinking" ? (
+          <Thinking key={m.id} message={m} />
+        ) : (
+          <div key={m.id} className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
+            {m.kind === "assistant" ? <Markdown text={m.content} /> : m.content}
+            <Attachments media={attachments(m)} />
+          </div>
+        ),
+      )}
       {waiting > 0 && !pendingHidden && (
         <div className="msg pending">
           {progress === null ? (

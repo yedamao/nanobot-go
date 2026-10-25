@@ -84,3 +84,55 @@ test("disconnect settles the turn; history replaces the list", () => {
 test("errors are shown", () => {
   assert.deepEqual(shown(run({ type: "error", content: "boom" })), [["error", "boom", false]]);
 });
+
+test("thinking streams into a panel apart from the reply", () => {
+  let t = run({ type: "sent", content: "q" }, { type: "thinking", content: "Hm" }, { type: "thinking", content: "m." });
+  assert.deepEqual(shown(t), [
+    ["user", "q", false],
+    ["thinking", "Hmm.", true],
+  ]);
+  assert.ok(t.pendingHidden, "the pending bubble hides while thinking streams");
+  t = reduce(t, { type: "thinking_end" });
+  assert.deepEqual(shown(t).at(-1), ["thinking", "Hmm.", false]);
+  assert.ok(!t.pendingHidden);
+  t = reduce(t, { type: "delta", content: "Hi" });
+  t = reduce(t, { type: "message", content: "Hi!" });
+  // The thinking stays above the reply, collapsed; it is not in the reply.
+  assert.deepEqual(shown(t), [
+    ["user", "q", false],
+    ["thinking", "Hmm.", false],
+    ["assistant", "Hi!", false],
+  ]);
+  assert.equal(t.thinking, null);
+  // History does not bring it back.
+  t = reduce(t, {
+    type: "history",
+    messages: [
+      { role: "user", content: "q" },
+      { role: "assistant", content: "Hi!" },
+    ],
+  });
+  assert.ok(!t.messages.some((m) => m.kind === "thinking"));
+});
+
+test("a turn's thinking runs share one panel; the next turn gets its own", () => {
+  let t = run(
+    { type: "sent", content: "q" },
+    { type: "thinking", content: "Need a tool." },
+    { type: "thinking_end" },
+    { type: "progress", content: "exec" },
+    { type: "thinking", content: "\n\nGot it." },
+  );
+  assert.deepEqual(shown(t).at(-1), ["thinking", "Need a tool.\n\nGot it.", true]);
+  t = reduce(t, { type: "message", content: "Done" });
+  assert.ok(!t.messages.some((m) => m.streaming), "the reply settles thinking without thinking_end");
+  t = reduce(reduce(t, { type: "sent", content: "q2" }), { type: "thinking", content: "\n\nAgain." });
+  assert.deepEqual(shown(t).at(-1), ["thinking", "Again.", true]);
+  assert.equal(t.messages.filter((m) => m.kind === "thinking").length, 2);
+});
+
+test("disconnect settles thinking", () => {
+  const t = run({ type: "thinking", content: "x" }, { type: "disconnected" });
+  assert.equal(t.thinking, null);
+  assert.ok(!t.messages.some((m) => m.streaming));
+});

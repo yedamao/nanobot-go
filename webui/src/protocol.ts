@@ -9,6 +9,9 @@
 //                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
 //                  {"type":"progress","content":"..."},  (transient status)
 //                  {"type":"delta","content":"..."},  (next piece of the streamed reply)
+//                  {"type":"thinking","content":"..."},  (next piece of the model's
+//                   thinking: shown apart from the reply, never in history)
+//                  {"type":"thinking_end"},  (the thinking is done for now)
 //                  {"type":"message","role":"assistant","content":"...",
 //                   "media":[{"url":"/ui/media/...","name":"...","kind":"image"|"file"}]},  (the whole reply)
 //                  {"type":"error","content":"..."}
@@ -28,6 +31,8 @@ export type ServerFrame =
   | { type: "history"; messages?: HistoryMessage[] | null }
   | { type: "progress"; content?: string }
   | { type: "delta"; content?: string }
+  | { type: "thinking"; content?: string }
+  | { type: "thinking_end" }
   | { type: "message"; role?: string; content?: string; media?: unknown }
   | { type: "error"; content?: string };
 
