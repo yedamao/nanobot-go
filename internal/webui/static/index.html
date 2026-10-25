@@ -7,10 +7,15 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-state="connecting">
+<aside id="sidebar" aria-label="Chats">
+  <button id="new-chat" type="button" title="Start a new session">New chat</button>
+  <ul id="chats"></ul>
+</aside>
+<div id="chat">
 <header>
+  <button id="toggle-chats" type="button" title="Show the chat list" aria-controls="sidebar" aria-expanded="false">Chats</button>
   <h1>nanobot-go</h1>
   <span id="status" class="status" data-state="connecting">Connecting…</span>
-  <button id="new-chat" type="button" title="Start a new session">New chat</button>
 </header>
 <main id="messages" aria-live="polite"></main>
 <form id="composer" autocomplete="off">
@@ -18,6 +23,7 @@
   <button id="stop" type="button" title="Stop the reply in progress" hidden>Stop</button>
   <button id="send" type="submit" disabled>Send</button>
 </form>
+</div>
 <script src="app.js"></script>
 </body>
 </html>

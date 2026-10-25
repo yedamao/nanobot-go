@@ -5,9 +5,13 @@
 //                  {"type":"progress","content":"..."},  (transient status)
 //                  {"type":"message","role":"assistant","content":"..."},
 //                  {"type":"error","content":"..."}
+// The sidebar lists stored chats from GET /ui/chats:
+//   {"chats":[{"chat_id":"...","updated_at":"...","title":"...","preview":"..."}]}
 "use strict";
 
 const CHAT_KEY = "nanobot-go.chatId";
+const chatList = document.getElementById("chats");
+const toggleChats = document.getElementById("toggle-chats");
 const messages = document.getElementById("messages");
 const form = document.getElementById("composer");
 const input = document.getElementById("input");
@@ -80,6 +84,85 @@ function showProgress(text) {
   messages.scrollTop = messages.scrollHeight;
 }
 
+let chats = []; // the last list from GET /ui/chats
+
+// loadChats fetches the stored chats and redraws the sidebar. A failed
+// fetch keeps the last list.
+async function loadChats() {
+  try {
+    const resp = await fetch("chats", { cache: "no-store" });
+    if (!resp.ok) return;
+    chats = (await resp.json()).chats || [];
+  } catch {
+    return;
+  }
+  renderChats();
+}
+
+// renderChats draws the chat list with the current chat highlighted. A
+// chat with nothing stored yet is shown as "New chat" on top.
+function renderChats() {
+  const active = localStorage.getItem(CHAT_KEY);
+  const rows = chats.slice();
+  if (!rows.some((c) => c.chat_id === active)) rows.unshift({ chat_id: active, title: "New chat" });
+  chatList.replaceChildren(
+    ...rows.map((c) => {
+      const li = document.createElement("li");
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "chat-item";
+      if (c.chat_id === active) item.setAttribute("aria-current", "true");
+      item.title = c.preview || "";
+      item.append(line("chat-title", c.title || c.preview || "Untitled chat"));
+      if (c.preview) item.append(line("chat-preview", c.preview));
+      if (c.updated_at) item.append(line("chat-time", when(c.updated_at)));
+      item.addEventListener("click", () => switchChat(c.chat_id));
+      li.appendChild(item);
+      return li;
+    }),
+  );
+}
+
+function line(cls, text) {
+  const el = document.createElement("span");
+  el.className = cls;
+  el.textContent = text;
+  return el;
+}
+
+// when formats a time as a clock time today, or a short date otherwise.
+function when(iso) {
+  const d = new Date(iso);
+  if (isNaN(d)) return "";
+  if (d.toDateString() === new Date().toDateString()) {
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  }
+  return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+}
+
+function showSidebar(open) {
+  if (open) document.body.dataset.sidebar = "open";
+  else delete document.body.dataset.sidebar;
+  toggleChats.setAttribute("aria-expanded", String(open));
+}
+
+// switchChat reconnects to chat id, or to a new chat when id is null; the
+// server's history frame then fills the page.
+function switchChat(id) {
+  showSidebar(false);
+  if (id && id === localStorage.getItem(CHAT_KEY) && ws && ws.readyState === WebSocket.OPEN) return;
+  if (id) localStorage.setItem(CHAT_KEY, id);
+  else localStorage.removeItem(CHAT_KEY);
+  // Clearing now avoids showing the old chat while connecting.
+  showHistory([]);
+  renderChats();
+  const old = ws;
+  ws = null;
+  if (old) old.close();
+  connect();
+  input.focus();
+}
+
 function connect() {
   clearTimeout(retryTimer);
   const scheme = location.protocol === "https:" ? "wss:" : "ws:";
@@ -102,12 +185,14 @@ function connect() {
     switch (frame.type) {
       case "hello":
         localStorage.setItem(CHAT_KEY, frame.chat_id);
+        renderChats();
         break;
       case "history":
         // Sending is enabled only now, so nothing typed meanwhile is
         // wiped by the replaced list.
         showHistory(frame.messages);
         setStatus("open", "Connected");
+        loadChats();
         break;
       case "progress":
         showProgress(frame.content || "");
@@ -116,6 +201,7 @@ function connect() {
         setWaiting(waiting - 1);
         if (pending) pending.textContent = THINKING; // the next reply is due
         append("assistant", frame.content);
+        loadChats(); // the turn is saved before its reply is sent
         break;
       case "error":
         append("error", frame.content);
@@ -168,15 +254,11 @@ input.addEventListener("input", resize);
 stopButton.addEventListener("click", () => {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: "stop" }));
 });
-newChat.addEventListener("click", () => {
-  localStorage.removeItem(CHAT_KEY);
-  // The new chat's (empty) history frame clears the list too; clearing
-  // now avoids showing the old chat while connecting.
-  showHistory([]);
-  const old = ws;
-  ws = null;
-  if (old) old.close();
-  connect();
+newChat.addEventListener("click", () => switchChat(null));
+toggleChats.addEventListener("click", () => showSidebar(document.body.dataset.sidebar !== "open"));
+// Other tabs may have changed the list meanwhile.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") loadChats();
 });
 
 connect();
