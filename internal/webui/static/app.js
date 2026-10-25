@@ -7,6 +7,8 @@
 //                  {"type":"error","content":"..."}
 // The sidebar lists stored chats from GET /ui/chats:
 //   {"chats":[{"chat_id":"...","updated_at":"...","title":"...","preview":"..."}]}
+// and renames or deletes one with PATCH /ui/chats/{chat_id} {"title":"..."}
+// (answered with the chat's entry) and DELETE /ui/chats/{chat_id} (204).
 // The Status panel shows GET /ui/status (read-only):
 //   {"version":"...","go":"...","started_at":"...","uptime_seconds":0,"model":"...",
 //    "provider":"...","workspace":"...","channels":[{"name":"...","enabled":true,"running":true}],
@@ -122,9 +124,80 @@ function renderChats() {
       if (c.updated_at) item.append(line("chat-time", when(c.updated_at)));
       item.addEventListener("click", () => switchChat(c.chat_id));
       li.appendChild(item);
+      // Only stored chats can be renamed or deleted.
+      if (c.updated_at) {
+        const actions = document.createElement("span");
+        actions.className = "chat-actions";
+        actions.append(
+          action("✎", "Rename this chat", () => renameChat(c)),
+          action("✕", "Delete this chat", () => deleteChat(c)),
+        );
+        li.appendChild(actions);
+      }
       return li;
     }),
   );
+}
+
+function action(text, label, onClick) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.textContent = text;
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+// busy reports, and tells the user, when chat id is the current chat and
+// its reply is still running: renaming or deleting it then would race the
+// turn's save.
+function busy(id) {
+  if (id !== localStorage.getItem(CHAT_KEY) || waiting === 0) return false;
+  alert("Wait for the reply to finish, or stop it, first.");
+  return true;
+}
+
+// chatRequest sends method to /ui/chats/{id}; it returns the response, or
+// null after telling the user why it failed.
+async function chatRequest(id, method, body, what) {
+  let resp;
+  try {
+    resp = await fetch("chats/" + encodeURIComponent(id), {
+      method,
+      headers: body ? { "Content-Type": "application/json" } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    alert("Cannot " + what + " the chat: " + err.message);
+    return null;
+  }
+  if (!resp.ok) {
+    alert("Cannot " + what + " the chat: " + ((await resp.text()).trim() || "HTTP " + resp.status));
+    return null;
+  }
+  return resp;
+}
+
+// renameChat asks for a new title; an empty one goes back to the first
+// message.
+async function renameChat(c) {
+  if (busy(c.chat_id)) return;
+  const title = prompt("Rename this chat (leave empty to use its first message):", c.title || "");
+  if (title === null) return;
+  if (await chatRequest(c.chat_id, "PATCH", { title }, "rename")) loadChats();
+}
+
+// deleteChat deletes a chat after confirming; deleting the current chat
+// starts a new one, as "New chat" does.
+async function deleteChat(c) {
+  if (busy(c.chat_id)) return;
+  if (!confirm("Delete this chat?\n\n" + (c.title || c.preview || "Untitled chat"))) return;
+  if (!(await chatRequest(c.chat_id, "DELETE", null, "delete"))) return;
+  chats = chats.filter((x) => x.chat_id !== c.chat_id);
+  if (c.chat_id === localStorage.getItem(CHAT_KEY)) switchChat(null);
+  else renderChats();
+  loadChats();
 }
 
 function line(cls, text) {
