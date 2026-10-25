@@ -466,3 +466,4 @@ button:disabled { opacity: 0.5; cursor: default; }
 }
 .cron-dialog::backdrop { background: rgb(0 0 0 / 0.4); }
 .cron-dialog .cron-form { margin: 0; border: 0; }
+.models-catalog-note { display: block; color: var(--muted); font-size: 12px; font-weight: normal; }

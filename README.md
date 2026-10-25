@@ -754,7 +754,8 @@ and press Enter. Each reply is a full agent turn, tools included.
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
   `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
   `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), provider credentials
-  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), gateway restart
+  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), model suggestions
+  (`GET /ui/providers/{name}/models`), gateway restart
   (`GET /ui/gateway`, `POST /ui/gateway/restart`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
@@ -847,6 +848,18 @@ and press Enter. Each reply is a full agent turn, tools included.
   `provider`, `fallbackModels`) are edited on the **Models** page
   (`#/models`) instead, which sets the primary model and provider and
   adds, removes and reorders the fallback list, through the same API.
+  Each model field suggests IDs for its row's provider from
+  `GET /ui/providers/{name}/models` (`{name}` a preset or `auto`;
+  local or signed in): a built-in curated list, or for `openai`,
+  `deepseek` and `openrouter` with an API key (saved or from the
+  environment) the provider's own `GET {apiBase}/models` (10 s timeout,
+  at most 500 IDs, sorted). Without a key the answer is the curated list
+  with `status: "not_configured"`; a failed fetch is the curated list
+  with `status: "error"` and a message. `anthropic` and `auto` are
+  curated only. The answer
+  (`{"provider","catalog_kind","status","message","source","models":[{"id","label"}]}`)
+  never holds a key. The lists are advisory and may lag the providers:
+  any model ID can still be typed and saved.
   **Save changes nothing in the running gateway: restart it to apply
   them.** The page says which saved settings differ from the running
   ones.

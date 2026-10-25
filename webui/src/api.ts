@@ -431,6 +431,30 @@ export async function saveProvider(name: string, patch: ProviderPatch): Promise<
   return resp.json();
 }
 
+// GET /ui/providers/{name}/models is an advisory model list for the
+// Models page's picker ({name} is a provider or "auto"): the built-in
+// list, or the provider's own /models when it is OpenAI-compatible and
+// has a key. It never holds credentials; any model ID can still be typed.
+export interface CatalogModel {
+  id: string;
+  label?: string;
+}
+
+export interface ProviderModels {
+  provider: string;
+  catalog_kind: "curated" | "fetched" | "unsupported";
+  status: "available" | "not_configured" | "error" | "unsupported";
+  message?: string;
+  source: "curated" | "provider";
+  models: CatalogModel[] | null;
+}
+
+export async function getProviderModels(name: string): Promise<ProviderModels> {
+  const resp = await fetch("providers/" + encodeURIComponent(name) + "/models", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
 // GET /ui/gateway says how the gateway serving this page was launched
 // and whether the page can restart it: only a background gateway
 // (`nanobot gateway --background`, or the on-demand one `nanobot webui`

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { Settings } from "./api.ts";
-import { checkModels, diffModels, maxFallbacks, modelsDraft, moveItem } from "./models.ts";
+import type { ProviderModels, Settings } from "./api.ts";
+import { catalogListId, catalogNote, catalogOptions, checkModels, diffModels, draftProviders, maxFallbacks, modelsDraft, moveItem } from "./models.ts";
 
 const saved: Settings = {
   model: "claude-x",
@@ -52,4 +52,41 @@ test("moveItem", () => {
   const l = [1, 2];
   assert.equal(moveItem(l, 0, -1), l);
   assert.equal(moveItem(l, 1, 1), l);
+});
+
+test("draftProviders lists each row's provider once", () => {
+  const d = modelsDraft(saved);
+  assert.deepEqual(draftProviders(d), ["anthropic", "openai", "auto"]);
+  assert.deepEqual(draftProviders({ ...d, fallbacks: [{ provider: "", model: "m" }, { provider: "anthropic", model: "n" }] }), ["anthropic", "auto"]);
+});
+
+test("catalog suggestions and notes", () => {
+  const curated: ProviderModels = {
+    provider: "anthropic",
+    catalog_kind: "curated",
+    status: "available",
+    message: "Built-in list.",
+    source: "curated",
+    models: [{ id: "claude-a" }, { id: "gpt-x", label: "openai" }],
+  };
+  assert.deepEqual(catalogOptions({ state: "ok", models: curated }), [
+    { value: "claude-a", label: "" },
+    { value: "gpt-x", label: "openai" },
+  ]);
+  assert.deepEqual(catalogOptions({ state: "loading" }), []);
+  assert.deepEqual(catalogOptions(undefined), []);
+  assert.equal(catalogNote(undefined), "");
+  assert.equal(catalogNote({ state: "ok", models: curated }), "Built-in list.");
+  assert.equal(
+    catalogNote({ state: "ok", models: { ...curated, provider: "openai", catalog_kind: "fetched", source: "provider", message: undefined } }),
+    "2 models listed by openai. Any model ID can be typed.",
+  );
+  assert.equal(
+    catalogNote({ state: "ok", models: { ...curated, status: "not_configured", message: "No API key." } }),
+    "No API key.",
+  );
+  assert.equal(catalogNote({ state: "error", error: "HTTP 500" }), "No model suggestions (HTTP 500). Type a model ID.");
+  assert.equal(catalogNote({ state: "ok", models: { ...curated, models: null, message: undefined } }), "No model list for this provider. Type a model ID.");
+  assert.equal(catalogListId("open/router x"), "models-catalog-open_router_x");
+  assert.equal(catalogListId(""), "models-catalog-auto");
 });

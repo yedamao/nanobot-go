@@ -1,4 +1,4 @@
-import type { FallbackModel, Settings, SettingsPatch } from "./api.ts";
+import type { FallbackModel, ProviderModels, Settings, SettingsPatch } from "./api.ts";
 
 /** The Models page's form: the primary model and the ordered fallbacks. */
 export interface ModelsDraft {
@@ -62,4 +62,44 @@ export function moveItem<T>(list: T[], i: number, delta: number): T[] {
   const out = list.slice();
   [out[i], out[j]] = [out[j], out[i]];
   return out;
+}
+
+/** A provider's catalog as the page holds it: loading, loaded, or why
+ * it could not be loaded. */
+export type Catalog = { state: "loading" } | { state: "ok"; models: ProviderModels } | { state: "error"; error: string };
+
+/** draftProviders lists the providers draft's rows use, each once, in
+ * order: the catalogs the page needs. */
+export function draftProviders(draft: ModelsDraft): string[] {
+  const out: string[] = [];
+  for (const p of [draft.provider, ...draft.fallbacks.map((f) => f.provider)]) {
+    const name = p || "auto";
+    if (!out.includes(name)) out.push(name);
+  }
+  return out;
+}
+
+/** catalogListId is the <datalist> id holding provider's suggestions. */
+export function catalogListId(provider: string): string {
+  return "models-catalog-" + (provider || "auto").replace(/[^A-Za-z0-9_-]/g, "_");
+}
+
+/** catalogOptions are the suggestions a catalog offers, labelled for
+ * the datalist. */
+export function catalogOptions(c: Catalog | undefined): { value: string; label: string }[] {
+  if (c?.state !== "ok") return [];
+  return (c.models.models ?? []).map((m) => ({ value: m.id, label: m.label ?? "" }));
+}
+
+/** catalogNote is the quiet line under a model field: where its
+ * suggestions come from, or why there are none. "" when nothing to say. */
+export function catalogNote(c: Catalog | undefined): string {
+  if (!c) return "";
+  if (c.state === "loading") return "Loading model suggestions…";
+  if (c.state === "error") return "No model suggestions (" + c.error + "). Type a model ID.";
+  const m = c.models;
+  const n = (m.models ?? []).length;
+  if (m.status === "unsupported" || n === 0) return m.message || "No model list for this provider. Type a model ID.";
+  if (m.source === "provider") return n + " models listed by " + m.provider + ". Any model ID can be typed.";
+  return m.message || "Built-in suggestions; any model ID can be typed.";
 }

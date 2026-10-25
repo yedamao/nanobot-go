@@ -295,8 +295,16 @@ Phase 2 is complete; phase 3 is in progress.
     change vs the running gateway lists `fallbackModels` in
     `restart_required`. The page edits the primary model/provider and
     adds/removes/reorders fallbacks with one PATCH; the Status dialog
-    links to it instead of editing model/provider. Gaps vs nanobot: no
-    model catalog/picker.
+    links to it instead of editing model/provider. Model picker
+    (simplified `provider_models_payload`): `GET
+    /ui/providers/{name}/models` answers a curated list per preset (and
+    a merged one for `auto`), or for OpenAI-compatible presets with a
+    key the provider's `GET {apiBase}/models` (capped at 500, sorted),
+    falling back to the curated list with `status`
+    `not_configured`/`error` (`cmd/nanobot/webmodels.go`); the page
+    feeds it to a `<datalist>` per row, free text still allowed. Gaps
+    vs nanobot: no OAuth/local/custom catalogs, no context-window or
+    reasoning-effort metadata, no Anthropic live list.
   - Done (simplified): Providers page (`#/providers`). `GET
     /ui/providers` lists the four presets with `hasApiKey`, an
     `apiKeyHint` (nanobot's `mask_secret_hint`), `apiBase`,
@@ -306,7 +314,7 @@ Phase 2 is complete; phase 3 is in progress.
     (`clearApiKey`) or edits `apiBase`, refusing `***`/hint placeholders,
     and saves under the settings' lock (`cmd/nanobot/webproviders.go`).
     Gaps vs nanobot: no OAuth/login providers, no custom providers, no
-    model catalog, no key test call.
+    key test call.
   - Done (different): restart from the WebUI. nanobot's page sends a
     silent `/restart` command; nanobot-go has `GET /ui/gateway`
     (`launch_mode`, `lifetime`, `restart_available`/reason) and an
