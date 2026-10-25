@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/yedamao/nanobot-go/internal/heartbeat"
 	"github.com/yedamao/nanobot-go/internal/providers"
 )
 
@@ -154,8 +155,12 @@ func TestWriteBootstrapFilesKeepsExisting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"AGENTS.md", "SOUL.md", "USER.md", "memory/MEMORY.md"}; !slices.Equal(created, want) {
+	if want := []string{"AGENTS.md", "SOUL.md", "USER.md", "HEARTBEAT.md", "memory/MEMORY.md"}; !slices.Equal(created, want) {
 		t.Errorf("created = %v, want %v", created, want)
+	}
+	// The seeded HEARTBEAT.md has no task, so the heartbeat stays idle.
+	if data, err := os.ReadFile(filepath.Join(ws, HeartbeatFile)); err != nil || heartbeat.HasActiveTasks(string(data)) {
+		t.Errorf("HEARTBEAT.md: %v, active tasks = %v", err, heartbeat.HasActiveTasks(string(data)))
 	}
 	if _, err := os.Stat(filepath.Join(ws, "memory", "MEMORY.md")); err != nil {
 		t.Errorf("memory/MEMORY.md: %v", err)

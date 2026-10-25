@@ -152,6 +152,9 @@ func TestToolListAndRemove(t *testing.T) {
 	if err := svc.RegisterSystemJob(Job{ID: DreamJobID, Name: "dream", Schedule: Schedule{Kind: KindCron, Expr: "0 3 * * *", TZ: "Asia/Tokyo"}}); err != nil {
 		t.Fatal(err)
 	}
+	if err := svc.RegisterSystemJob(Job{ID: HeartbeatJobID, Name: "heartbeat", Schedule: Schedule{Kind: KindEvery, Every: 2 * time.Hour}}); err != nil {
+		t.Fatal(err)
+	}
 	clock.Advance(time.Second)
 	jobs, _ := svc.List(false)
 	id := jobs[0].ID
@@ -160,6 +163,7 @@ func TestToolListAndRemove(t *testing.T) {
 	for _, want := range []string{
 		"Scheduled jobs:\n- stretch (id: " + id + ", every 90m)\n  Next run: 2026-10-20 13:30:00 UTC",
 		"- dream (id: dream, cron: 0 3 * * * (Asia/Tokyo))\n  Purpose: Dream memory consolidation for long-term memory.\n  Protected: visible for inspection, but cannot be removed.\n  Next run: 2026-10-21 03:00:00 JST",
+		"- heartbeat (id: heartbeat, every 2h)\n  Purpose: Heartbeat: runs the active tasks of HEARTBEAT.md and reports only what is worth telling.\n  Protected: visible for inspection, but cannot be removed.",
 	} {
 		if !strings.Contains(list, want) {
 			t.Errorf("list =\n%s\nwant it to contain\n%s", list, want)
@@ -168,6 +172,12 @@ func TestToolListAndRemove(t *testing.T) {
 
 	if res := call(t, reg, ctx, `{"action":"remove","job_id":"dream"}`); !strings.HasPrefix(res.Content, "Cannot remove job `dream`.") {
 		t.Errorf("remove dream = %q", res.Content)
+	}
+	if res := call(t, reg, ctx, `{"action":"remove","job_id":"heartbeat"}`); !strings.HasPrefix(res.Content, "Cannot remove job `heartbeat`.") {
+		t.Errorf("remove heartbeat = %q", res.Content)
+	}
+	if _, ok, _ := svc.Get(HeartbeatJobID); !ok {
+		t.Error("heartbeat job removed")
 	}
 	if res := call(t, reg, ctx, `{"action":"remove","job_id":"`+id+`"}`); res.Content != "Removed job "+id {
 		t.Errorf("remove = %q", res.Content)

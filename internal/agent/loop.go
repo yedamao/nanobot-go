@@ -97,11 +97,13 @@ type worker struct {
 }
 
 // job is one inbound message. ctx bounds the turn; when reply is set the
-// result goes there instead of the bus.
+// result goes there instead of the bus. A job with record set runs no
+// turn: it appends record to msg's session (see Record).
 type job struct {
-	ctx   context.Context
-	msg   bus.InboundMessage
-	reply chan<- result
+	ctx    context.Context
+	msg    bus.InboundMessage
+	reply  chan<- result
+	record []providers.Message
 }
 
 type result struct {
@@ -234,6 +236,39 @@ func (l *Loop) Process(ctx context.Context, msg bus.InboundMessage) (Reply, erro
 	}
 }
 
+// Record appends msgs to the session stored under sessionKey and saves
+// it, serialized with the session's turns, like nanobot's record=True
+// deliveries: a message sent to a chat outside a turn (a heartbeat
+// result) joins the chat's history.
+func (l *Loop) Record(ctx context.Context, sessionKey string, msgs ...providers.Message) error {
+	if len(msgs) == 0 {
+		return nil
+	}
+	reply := make(chan result, 1)
+	l.enqueue(job{ctx: ctx, msg: bus.InboundMessage{SessionKeyOverride: sessionKey}, reply: reply, record: msgs})
+	select {
+	case r := <-reply:
+		return r.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (l *Loop) record(ctx context.Context, key string, msgs []providers.Message) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	sess, err := l.cfg.Sessions.GetOrCreate(key)
+	if err != nil {
+		return fmt.Errorf("load session: %w", err)
+	}
+	sess.Append(msgs...)
+	if err := l.cfg.Sessions.Save(sess); err != nil {
+		return fmt.Errorf("save session: %w", err)
+	}
+	return nil
+}
+
 func (l *Loop) enqueue(j job) {
 	key := j.msg.SessionKey()
 	l.mu.Lock()
@@ -276,6 +311,10 @@ func (l *Loop) work(key string, w *worker) {
 // handle runs one job under ctx, which Cancel may cancel before j.ctx
 // ends, and delivers its result.
 func (l *Loop) handle(ctx context.Context, j job) {
+	if j.record != nil {
+		j.reply <- result{err: l.record(ctx, j.msg.SessionKey(), j.record)}
+		return
+	}
 	// Progress and streamed deltas follow the reply: bus-driven turns
 	// report to their chat, while Process callers deliver (or not)
 	// themselves and get no stream.

@@ -214,6 +214,11 @@ func (t *Tool) remove(id string) tools.Result {
 				"This is a system-managed Dream memory consolidation job for long-term memory.\n" +
 				"It remains visible so you can inspect it, but it cannot be removed.")
 		}
+		if id == HeartbeatJobID {
+			return tools.Text("Cannot remove job `heartbeat`.\n" +
+				"This is a system-managed heartbeat job that runs the tasks in HEARTBEAT.md.\n" +
+				"Edit HEARTBEAT.md to change its tasks, or set gateway.heartbeat.enabled to false to turn it off.")
+		}
 		return tools.Text(fmt.Sprintf("Cannot remove job `%s`.\nThis is a protected system-managed cron job.", id))
 	}
 	return tools.Text(fmt.Sprintf("Job %s not found", id))
@@ -255,9 +260,15 @@ func (t *Tool) displayLocation(s Schedule) *time.Location {
 // DreamJobID is the id (and name) of the Dream system job.
 const DreamJobID = "dream"
 
+// HeartbeatJobID is the id (and name) of the heartbeat system job.
+const HeartbeatJobID = "heartbeat"
+
 func systemPurpose(j Job) string {
-	if j.ID == DreamJobID {
+	switch j.ID {
+	case DreamJobID:
 		return "Dream memory consolidation for long-term memory."
+	case HeartbeatJobID:
+		return "Heartbeat: runs the active tasks of HEARTBEAT.md and reports only what is worth telling."
 	}
 	return "System-managed internal job."
 }

@@ -69,12 +69,13 @@ func TestGatewayRunsCronJobInOriginatingChat(t *testing.T) {
 	if code := g.wait(t); code != 0 {
 		t.Fatalf("exit = %d, stderr:\n%s", code, e.stderr)
 	}
-	// The one-time job is gone; Dream remains as a system job.
+	// The one-time job is gone; Dream and the heartbeat remain as system
+	// jobs.
 	jobs, err := cron.NewStore(e.workspace).Load()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(jobs) != 1 || jobs[0].ID != cron.DreamJobID || !jobs[0].System() {
+	if len(jobs) != 2 || jobs[0].ID != cron.DreamJobID || jobs[1].ID != cron.HeartbeatJobID || !jobs[0].System() || !jobs[1].System() {
 		t.Errorf("jobs after the run = %+v", jobs)
 	}
 	// The cron turn is part of the chat's session.
@@ -100,17 +101,20 @@ func TestGatewayDreamScheduleConfig(t *testing.T) {
 	g := startGateway(t, e, newFakeChat(&eventLog{}))
 	g.cancel()
 	g.wait(t)
-	if !strings.Contains(e.stdout.String(), "Dream: cron: 0 3 * * *") {
-		t.Errorf("banner = %q", e.stdout)
+	if out := e.stdout.String(); !strings.Contains(out, "Dream: cron: 0 3 * * *") || !strings.Contains(out, "Heartbeat: every 30m") {
+		t.Errorf("banner = %q", out)
 	}
 
-	// Turning the schedule off removes the job on the next start.
-	e.writeGatewayConfig(t, func(c *config.Config) { c.Agents.Defaults.Dream.IntervalH = 0 })
+	// Turning the schedules off removes the jobs on the next start.
+	e.writeGatewayConfig(t, func(c *config.Config) {
+		c.Agents.Defaults.Dream.IntervalH = 0
+		c.Gateway.Heartbeat.Enabled = false
+	})
 	g = startGateway(t, e, newFakeChat(&eventLog{}))
 	g.cancel()
 	g.wait(t)
-	if !strings.Contains(e.stdout.String(), "Dream: not scheduled") {
-		t.Errorf("banner = %q", e.stdout)
+	if out := e.stdout.String(); !strings.Contains(out, "Dream: not scheduled") || !strings.Contains(out, "Heartbeat: disabled") {
+		t.Errorf("banner = %q", out)
 	}
 	if jobs, err := cron.NewStore(e.workspace).Load(); err != nil || len(jobs) != 0 {
 		t.Errorf("jobs = %+v, %v", jobs, err)

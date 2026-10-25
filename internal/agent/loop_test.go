@@ -64,6 +64,33 @@ func TestProcessDirectPersistsTurns(t *testing.T) {
 	}
 }
 
+func TestRecordAppendsToSession(t *testing.T) {
+	p := &scripted{steps: []step{reply("first"), reply("second")}}
+	l, _, dir := newTestLoop(t, p, nil, nil)
+	ctx := context.Background()
+	if _, err := l.ProcessDirect(ctx, "hi", "cli:direct"); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Record(ctx, "cli:direct", providers.Message{Role: providers.RoleAssistant, Content: "build failed"}); err != nil {
+		t.Fatal(err)
+	}
+	// The next turn replays the recorded message.
+	if _, err := l.ProcessDirect(ctx, "why?", "cli:direct"); err != nil {
+		t.Fatal(err)
+	}
+	if req := p.reqs[1].Messages; len(req) != 5 || req[3].Content != "build failed" {
+		t.Errorf("second request = %+v", req)
+	}
+	sess, err := session.NewManager(session.NewJSONLStore(dir)).GetOrCreate("cli:direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"user:hi", "assistant:first", "assistant:build failed", "user:why?", "assistant:second"}
+	if got := summarize(sess.Messages); !slices.Equal(got, want) {
+		t.Errorf("persisted = %v, want %v", got, want)
+	}
+}
+
 func TestWaitConcurrentWithNewSessions(t *testing.T) {
 	// Wait may run while turns for new sessions are being enqueued (for
 	// example ProcessDirect during Run's shutdown); neither may race.

@@ -14,6 +14,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/heartbeat"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
@@ -137,20 +138,44 @@ type agentRuntime struct {
 	cron *cron.Service
 	// dream runs the Dream system job.
 	dream *memory.Dream
+	// heartbeat runs the heartbeat system job.
+	heartbeat *heartbeat.Runner
+	// channels, when set, returns the running chat channels, the ones the
+	// heartbeat may report to; nil (outside the gateway) allows any.
+	channels func() []string
 	// runBound runs agent-turn jobs.
 	runBound cron.RunFunc
 }
 
-// runCronJob runs one cron job: the Dream system job, or an agent turn
-// in the job's chat.
+// runCronJob runs one cron job: the Dream or heartbeat system job, or an
+// agent turn in the job's chat.
 func (rt *agentRuntime) runCronJob(ctx context.Context, job cron.Job) error {
-	if job.System() && job.ID == cron.DreamJobID {
+	switch {
+	case job.System() && job.ID == cron.DreamJobID:
 		res, err := rt.dream.Run(ctx)
 		rt.logger.Info("cron: dream run", "pending", res.Pending, "processed", res.Processed,
 			"completed", res.Outcome.Completed, "commit", res.Commit)
 		return err
+	case job.System() && job.ID == cron.HeartbeatJobID:
+		res, err := rt.heartbeat.Run(ctx)
+		if err == nil && res.Skipped == "" {
+			rt.logger.Info("cron: heartbeat run", "notified", res.Notified)
+		}
+		return err
 	}
 	return rt.runBound(ctx, job)
+}
+
+// syncHeartbeatJob registers the heartbeat system job, every
+// gateway.heartbeat.intervalS seconds, while the heartbeat is enabled and
+// removes it otherwise, like nanobot's gateway startup.
+func (rt *agentRuntime) syncHeartbeatJob() (cron.Schedule, bool, error) {
+	h := rt.cfg.Gateway.Heartbeat
+	if !h.Enabled {
+		return cron.Schedule{}, false, rt.cron.RemoveSystemJob(cron.HeartbeatJobID)
+	}
+	sched := cron.Schedule{Kind: cron.KindEvery, Every: h.Interval()}
+	return sched, true, rt.cron.RegisterSystemJob(cron.Job{ID: cron.HeartbeatJobID, Name: "heartbeat", Schedule: sched})
 }
 
 // dreamSchedule returns the Dream system job's schedule, if Dream is
@@ -274,6 +299,28 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		}
 	}
 	rt.runBound = cron.BoundRunner(loop.ProcessMessage, deliver)
+	rt.heartbeat = heartbeat.New(heartbeat.Config{
+		Workspace: ws.Root,
+		Provider:  provider,
+		Sessions:  sessions.List,
+		Channels: func() []string {
+			if rt.channels == nil {
+				return nil
+			}
+			return rt.channels()
+		},
+		Turn: loop.ProcessMessage,
+		// Outside the gateway (cron run) results are printed, not sent, so
+		// they stay out of the chat's history.
+		Record: func(ctx context.Context, key string, msgs ...providers.Message) error {
+			if rt.channels == nil {
+				return nil
+			}
+			return loop.Record(ctx, key, msgs...)
+		},
+		Deliver: deliver,
+		Logger:  logger,
+	})
 	return rt, nil
 }
 

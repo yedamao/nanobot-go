@@ -45,8 +45,8 @@ const (
 
 // gateway runs the agent behind the enabled chat channels until SIGINT or
 // SIGTERM, with a health endpoint on gateway.host:gateway.port, and runs
-// the workspace's cron jobs (and Dream, as the system job "dream") once
-// the loop is serving. With api.enabled it also serves the
+// the workspace's cron jobs (and Dream and the heartbeat, as the system
+// jobs "dream" and "heartbeat") once the loop is serving. With api.enabled it also serves the
 // OpenAI-compatible API on api.host:api.port. On the first signal it
 // stops taking inbound messages, API requests and starting cron jobs,
 // gives the turns in flight (a cron job's and API requests' included)
@@ -104,6 +104,10 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	heartbeatSched, heartbeatOn, err := rt.syncHeartbeatJob()
+	if err != nil {
+		return err
+	}
 
 	// The WebUI's status reads mgr, which is set before the HTTP server
 	// starts serving.
@@ -127,6 +131,8 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
+	// The heartbeat reports to chats of the channels that started.
+	rt.channels = mgr.Running
 	// Built now so an unauthenticated non-loopback API fails right away.
 	var apiSrv *api.Server
 	if rt.cfg.API.Enabled {
@@ -179,6 +185,11 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		}()
 		a.printGatewayBanner(ln.Addr().String(), mgr, webUI)
 		a.printCronBanner(rt.cron, dreamSched, dreamOn)
+		if heartbeatOn {
+			fmt.Fprintf(a.stdout, "Heartbeat: %s\n", heartbeatSched)
+		} else {
+			fmt.Fprintln(a.stdout, "Heartbeat: disabled")
+		}
 		if apiAddr != "" {
 			a.printAPIEndpoint(rt.cfg, apiAddr)
 			if a.apiReady != nil {

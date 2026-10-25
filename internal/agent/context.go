@@ -26,9 +26,13 @@ func BootstrapFiles() []string { return []string{"AGENTS.md", "SOUL.md", "USER.m
 // nanobot's memory/MEMORY.md. Dream maintains it from history.jsonl.
 const MemoryFile = memory.Dir + "/" + memory.LongTermFile
 
+// HeartbeatFile is the workspace file holding the heartbeat's tasks; it is
+// not part of the system prompt.
+const HeartbeatFile = "HEARTBEAT.md"
+
 // templateFiles returns the workspace-relative files (slash-separated)
 // that WriteBootstrapFiles creates from bundled templates.
-func templateFiles() []string { return append(BootstrapFiles(), MemoryFile) }
+func templateFiles() []string { return append(BootstrapFiles(), HeartbeatFile, MemoryFile) }
 
 // skippableDefault reports whether a workspace file is left out of the
 // prompt while identical to its bundled template, which carries no
@@ -188,7 +192,8 @@ func isTemplate(name, content string) bool {
 }
 
 // WriteBootstrapFiles creates the workspace directory and writes the
-// default AGENTS.md, SOUL.md, USER.md and memory/MEMORY.md into it.
+// default AGENTS.md, SOUL.md, USER.md, HEARTBEAT.md and memory/MEMORY.md
+// into it.
 // Existing files are never overwritten. It returns the slash-separated
 // names of the files it created.
 func WriteBootstrapFiles(workspace string) ([]string, error) {
