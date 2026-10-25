@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { getAuth, logout, onSignInRequired } from "./auth";
+import { ChannelsPage } from "./ChannelsPage";
 import { ChatList, useChats } from "./ChatList";
-import { Login } from "./Login";
 import { Composer } from "./Composer";
+import { CronPage } from "./CronPage";
+import { Login } from "./Login";
 import { MessageList } from "./MessageList";
+import { SkillsPage } from "./SkillsPage";
 import { StatusDialog } from "./StatusDialog";
 import { useChat, type Connection } from "./useChat";
 
@@ -19,9 +22,21 @@ function statusText(c: Connection): string {
 }
 
 type Gate = "checking" | "sign-in" | "ready";
+type View = "chat" | "cron" | "channels" | "skills";
+
+function readView(): View {
+  const h = (typeof location !== "undefined" ? location.hash : "").replace(/^#\/?/, "");
+  if (h === "cron" || h === "channels" || h === "skills") return h;
+  return "chat";
+}
+
+function writeView(v: View) {
+  const next = v === "chat" ? "#/" : "#/" + v;
+  if (location.hash !== next) location.hash = next;
+}
 
 // App shows the sign-in form when the gateway asks this page to sign in
-// (it is reached beyond loopback), and the chat otherwise.
+// (it is reached beyond loopback), and the workbench otherwise.
 export default function App() {
   const [gate, setGate] = useState<Gate>("checking");
   const [signedIn, setSignedIn] = useState(false);
@@ -50,18 +65,32 @@ export default function App() {
     case "sign-in":
       return <Login onSignedIn={check} />;
     case "ready":
-      return <Chat onSignOut={signedIn ? signOut : undefined} />;
+      return <Shell onSignOut={signedIn ? signOut : undefined} />;
   }
 }
 
-function Chat({ onSignOut }: { onSignOut?: () => void }) {
+function Shell({ onSignOut }: { onSignOut?: () => void }) {
+  const [view, setView] = useState<View>(readView);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const { chats, setChats, reload } = useChats();
   const { transcript, conn, chatId, send, stop, switchChat } = useChat(reload);
 
+  useEffect(() => {
+    const onHash = () => setView(readView());
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
+
+  const go = (v: View) => {
+    setView(v);
+    writeView(v);
+    if (v !== "chat") setSidebarOpen(false);
+  };
+
   const select = (id: string | null) => {
     setSidebarOpen(false);
+    go("chat");
     switchChat(id);
   };
 
@@ -73,7 +102,7 @@ function Chat({ onSignOut }: { onSignOut?: () => void }) {
   };
 
   return (
-    <div id="app" data-sidebar={sidebarOpen ? "open" : undefined}>
+    <div id="app" data-sidebar={sidebarOpen ? "open" : undefined} data-view={view}>
       <aside id="sidebar" aria-label="Chats">
         <ChatList
           chats={chats}
@@ -85,7 +114,7 @@ function Chat({ onSignOut }: { onSignOut?: () => void }) {
           onDeleted={deleted}
         />
       </aside>
-      <div id="chat">
+      <div id="main">
         <header>
           <button
             id="toggle-chats"
@@ -98,6 +127,26 @@ function Chat({ onSignOut }: { onSignOut?: () => void }) {
             Chats
           </button>
           <h1>nanobot-go</h1>
+          <nav id="main-nav" aria-label="Workbench">
+            {(
+              [
+                ["chat", "Chat"],
+                ["cron", "Cron"],
+                ["channels", "Channels"],
+                ["skills", "Skills"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                data-active={view === id || undefined}
+                aria-current={view === id ? "page" : undefined}
+                onClick={() => go(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </nav>
           <span className="status" data-state={conn.state} role="status">
             {statusText(conn)}
           </span>
@@ -116,8 +165,15 @@ function Chat({ onSignOut }: { onSignOut?: () => void }) {
             </button>
           )}
         </header>
-        <MessageList transcript={transcript} conn={conn.state} />
-        <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
+        {view === "chat" && (
+          <div id="chat">
+            <MessageList transcript={transcript} conn={conn.state} />
+            <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
+          </div>
+        )}
+        {view === "cron" && <CronPage />}
+        {view === "channels" && <ChannelsPage />}
+        {view === "skills" && <SkillsPage />}
       </div>
       <StatusDialog open={statusOpen} onClose={() => setStatusOpen(false)} />
     </div>

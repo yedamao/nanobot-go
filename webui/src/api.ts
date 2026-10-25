@@ -119,3 +119,113 @@ export async function saveSettings(patch: SettingsPatch): Promise<SettingsView> 
   if (!resp.ok) throw await requestError(resp);
   return resp.json();
 }
+
+// GET /ui/cron lists jobs; POST /ui/cron/{id}/run runs one; DELETE removes.
+export interface CronJob {
+  id: string;
+  name: string;
+  enabled: boolean;
+  system: boolean;
+  schedule: {
+    kind: string;
+    at?: string;
+    everyMs?: number;
+    expr?: string;
+    tz?: string;
+    summary: string;
+  };
+  payload: { kind: string; message?: string };
+  binding?: { channel: string; chatId: string };
+  state: {
+    nextRun?: string;
+    lastRun?: string;
+    lastStatus?: string;
+    lastError?: string;
+    runCount?: number;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+  deleteAfterRun?: boolean;
+}
+
+export async function listCronJobs(): Promise<CronJob[]> {
+  const resp = await fetch("cron", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return ((await resp.json()) as { jobs?: CronJob[] }).jobs ?? [];
+}
+
+export async function runCronJob(id: string, force = false): Promise<CronJob> {
+  const resp = await fetch("cron/" + encodeURIComponent(id) + "/run", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ force }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function removeCronJob(id: string): Promise<void> {
+  const resp = await fetch("cron/" + encodeURIComponent(id), { method: "DELETE" });
+  if (!resp.ok) throw await requestError(resp);
+}
+
+// GET /ui/pairing; POST approve/deny/revoke.
+export interface PairingPending {
+  code: string;
+  channel: string;
+  sender_id: string;
+  created_at: string;
+  expires_at: string;
+}
+
+export interface PairingView {
+  pending: PairingPending[];
+  approved: Record<string, string[]>;
+}
+
+export async function getPairing(): Promise<PairingView> {
+  const resp = await fetch("pairing", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  const v = (await resp.json()) as PairingView;
+  return { pending: v.pending ?? [], approved: v.approved ?? {} };
+}
+
+export async function approvePairing(code: string): Promise<void> {
+  const resp = await fetch("pairing/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+}
+
+export async function denyPairing(code: string): Promise<void> {
+  const resp = await fetch("pairing/deny", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+}
+
+export async function revokePairing(channel: string, senderId: string): Promise<void> {
+  const resp = await fetch("pairing/revoke", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ channel, sender_id: senderId }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+}
+
+// GET /ui/skills
+export interface Skill {
+  name: string;
+  description?: string;
+  path: string;
+}
+
+export async function listSkills(): Promise<Skill[]> {
+  const resp = await fetch("skills", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return ((await resp.json()) as { skills?: Skill[] }).skills ?? [];
+}
