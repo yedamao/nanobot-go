@@ -114,7 +114,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		}
 		return mgr.Running()
 	})
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.sessions.Store(), status)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.sessions, status)
 	if err != nil {
 		return err
 	}
@@ -320,9 +320,11 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // replace a built-in of the same name. Pairing approvals live next to the
 // config file, and so does the WeChat login (state/weixin). host is the
 // gateway's listen address, which the websocket channel requires to be
-// loopback; sessions is the store it loads a chat's history from on
-// connect, and status the source of its GET /ui/status (see webStatus).
-func (a *app) channelRegistry(configPath, host string, sessions session.Store, status func() websocket.Status) (*channels.Registry, error) {
+// loopback; sessions is the agent loop's session manager, which it loads
+// chats from (fresh copies, not the cached ones) and renames and deletes
+// them through, keeping the agent's cache in step; status is the source
+// of its GET /ui/status (see webStatus).
+func (a *app) channelRegistry(configPath, host string, sessions *session.Manager, status func() websocket.Status) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{

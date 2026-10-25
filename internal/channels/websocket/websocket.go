@@ -5,8 +5,9 @@
 // frames become bus.InboundMessage values and replies for that chat are
 // written back as JSON frames. On connect the chat's stored transcript is
 // sent as a "history" frame so a reloaded page can show it again,
-// GET /ui/chats lists the stored chats for the page's sidebar and
-// GET /ui/status reports a read-only overview for its status panel.
+// GET /ui/chats lists the stored chats for the page's sidebar (PATCH and
+// DELETE /ui/chats/{chat_id} rename and delete one) and GET /ui/status
+// reports a read-only overview for its status panel.
 //
 // It borrows only the idea of nanobot's WebSocket channel
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
@@ -76,9 +77,17 @@ const (
 	// MaxChats caps the chats listed: only the most recently updated ones.
 	MaxChats = 50
 	// maxTitleRunes and maxPreviewRunes cap a listed chat's title and
-	// preview.
+	// preview. A custom title longer than maxTitleRunes is refused.
 	maxTitleRunes   = 60
 	maxPreviewRunes = 80
+	// maxRenameBody caps the body of a rename request.
+	maxRenameBody = 4 << 10
+
+	// TitleKey is the session metadata key of a chat's custom title, which
+	// the chat list shows instead of the first user message.
+	// TitleEditedKey marks it as set by the user, as nanobot does.
+	TitleKey       = "title"
+	TitleEditedKey = "title_user_edited"
 
 	// StatusPath reports the gateway's overview as JSON (see Status).
 	StatusPath = "/ui/status"
@@ -143,11 +152,14 @@ type Options struct {
 	// be loopback: the channel has no browser authentication yet.
 	Host string
 	// Sessions loads a chat's stored session for the history frame sent
-	// on connect. Pass the session Store rather than the Manager: the
-	// store returns a fresh copy, while the Manager's cached *Session
-	// belongs to the agent loop's worker. Nil sends an empty history and
-	// lists no chats.
-	Sessions SessionReader
+	// on connect and the chat list, and saves or deletes it when the page
+	// renames or deletes the chat. Pass the session.Manager: its Load
+	// returns a fresh copy rather than the cached *Session that belongs to
+	// the agent loop's worker, and its Save and Delete keep that cache in
+	// step, so a deleted chat is not brought back from the cache by its
+	// next turn. Nil sends an empty history, lists no chats and leaves
+	// renaming and deleting unmounted.
+	Sessions SessionStore
 	// Status returns the overview served at GET /ui/status; it is called
 	// once per request. Nil leaves the path unmounted (404).
 	Status func() Status
@@ -188,12 +200,21 @@ type ToolStatus struct {
 	WebFetch bool `json:"web_fetch"`
 }
 
-// SessionReader reads stored sessions; session.Store implements it. Load
-// returns an error wrapping session.ErrNotFound for an unknown key; List
-// returns every session, most recently updated first.
+// SessionReader reads stored sessions. Load returns an error wrapping
+// session.ErrNotFound for an unknown key; List returns every session,
+// most recently updated first.
 type SessionReader interface {
 	Load(key string) (*session.Session, error)
 	List() ([]session.Info, error)
+}
+
+// SessionStore reads, saves and deletes sessions; session.Manager and
+// session.Store implement it. Deleting a missing session is not an
+// error.
+type SessionStore interface {
+	SessionReader
+	Save(sess *session.Session) error
+	Delete(key string) error
 }
 
 // Factory returns the channels.Factory for the websocket channel.
@@ -212,7 +233,7 @@ func Factory(opts Options) channels.Factory {
 type Channel struct {
 	bus      *bus.MessageBus
 	log      *slog.Logger
-	sessions SessionReader
+	sessions SessionStore
 	status   func() Status
 
 	mu      sync.Mutex
@@ -246,13 +267,20 @@ func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
 func (c *Channel) Name() string { return Name }
 
 // Mount implements channels.Mounter: GET /ws upgrades to a WebSocket,
-// GET /ui/chats lists the stored chats, GET /ui/status (when
-// Options.Status is set) reports the overview and GET / and /ui/ serve
-// the chat page. Requests whose Host is not a loopback name are refused. Until
-// Start and after Stop, /ws answers 503.
+// GET /ui/chats lists the stored chats, PATCH and DELETE
+// /ui/chats/{chat_id} (when Options.Sessions is set) rename and delete
+// one, GET /ui/status (when Options.Status is set) reports the overview
+// and GET / and /ui/ serve the chat page. Requests whose Host is not a
+// loopback name are refused, and so are cross-origin renames and
+// deletes. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	mux.Handle("GET "+Path, loopbackOnly(http.HandlerFunc(c.serveWS)))
 	mux.Handle("GET "+ChatsPath, loopbackOnly(http.HandlerFunc(c.serveChats)))
+	if c.sessions != nil {
+		sameOrigin := http.NewCrossOriginProtection()
+		mux.Handle("PATCH "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.renameChat))))
+		mux.Handle("DELETE "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.deleteChat))))
+	}
 	if c.status != nil {
 		mux.Handle("GET "+StatusPath, loopbackOnly(http.HandlerFunc(c.serveStatus)))
 	}
@@ -489,7 +517,8 @@ type ChatList struct {
 type ChatInfo struct {
 	ChatID    string    `json:"chat_id"`
 	UpdatedAt time.Time `json:"updated_at"`
-	// Title is the chat's first user message, shortened.
+	// Title is the chat's custom title (see TitleKey) or else its first
+	// user message, shortened.
 	Title string `json:"title"`
 	// Preview is the chat's last user or assistant text, shortened.
 	Preview string `json:"preview"`
@@ -504,6 +533,110 @@ func (c *Channel) serveChats(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	writeJSON(w, list)
+}
+
+// RenameRequest is the body of PATCH /ui/chats/{chat_id}.
+type RenameRequest struct {
+	// Title is the chat's new title. Its whitespace is collapsed; an empty
+	// title clears the custom title, so the first user message is shown
+	// again.
+	Title *string `json:"title"`
+}
+
+// renameChat answers PATCH /ui/chats/{chat_id}: it sets or clears the
+// chat's custom title and returns the chat's ChatInfo. A chat that is not
+// stored is 404. The session is loaded fresh and saved through
+// Options.Sessions, which replaces the agent loop's cached copy.
+func (c *Channel) renameChat(w http.ResponseWriter, r *http.Request) {
+	chatID, ok := pathChatID(w, r)
+	if !ok {
+		return
+	}
+	var req RenameRequest
+	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxRenameBody))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil || req.Title == nil {
+		http.Error(w, `body must be {"title":"..."}`, http.StatusBadRequest)
+		return
+	}
+	title := strings.Join(strings.Fields(*req.Title), " ")
+	if utf8.RuneCountInString(title) > maxTitleRunes {
+		http.Error(w, fmt.Sprintf("title must be at most %d characters", maxTitleRunes), http.StatusBadRequest)
+		return
+	}
+	key := Name + ":" + chatID
+	sess, err := c.sessions.Load(key)
+	if errors.Is(err, session.ErrNotFound) {
+		http.Error(w, "no such chat", http.StatusNotFound)
+		return
+	}
+	if err != nil {
+		c.log.Warn("websocket: load chat", "session", key, "error", err)
+		http.Error(w, "cannot load the chat", http.StatusInternalServerError)
+		return
+	}
+	setTitle(sess, title)
+	if err := c.sessions.Save(sess); err != nil {
+		if errors.Is(err, session.ErrSessionConflict) {
+			http.Error(w, "the chat changed meanwhile; try again", http.StatusConflict)
+			return
+		}
+		c.log.Warn("websocket: rename chat", "session", key, "error", err)
+		http.Error(w, "cannot save the chat", http.StatusInternalServerError)
+		return
+	}
+	info, _ := chatInfo(chatID, sess)
+	writeJSON(w, info)
+}
+
+// deleteChat answers DELETE /ui/chats/{chat_id} with 204 once the chat's
+// session is gone, including when it was never stored.
+func (c *Channel) deleteChat(w http.ResponseWriter, r *http.Request) {
+	chatID, ok := pathChatID(w, r)
+	if !ok {
+		return
+	}
+	key := Name + ":" + chatID
+	if err := c.sessions.Delete(key); err != nil {
+		c.log.Warn("websocket: delete chat", "session", key, "error", err)
+		http.Error(w, "cannot delete the chat", http.StatusInternalServerError)
+		return
+	}
+	c.log.Info("websocket: chat deleted", "chat_id", chatID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// pathChatID returns the request's {chat_id}, or answers 400 and reports
+// false when it is not a valid chat id. Only websocket chats are
+// reachable: the session key is always Name + ":" + chat id.
+func pathChatID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	chatID := r.PathValue("chat_id")
+	if !chatIDRE.MatchString(chatID) {
+		http.Error(w, "chat_id must be 1-64 letters, digits, '-' or '_'", http.StatusBadRequest)
+		return "", false
+	}
+	return chatID, true
+}
+
+// setTitle sets sess's custom title, or clears it when title is empty.
+func setTitle(sess *session.Session, title string) {
+	if title == "" {
+		delete(sess.Metadata, TitleKey)
+		delete(sess.Metadata, TitleEditedKey)
+		return
+	}
+	if sess.Metadata == nil {
+		sess.Metadata = map[string]any{}
+	}
+	sess.Metadata[TitleKey] = title
+	sess.Metadata[TitleEditedKey] = true
+}
+
+// customTitle returns sess's custom title, shortened, or "" when it has
+// none.
+func customTitle(sess *session.Session) string {
+	title, _ := sess.Metadata[TitleKey].(string)
+	return shorten(title, maxTitleRunes)
 }
 
 // serveStatus answers GET /ui/status with Options.Status's overview.
@@ -558,14 +691,18 @@ func (c *Channel) chats() (ChatList, error) {
 	return out, nil
 }
 
-// chatInfo summarizes a stored chat, or reports false when it has no
-// user or assistant text.
+// chatInfo summarizes a stored chat and reports whether it has user or
+// assistant text; the list leaves out chats that have none.
 func chatInfo(chatID string, sess *session.Session) (ChatInfo, bool) {
+	info := ChatInfo{ChatID: chatID, UpdatedAt: sess.UpdatedAt, Title: customTitle(sess)}
 	msgs := transcript(sess.Messages, len(sess.Messages), math.MaxInt)
 	if len(msgs) == 0 {
-		return ChatInfo{}, false
+		return info, false
 	}
-	info := ChatInfo{ChatID: chatID, UpdatedAt: sess.UpdatedAt, Preview: shorten(msgs[len(msgs)-1].Content, maxPreviewRunes)}
+	info.Preview = shorten(msgs[len(msgs)-1].Content, maxPreviewRunes)
+	if info.Title != "" {
+		return info, true
+	}
 	if i := slices.IndexFunc(msgs, func(m HistoryMessage) bool { return m.Role == string(providers.RoleUser) }); i >= 0 {
 		info.Title = shorten(msgs[i].Content, maxTitleRunes)
 	}

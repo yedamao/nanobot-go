@@ -417,6 +417,10 @@ func (failingLoader) List() ([]session.Info, error) {
 	return nil, errors.New("disk on fire")
 }
 
+func (failingLoader) Save(*session.Session) error { return errors.New("disk on fire") }
+
+func (failingLoader) Delete(string) error { return errors.New("disk on fire") }
+
 func TestHistoryOnConnect(t *testing.T) {
 	store := session.NewJSONLStore(t.TempDir())
 	noArgs := json.RawMessage(`{}`)
@@ -439,7 +443,7 @@ func TestHistoryOnConnect(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		loader SessionReader
+		loader SessionStore
 		query  string
 		want   []HistoryMessage
 	}{
@@ -573,7 +577,7 @@ func TestChatListCapAndFailures(t *testing.T) {
 	}
 	tests := []struct {
 		name   string
-		reader SessionReader
+		reader SessionStore
 		code   int
 		chats  int
 	}{
@@ -688,6 +692,236 @@ func TestStatusEmptyAndUnset(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("unset Status: status = %d, want 404", resp.StatusCode)
+	}
+}
+
+// request sends method path with body (when not empty) to h and returns
+// the status code and body. host, when set, overrides the Host header and
+// origin, when set, is sent as Origin.
+func (h *harness) request(t *testing.T, method, path, body, host, origin string) (int, string) {
+	t.Helper()
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, err := http.NewRequest(method, h.srv.URL+path, rd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	if host != "" {
+		req.Host = host
+	}
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(data)
+}
+
+// managedChats returns a session manager holding the websocket chat
+// "trip" and a Telegram chat, with "trip" cached as the agent loop's
+// worker would hold it.
+func managedChats(t *testing.T) (*session.Manager, *session.Session) {
+	t.Helper()
+	m := session.NewManager(session.NewJSONLStore(t.TempDir()))
+	tg := session.New("telegram:42")
+	tg.Append(providers.Message{Role: providers.RoleUser, Content: "not a web chat"})
+	if err := m.Save(tg); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := m.GetOrCreate(Name + ":trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cached.Append(
+		providers.Message{Role: providers.RoleUser, Content: "plan the trip"},
+		providers.Message{Role: providers.RoleAssistant, Content: "Where to?"},
+	)
+	if err := m.Save(cached); err != nil {
+		t.Fatal(err)
+	}
+	return m, cached
+}
+
+func (h *harness) chatList(t *testing.T) []ChatInfo {
+	t.Helper()
+	code, body := h.request(t, http.MethodGet, ChatsPath, "", "", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET %s = %d %s", ChatsPath, code, body)
+	}
+	var list ChatList
+	if err := json.Unmarshal([]byte(body), &list); err != nil {
+		t.Fatal(err)
+	}
+	return list.Chats
+}
+
+func TestRenameChat(t *testing.T) {
+	m, cached := managedChats(t)
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: m})
+	path := ChatsPath + "/trip"
+
+	code, body := h.request(t, http.MethodPatch, path, `{"title":"  Summer \n  holiday "}`, "", "")
+	if code != http.StatusOK {
+		t.Fatalf("PATCH = %d %s", code, body)
+	}
+	var info ChatInfo
+	if err := json.Unmarshal([]byte(body), &info); err != nil {
+		t.Fatal(err)
+	}
+	if info.ChatID != "trip" || info.Title != "Summer holiday" || info.Preview != "Where to?" || !info.UpdatedAt.Equal(cached.UpdatedAt) {
+		t.Errorf("PATCH body = %+v", info)
+	}
+	if got := h.chatList(t); len(got) != 1 || got[0].Title != "Summer holiday" || got[0].Preview != "Where to?" {
+		t.Errorf("list after rename = %+v", got)
+	}
+	stored, err := m.Load(Name + ":trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored.Metadata[TitleKey] != "Summer holiday" || stored.Metadata[TitleEditedKey] != true {
+		t.Errorf("stored metadata = %v", stored.Metadata)
+	}
+	// The agent loop's next turn sees the title instead of saving over it
+	// from its stale cached session.
+	next, err := m.GetOrCreate(Name + ":trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == cached || next.Metadata[TitleKey] != "Summer holiday" || len(next.Messages) != 2 {
+		t.Errorf("cached session after rename = %+v", next)
+	}
+
+	// The longest title is accepted; a longer one is refused.
+	long := strings.Repeat("é", maxTitleRunes)
+	if code, body := h.request(t, http.MethodPatch, path, `{"title":"`+long+`"}`, "", ""); code != http.StatusOK || !strings.Contains(body, long) {
+		t.Errorf("PATCH %d-rune title = %d %s", maxTitleRunes, code, body)
+	}
+	if code, _ := h.request(t, http.MethodPatch, path, `{"title":"`+long+`x"}`, "", ""); code != http.StatusBadRequest {
+		t.Errorf("PATCH too long a title = %d, want 400", code)
+	}
+
+	// An empty title falls back to the first user message.
+	if code, body := h.request(t, http.MethodPatch, path, `{"title":"  "}`, "", ""); code != http.StatusOK || !strings.Contains(body, `"title":"plan the trip"`) {
+		t.Errorf("PATCH empty title = %d %s", code, body)
+	}
+	if stored, _ := m.Load(Name + ":trip"); len(stored.Metadata) != 0 {
+		t.Errorf("metadata after clearing = %v, want none", stored.Metadata)
+	}
+	if got := h.chatList(t); len(got) != 1 || got[0].Title != "plan the trip" {
+		t.Errorf("list after clearing = %+v", got)
+	}
+}
+
+func TestRenameChatRefusals(t *testing.T) {
+	m, _ := managedChats(t)
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: m})
+	tests := []struct {
+		name, path, body, host, origin string
+		code                           int
+	}{
+		{"missing chat", "/never-seen", `{"title":"x"}`, "", "", http.StatusNotFound},
+		{"invalid chat id", "/bad.id", `{"title":"x"}`, "", "", http.StatusBadRequest},
+		{"too long chat id", "/" + strings.Repeat("a", 65), `{"title":"x"}`, "", "", http.StatusBadRequest},
+		{"other channel's session", "/telegram:42", `{"title":"x"}`, "", "", http.StatusBadRequest},
+		{"escaped other channel's session", "/telegram%3A42", `{"title":"x"}`, "", "", http.StatusBadRequest},
+		{"no title", "/trip", `{}`, "", "", http.StatusBadRequest},
+		{"title not a string", "/trip", `{"title":1}`, "", "", http.StatusBadRequest},
+		{"unknown field", "/trip", `{"title":"x","pinned":true}`, "", "", http.StatusBadRequest},
+		{"not JSON", "/trip", `title=x`, "", "", http.StatusBadRequest},
+		{"body too large", "/trip", `{"title":"` + strings.Repeat(" ", maxRenameBody) + `x"}`, "", "", http.StatusBadRequest},
+		{"foreign host", "/trip", `{"title":"x"}`, "evil.example", "", http.StatusForbidden},
+		{"cross-origin", "/trip", `{"title":"x"}`, "", "http://evil.example", http.StatusForbidden},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if code, body := h.request(t, http.MethodPatch, ChatsPath+tt.path, tt.body, tt.host, tt.origin); code != tt.code {
+				t.Errorf("PATCH = %d %s, want %d", code, body, tt.code)
+			}
+		})
+	}
+	// Nothing was renamed.
+	for _, key := range []string{Name + ":trip", "telegram:42"} {
+		if sess, err := m.Load(key); err != nil || len(sess.Metadata) != 0 {
+			t.Errorf("%s = %+v, %v; want it unchanged", key, sess, err)
+		}
+	}
+}
+
+func TestDeleteChat(t *testing.T) {
+	m, cached := managedChats(t)
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: m})
+	path := ChatsPath + "/trip"
+
+	for _, tt := range []struct {
+		name, path, host, origin string
+		code                     int
+	}{
+		{"invalid chat id", "/bad.id", "", "", http.StatusBadRequest},
+		{"other channel's session", "/telegram:42", "", "", http.StatusBadRequest},
+		{"escaped other channel's session", "/telegram%3A42", "", "", http.StatusBadRequest},
+		{"foreign host", "/trip", "evil.example", "", http.StatusForbidden},
+		{"cross-origin", "/trip", "", "http://evil.example", http.StatusForbidden},
+	} {
+		if code, body := h.request(t, http.MethodDelete, ChatsPath+tt.path, "", tt.host, tt.origin); code != tt.code {
+			t.Errorf("%s: DELETE = %d %s, want %d", tt.name, code, body, tt.code)
+		}
+	}
+	if len(h.chatList(t)) != 1 {
+		t.Fatal("a refused DELETE removed the chat")
+	}
+
+	if code, body := h.request(t, http.MethodDelete, path, "", "", ""); code != http.StatusNoContent || body != "" {
+		t.Fatalf("DELETE = %d %q, want 204", code, body)
+	}
+	if got := h.chatList(t); len(got) != 0 {
+		t.Errorf("list after delete = %+v", got)
+	}
+	if _, err := m.Load(Name + ":trip"); !errors.Is(err, session.ErrNotFound) {
+		t.Errorf("Load after delete = %v, want ErrNotFound", err)
+	}
+	// The agent loop's next turn starts afresh rather than bringing the
+	// chat back from its cache.
+	next, err := m.GetOrCreate(Name + ":trip")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next == cached || len(next.Messages) != 0 {
+		t.Errorf("cached session after delete = %+v, want a new one", next)
+	}
+	// Deleting again (or a chat never stored) is fine.
+	if code, _ := h.request(t, http.MethodDelete, path, "", "", ""); code != http.StatusNoContent {
+		t.Errorf("second DELETE = %d, want 204", code)
+	}
+	// Other channels' sessions are untouched.
+	if _, err := m.Load("telegram:42"); err != nil {
+		t.Errorf("telegram session after delete: %v", err)
+	}
+}
+
+func TestRenameAndDeleteFailures(t *testing.T) {
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: failingLoader{}})
+	if code, _ := h.request(t, http.MethodPatch, ChatsPath+"/trip", `{"title":"x"}`, "", ""); code != http.StatusInternalServerError {
+		t.Errorf("PATCH with a failing store = %d, want 500", code)
+	}
+	if code, _ := h.request(t, http.MethodDelete, ChatsPath+"/trip", "", "", ""); code != http.StatusInternalServerError {
+		t.Errorf("DELETE with a failing store = %d, want 500", code)
+	}
+
+	// Without sessions there is nothing to rename or delete.
+	h = newHarness(t, false)
+	for _, method := range []string{http.MethodPatch, http.MethodDelete} {
+		if code, _ := h.request(t, method, ChatsPath+"/trip", `{"title":"x"}`, "", ""); code < 400 || code >= 500 {
+			t.Errorf("%s without sessions = %d, want a 4xx", method, code)
+		}
 	}
 }
 
