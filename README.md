@@ -70,8 +70,9 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   the workspace's `uploads/`), and has a status panel (version, model,
   provider, channels) that can also save a small whitelist of settings
   (model, provider, tool switches, exec sandbox, channel on/off) for the
-  next gateway start. `nanobot webui` enables it, starts (or attaches
-  to) the gateway and opens the browser.
+  next gateway start. `nanobot webui` enables it, attaches or starts a
+  shared on-demand gateway (lease), and opens the browser;
+  `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
 triggers, the full WebUI (provider keys, MCP, apps, automations, ...). See
@@ -650,15 +651,24 @@ bin/nanobot webui
 `nanobot webui` enables `channels.websocket` in the config (asking
 first; `--yes`/`-y` skips the question, and without a terminal it is
 required), then **attaches** to a gateway already serving the WebUI on
-`gateway.host:gateway.port` or **starts** `nanobot gateway` as a child
-process, waits for `/healthz` and `/ui/`, and opens the browser
-(`--no-open` doesn't). It runs until Ctrl-C, which stops a gateway it
-started but never one it attached to. With no config file it creates
-one (and the workspace) after the same confirmation.
+`gateway.host:gateway.port`, or **starts one on demand** through a
+shared client lease (state under the config's `run/` and `logs/`),
+waits for `/healthz` and `/ui/`, and opens the browser (`--no-open`
+doesn't). Ctrl-C releases the lease: an on-demand gateway stops when
+the last local client exits; a gateway started with
+`nanobot gateway --background` stays up until `nanobot gateway stop`.
+An unmanaged gateway (no state file) is left alone on exit. With no
+config file it creates one (and the workspace) after the same
+confirmation.
 
 - **Port.** The WebUI lives on the gateway's port; there is no separate
   UI port. `--port`/`-p` (or `--gateway-port`, accepted for nanobot
   parity; the two must agree) sets `gateway.port` and saves it.
+- **Background gateway.** `nanobot gateway --background` detaches a
+  persistent gateway for this config; `nanobot gateway status`,
+  `stop`, `restart` and `logs --tail N` manage it. Paths are
+  `<config-dir>/run/gateway.json` and `<config-dir>/logs/gateway.log`
+  (a suffix is added for non-default configs/workspaces).
 - **Errors, not guesses.** If something other than a nanobot-go gateway
   holds the port, or a gateway runs there without the WebUI, it says so
   and exits.
@@ -673,12 +683,10 @@ one (and the workspace) after the same confirmation.
   with hot reload) on `http://127.0.0.1:5173/ui/`, proxying to the
   gateway; it needs Node, `npm install` in `webui/`, and the source
   checkout (run it inside the repo, or set `NANOBOT_GO_WEBUI_DIR`).
-- **`--background`** is deprecated as in nanobot: run `nanobot gateway`
-  yourself (in another terminal, or under nohup/launchd/systemd) and
-  then `nanobot webui`, which attaches to it.
+- **`--background`** on `webui` is deprecated: run
+  `nanobot gateway --background`, then `nanobot webui`.
 - `--config`/`-c` and `--workspace`/`-w` work as for the other commands;
-  `--verbose` passes on the gateway's info logs (normally only its
-  warnings and errors are shown).
+  `--verbose` passes on to a started gateway.
 
 Or enable it by hand and start the gateway yourself:
 

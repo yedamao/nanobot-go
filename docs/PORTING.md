@@ -103,10 +103,12 @@ Phase 2 is complete; phase 3 is in progress.
     shutdown on SIGINT/SIGTERM with a forced exit on the second signal;
     `status` rows for the gateway and channels.
   - Done: the heartbeat (`internal/heartbeat`, see `internal/cron` below).
+  - Done (simplified): managed background gateway + client leases
+    (`internal/gatewayruntime`; `gateway --background`,
+    `status`/`stop`/`restart`/`logs`; webui on-demand lease). See phase 4.
   - Not ported: local triggers (`nanobot/triggers`), the readiness payload
     (`process`/`ready`/`websocket`), restart notices, config hot reload,
-    the on-demand gateway client lease, `gateway --background`. (The
-    WebUI and a simplified `nanobot webui` launcher landed in phase 4.)
+    `install-service`, logs `--follow`.
 - `internal/channels`: Telegram, Slack, and others, each self-contained.
   - Done: the `Channel` interface, `Registry` (factories keyed by name,
     built from config `channels.<name>` when `enabled`), `Manager`
@@ -359,30 +361,23 @@ Phase 2 is complete; phase 3 is in progress.
     text extraction, inbound photos from Telegram/WeChat, MCP image
     results as image parts, image generation.
   - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
-    webuicmd.go`). It enables `channels.websocket` in the config
-    (confirming on a terminal, or `--yes`; a missing config is created
-    with its workspace), then attaches to a gateway already answering
-    `/healthz` and `/ui/` on `gateway.host:gateway.port` (left running
-    on exit) or starts `nanobot gateway --config … [--workspace …]
-    --port N` as a child process in its own process group, waits up to
-    20 seconds for it, prints the ready URL and opens the browser
-    (`open`/`xdg-open`). Ctrl-C stops the child (interrupt, then kill
-    after the shutdown timeout). A port held by something else, or a
-    gateway without the WebUI, is a clear error. `--dev` runs `npm run
-    dev` in `webui/` with `NANOBOT_GO_GATEWAY_URL` pointing Vite's proxy
-    at the gateway and opens `http://127.0.0.1:5173/ui/`. Flags follow
-    nanobot: `--port/-p`, `--gateway-port` (must equal `--port`),
-    `--workspace/-w`, `--config/-c`, `--dev`, `--no-open`, `--yes/-y`,
-    `--background` (deprecated, exits 1 with the replacement commands).
-    Gaps against nanobot: no on-demand gateway lease, PID files or
-    `gateway --background` daemon manager (the started gateway lives
-    only as long as the command), no separate WebUI port (`--port`
-    *is* the gateway port), no `bootstrapSecret` sign-in link (a
-    non-loopback `--host`/`gateway.host` gets a generated
-    `tokenIssueSecret` instead, never printed; see the next item), no
-    WebUI bundle rebuild check (the build is committed), no
-    log tail of a background gateway (the child's warnings and errors
-    go to stderr), no WSL/Windows browser launcher.
+    webuicmd.go`) plus managed gateway lifecycle (`internal/gatewayruntime`).
+    It enables `channels.websocket` (confirming on a terminal, or `--yes`;
+    a missing config is created with its workspace), then attaches to an
+    unmanaged healthy gateway, or acquires a `webui` client lease and
+    starts/reuses an on-demand background gateway (restarting when WebUI
+    config just changed). State/logs live next to the config
+    (`run/gateway.json`, `logs/gateway.log`; non-default configs get a
+    suffix). `nanobot gateway --background` starts a persistent daemon;
+    `gateway status|stop|restart|logs` manage it. Ctrl-C on webui releases
+    the lease (last client stops an on-demand gateway; persistent needs
+    `gateway stop`). `--dev` runs Vite as before. Flags: `--port/-p`,
+    `--gateway-port`, `--workspace/-w`, `--config/-c`, `--dev`, `--no-open`,
+    `--yes/-y`, `--background` (deprecated → `gateway --background` then
+    `webui`). Gaps vs nanobot: no `install-service`, no logs `--follow`,
+    no dock icon / pending_pid_handoff nuances, no separate WebUI port,
+    no `bootstrapSecret` sign-in link, no WebUI bundle rebuild check, no
+    WSL/Windows browser launcher.
   - Done (simplified): LAN access with `token`/`tokenIssueSecret` auth
     (`internal/channels/websocket/auth.go`). Config
     `channels.websocket.token`, `tokenIssueSecret` (also
