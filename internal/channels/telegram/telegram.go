@@ -110,15 +110,10 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	}
 	hc := opts.HTTPClient
 	if hc == nil {
-		tr := http.DefaultTransport.(*http.Transport).Clone()
-		if cfg.Proxy != "" {
-			u, err := proxyURL(cfg.Proxy)
-			if err != nil {
-				return nil, err
-			}
-			tr.Proxy = http.ProxyURL(u)
+		var err error
+		if hc, err = httpClient(cfg); err != nil {
+			return nil, err
 		}
-		hc = &http.Client{Transport: tr}
 	}
 	log := deps.Logger
 	if log == nil {
@@ -230,6 +225,49 @@ func (c *Channel) reconnect(ctx context.Context) bool {
 			return false
 		}
 	}
+}
+
+// httpClient returns an HTTP client for the Bot API, through cfg.Proxy
+// when set.
+func httpClient(cfg Config) (*http.Client, error) {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if cfg.Proxy != "" {
+		u, err := proxyURL(cfg.Proxy)
+		if err != nil {
+			return nil, err
+		}
+		tr.Proxy = http.ProxyURL(u)
+	}
+	return &http.Client{Transport: tr}, nil
+}
+
+// ErrTokenRejected marks a CheckToken error for a token the Bot API
+// refused.
+var ErrTokenRejected = errors.New("the bot token was rejected")
+
+// CheckToken asks the Bot API who the bot of cfg's token is (getMe), as
+// Start does, and returns its username. hc nil uses a client honoring
+// cfg.Proxy. A refused token is ErrTokenRejected. Errors never contain
+// the token.
+func CheckToken(ctx context.Context, cfg Config, hc *http.Client) (string, error) {
+	if err := cfg.validate(); err != nil {
+		return "", err
+	}
+	if hc == nil {
+		var err error
+		if hc, err = httpClient(cfg); err != nil {
+			return "", err
+		}
+	}
+	api := &client{base: cfg.APIBase, token: cfg.Token, http: hc}
+	var me user
+	if err := api.call(ctx, "getMe", struct{}{}, &me); err != nil {
+		if rejected(err) {
+			return "", fmt.Errorf("%w: %v", ErrTokenRejected, err)
+		}
+		return "", err
+	}
+	return me.Username, nil
 }
 
 // rejected reports whether err says the token is invalid (getMe answers

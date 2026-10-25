@@ -323,6 +323,31 @@ Phase 2 is complete; phase 3 is in progress.
     the configured credential")/`error`; messages never hold the key or
     URL (`webModels.TestProvider`). Gaps vs nanobot: no OAuth/login
     providers, no custom providers.
+  - Done (simplified): channel configure forms on the Channels page
+    (`#/channels`), nanobot's `/api/settings/channels/configure` with
+    `validate_channel_config`. `GET /ui/channels/config` lists telegram
+    and weixin, present in `config.json` or not, with `hasToken`, a
+    `tokenHint` (Telegram keeps the public bot ID: `123456:••••abcd`),
+    `allowFrom`, the channel's own fields, `env_overrides`,
+    `restart_required` (the saved section with the environment applied
+    parses differently from the one the gateway started with), `running`
+    and, for weixin, `hasLoginState`; tokens and the proxy are never
+    returned. `PATCH /ui/channels/config/{name}` creates the section if
+    missing and sets only whitelisted keys (`enabled`, `token` /
+    `clearToken`, `allowFrom`, `pollTimeout`; telegram `apiBase`,
+    `groupPolicy`, `replyToMessage`; weixin `baseUrl`, `routeTag`),
+    refusing placeholders and malformed Telegram tokens, re-parsing with
+    the channel's `ParseConfig` (a disabled Telegram section may lack its
+    token) and saving under the settings' lock; errors are scrubbed of
+    the token (`cmd/nanobot/webchannels.go`). `POST
+    /ui/channels/config/{name}/test` checks a Telegram token (draft or
+    saved) with `getMe` (`telegram.CheckToken`): `ok` with the bot's
+    username, `rejected`, `not_configured` or `error`; weixin answers
+    `unsupported`. Gaps vs nanobot: WeChat still logs in with `nanobot
+    channels login weixin` (no QR login in the page, no probe); the
+    websocket channel's `token`/`tokenIssueSecret` are not editable;
+    `proxy` and `stateDir` are kept but not editable; only telegram and
+    weixin exist.
   - Done (different): restart from the WebUI. nanobot's page sends a
     silent `/restart` command; nanobot-go has `GET /ui/gateway`
     (`launch_mode`, `lifetime`, `restart_available`/reason) and an
@@ -472,8 +497,7 @@ Phase 2 is complete; phase 3 is in progress.
     skill detail/raw view, requirement checks (`requires.bins/env`) or
     brew/apt install options, builtins only reach the prompt once
     installed (nanobot lists them in place), no `$skill` invocation,
-    no channel configure/validate or token forms, no session-bound
-    automations filter.
+    no session-bound automations filter.
   - Done (simplified): MCP servers page (`#/mcp`). `GET /ui/mcp` lists
     `tools.mcpServers` from the saved config merged with the running
     `mcp.Manager`'s state, error (secrets scrubbed) and tools; env/header

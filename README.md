@@ -764,7 +764,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), provider credentials
   (`GET /ui/providers`, `PATCH /ui/providers/{name}`,
   `POST /ui/providers/{name}/test`), model suggestions
-  (`GET /ui/providers/{name}/models`), gateway restart
+  (`GET /ui/providers/{name}/models`), channel settings
+  (`GET /ui/channels/config`, `PATCH /ui/channels/config/{name}`,
+  `POST /ui/channels/config/{name}/test`), gateway restart
   (`GET /ui/gateway`, `POST /ui/gateway/restart`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
@@ -827,6 +829,26 @@ and press Enter. Each reply is a full agent turn, tools included.
   status from `GET /ui/status`, pending pairing codes with Approve/Deny,
   and approved senders with Revoke — the same store as
   `nanobot pairing`. No channel tokens or secrets appear in the JSON.
+- **Channel settings.** The same page has a form each for Telegram and
+  WeChat (whether or not `config.json` has their section yet): enable,
+  set or clear the token, `allowFrom` (comma-separated; `*` allows
+  everyone, empty only paired senders), the poll timeout and, for
+  Telegram, group policy, reply-to-message and API base, for WeChat the
+  base URL and route tag. `GET /ui/channels/config` never returns a
+  token, only `hasToken` and a hint (`123456:••••abcd`); `PATCH
+  /ui/channels/config/{name}` (local or signed in, same-origin) creates
+  the section if needed and changes only those keys (the proxy,
+  `stateDir` and anything else are kept), checks the result as the
+  gateway would (an enabled Telegram channel needs a well-formed token,
+  here or in `NANOBOT_GO_TELEGRAM_TOKEN`) and answers 400 with a
+  message that never holds the token. Channels are built at start, so a
+  change shows **restart required**. **Test** (`POST
+  /ui/channels/config/telegram/test`, `{"token"?}` never saved) asks
+  Telegram's `getMe` and reports `ok` with the bot's username,
+  `rejected`, `not_configured` or `error`. WeChat still logs in with
+  `nanobot channels login weixin` (its Test answers `unsupported`), and
+  the WebUI channel's own secrets (`token`, `tokenIssueSecret`) are not
+  editable from the page.
 - **Skills.** The **Skills** page lists the workspace skills
   (`skills/<name>/SKILL.md`; the name is the directory, the description
   comes from YAML frontmatter when present) and the skills bundled with

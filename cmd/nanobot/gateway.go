@@ -130,17 +130,19 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	// The WebUI's status reads mgr, which is set before the HTTP server
 	// starts serving.
 	var mgr *channels.Manager
-	status := webStatus(rt.cfg, time.Now(), func() []string {
+	running := func() []string {
 		if mgr == nil {
 			return nil
 		}
 		return mgr.Running()
-	})
+	}
+	status := webStatus(rt.cfg, time.Now(), running)
 	settings := newWebSettings(rt.configPath, rt.cfg, a.getenv)
 	rt.skills.SetPersist(settings.saveDisabledSkills)
 	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv)
 	providersStore := newWebProviders(settings, rt.cfg.Providers, a.getenv)
 	modelCatalog := newWebModels(settings, a.getenv)
+	channelConfig := newWebChannels(settings, rt.cfg.Channels, running, a.getenv, weixin.DefaultStateDir(rt.configPath))
 	// The restart keeps the port the health endpoint listens on, set
 	// before it starts serving.
 	listenPort := 0
@@ -148,7 +150,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
 	if err != nil {
 		return err
 	}
@@ -382,9 +384,10 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // (see webModels; nil leaves it unmounted), providerTester backs
 // /ui/providers/{name}/test (see webModels.TestProvider; nil leaves it
 // unmounted), gatewayCtl backs /ui/gateway (see webGateway; nil
-// leaves it unmounted), and the pairing store backs /ui/pairing (shared with
+// leaves it unmounted), channelConfig backs /ui/channels/config (see
+// webChannels; nil leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -402,7 +405,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 			Host: host, Sessions: sessions, Status: status, Settings: settings,
 			Workspace: ws, Cron: cronSvc, Pairing: store, Skills: skillsMgr,
 			MCP: mcpStore, Providers: providersStore, Models: modelCatalog, ProviderTester: providerTester,
-			Gateway: gatewayCtl,
+			Gateway: gatewayCtl, ChannelConfig: channelConfig,
 		}),
 	}
 	for name, f := range builtins {

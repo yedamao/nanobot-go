@@ -511,3 +511,84 @@ export async function restartGateway(): Promise<void> {
   }
   if (!resp.ok) throw await requestError(resp);
 }
+
+// GET /ui/channels/config lists the channels the page can configure
+// (telegram, weixin), present in config.json or not: never a token, only
+// hasToken and a short tokenHint (123456:••••abcd). PATCH
+// /ui/channels/config/{name} creates or changes the section; channels
+// are built when the gateway starts, so changes need a restart
+// (restart_required).
+export interface ChannelConfig {
+  name: string;
+  present: boolean;
+  enabled: boolean;
+  hasToken: boolean;
+  tokenHint: string;
+  allowFrom: string[];
+  /** Seconds; 0 uses the default. */
+  pollTimeout: number;
+  /** Telegram. */
+  apiBase?: string;
+  groupPolicy?: string;
+  replyToMessage?: boolean;
+  hasProxy?: boolean;
+  /** WeChat. */
+  baseUrl?: string;
+  routeTag?: string;
+  /** A token saved by `nanobot channels login weixin`. */
+  hasLoginState?: boolean;
+  defaultBase: string;
+  /** "token" when NANOBOT_GO_<CHANNEL>_TOKEN wins over the file. */
+  env_overrides: string[];
+  restart_required: boolean;
+  running: boolean;
+  testSupported: boolean;
+}
+
+/** The body of PATCH /ui/channels/config/{name}. */
+export interface ChannelConfigPatch {
+  enabled?: boolean;
+  token?: string;
+  clearToken?: boolean;
+  allowFrom?: string[];
+  pollTimeout?: number;
+  apiBase?: string;
+  groupPolicy?: string;
+  replyToMessage?: boolean;
+  baseUrl?: string;
+  routeTag?: string;
+}
+
+export interface ChannelTestResult {
+  ok: boolean;
+  status: "ok" | "not_configured" | "rejected" | "error" | "unsupported";
+  message: string;
+}
+
+export async function listChannelConfigs(): Promise<ChannelConfig[]> {
+  const resp = await fetch("channels/config", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return ((await resp.json()) as { channels?: ChannelConfig[] }).channels ?? [];
+}
+
+export async function saveChannelConfig(name: string, patch: ChannelConfigPatch): Promise<ChannelConfig> {
+  const resp = await fetch("channels/config/" + encodeURIComponent(name), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+// POST /ui/channels/config/{name}/test checks a token (Telegram: getMe)
+// with the typed token, else the saved one; the draft is never saved.
+export async function testChannelConfig(name: string, token?: string): Promise<ChannelTestResult> {
+  const resp = await fetch("channels/config/" + encodeURIComponent(name) + "/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(token ? { token } : {}),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}

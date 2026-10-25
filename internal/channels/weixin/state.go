@@ -41,6 +41,13 @@ type accountState struct {
 	UserID                    string `json:"ilink_user_id,omitempty"`
 }
 
+// LoggedIn reports whether the account.json at path holds a token from
+// `nanobot channels login weixin`. An unreadable file is not logged in.
+func LoggedIn(path string) bool {
+	st, err := stateFile{path: path}.load()
+	return err == nil && st.Token != ""
+}
+
 // stateFile is account.json and its lock.
 type stateFile struct{ path string }
 
