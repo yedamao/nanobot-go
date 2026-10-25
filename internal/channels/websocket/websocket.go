@@ -43,6 +43,8 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/pairing"
 	"github.com/yedamao/nanobot-go/internal/providers"
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
@@ -213,8 +215,15 @@ type Options struct {
 	// Workspace is the agent's workspace, whose files GET /ui/media/ serves
 	// and POST /ui/upload saves to. Replies' markdown images that name a
 	// workspace file are pointed at the media route. Nil leaves both
-	// unmounted and replies as written.
+	// unmounted and replies as written. Skills listing (GET /ui/skills)
+	// also reads skills/ under it.
 	Workspace *security.Workspace
+	// Cron is the gateway's scheduled-job service for GET /ui/cron and
+	// run/remove. Nil leaves those paths unmounted (404).
+	Cron *cron.Service
+	// Pairing is the pairing store for GET /ui/pairing and approve/deny/
+	// revoke. Nil leaves those paths unmounted (404).
+	Pairing *pairing.Store
 }
 
 // Status is the body of GET /ui/status: a read-only overview for the
@@ -291,6 +300,8 @@ type Channel struct {
 	auth     *auth
 	// workspace is Options.Workspace.
 	workspace *security.Workspace
+	cron      *cron.Service
+	pairing   *pairing.Store
 
 	mu      sync.Mutex
 	started bool
@@ -323,7 +334,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, workspace: opts.Workspace, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -341,7 +352,7 @@ func (c *Channel) Name() string { return Name }
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
 // requests are served. Cross-origin renames, deletes, settings changes,
-// uploads and sign-ins are refused. Until Start and after Stop, /ws answers 503.
+// uploads, cron/pairing mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	a := c.auth
 	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
@@ -361,6 +372,18 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	if c.workspace != nil {
 		mux.Handle("GET "+MediaPath+"{path...}", a.protect(http.HandlerFunc(c.serveMedia)))
 		mux.Handle("POST "+UploadPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.upload))))
+		mux.Handle("GET "+SkillsPath, a.protect(http.HandlerFunc(c.serveSkills)))
+	}
+	if c.cron != nil {
+		mux.Handle("GET "+CronPath, a.protect(http.HandlerFunc(c.serveCron)))
+		mux.Handle("POST "+CronPath+"/{id}/run", a.protect(sameOrigin.Handler(http.HandlerFunc(c.runCron))))
+		mux.Handle("DELETE "+CronPath+"/{id}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.removeCron))))
+	}
+	if c.pairing != nil {
+		mux.Handle("GET "+PairingPath, a.protect(http.HandlerFunc(c.servePairing)))
+		mux.Handle("POST "+PairingPath+"/approve", a.protect(sameOrigin.Handler(http.HandlerFunc(c.approvePairing))))
+		mux.Handle("POST "+PairingPath+"/deny", a.protect(sameOrigin.Handler(http.HandlerFunc(c.denyPairing))))
+		mux.Handle("POST "+PairingPath+"/revoke", a.protect(sameOrigin.Handler(http.HandlerFunc(c.revokePairing))))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))
