@@ -179,7 +179,8 @@ Phase 2 is complete; phase 3 is in progress.
     `prompts/evaluator.md`), delivery plus `Loop.Record` into the chat's
     session; the `HEARTBEAT.md` template.
   - Not ported: local triggers, run records (`cron/runs/`), run history,
-    WebUI create/edit/`change_binding` (list/run/remove are under WebUI);
+    WebUI `change_binding` UI (create/edit/enable via POST/PATCH `/ui/cron`
+    are under WebUI; list/run/remove too);
     for the heartbeat,
     see Cron below.
 - `internal/api`: an OpenAI-compatible API.

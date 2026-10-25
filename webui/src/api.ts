@@ -120,7 +120,7 @@ export async function saveSettings(patch: SettingsPatch): Promise<SettingsView> 
   return resp.json();
 }
 
-// GET /ui/cron lists jobs; POST /ui/cron/{id}/run runs one; DELETE removes.
+// GET /ui/cron lists jobs; POST creates; PATCH /ui/cron/{id} edits; POST …/run; DELETE removes.
 export interface CronJob {
   id: string;
   name: string;
@@ -167,6 +167,42 @@ export async function runCronJob(id: string, force = false): Promise<CronJob> {
 export async function removeCronJob(id: string): Promise<void> {
   const resp = await fetch("cron/" + encodeURIComponent(id), { method: "DELETE" });
   if (!resp.ok) throw await requestError(resp);
+}
+
+/** Fields for POST /ui/cron and PATCH /ui/cron/{id}. */
+export interface CronWrite {
+  name?: string;
+  message?: string;
+  enabled?: boolean;
+  deleteAfterRun?: boolean;
+  schedule?: {
+    kind: "at" | "every" | "cron" | string;
+    at?: string;
+    everyMs?: number;
+    expr?: string;
+    tz?: string;
+  };
+  binding?: { channel: string; chatId: string };
+}
+
+export async function createCronJob(body: CronWrite): Promise<CronJob> {
+  const resp = await fetch("cron", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function patchCronJob(id: string, body: CronWrite): Promise<CronJob> {
+  const resp = await fetch("cron/" + encodeURIComponent(id), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
 }
 
 // GET /ui/pairing; POST approve/deny/revoke.
