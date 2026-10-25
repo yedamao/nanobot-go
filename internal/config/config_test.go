@@ -176,6 +176,24 @@ func TestLoadGatewayAndChannels(t *testing.T) {
 	if (GatewayConfig{Host: "::1", Port: 1}).Addr() != "[::1]:1" {
 		t.Error("IPv6 host not bracketed")
 	}
+	if h := g.Heartbeat; !h.Enabled || h.IntervalS != 1800 || h.Interval() != 30*time.Minute {
+		t.Errorf("default heartbeat = %+v", h)
+	}
+}
+
+func TestLoadHeartbeat(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := `{"gateway": {"heartbeat": {"enabled": false, "intervalS": 60}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h := cfg.Gateway.Heartbeat; h.Enabled || h.IntervalS != 60 {
+		t.Errorf("heartbeat = %+v", h)
+	}
 }
 
 func TestLoadAPI(t *testing.T) {
@@ -278,6 +296,9 @@ func TestValidate(t *testing.T) {
 		{"gateway port any", func(c *Config) { c.Gateway.Port = 0 }, ""},
 		{"gateway shutdown", func(c *Config) { c.Gateway.ShutdownTimeout = -1 }, "gateway.shutdownTimeout"},
 		{"gateway no wait", func(c *Config) { c.Gateway.ShutdownTimeout = 0 }, ""},
+		{"heartbeat interval", func(c *Config) { c.Gateway.Heartbeat.IntervalS = 0 }, "gateway.heartbeat.intervalS"},
+		{"heartbeat negative", func(c *Config) { c.Gateway.Heartbeat.IntervalS = -1 }, "gateway.heartbeat.intervalS"},
+		{"heartbeat disabled", func(c *Config) { c.Gateway.Heartbeat = HeartbeatConfig{} }, ""},
 		{"api host", func(c *Config) { c.API.Host = "" }, "api.host"},
 		{"api port high", func(c *Config) { c.API.Port = 65536 }, "api.port"},
 		{"api port any", func(c *Config) { c.API.Port = 0 }, ""},
