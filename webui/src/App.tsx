@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ChatList, useChats } from "./ChatList";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { useChat, type Connection } from "./useChat";
@@ -16,20 +17,33 @@ function statusText(c: Connection): string {
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { transcript, conn, send, stop, switchChat } = useChat(() => {});
-  const open = conn.state === "open";
+  const { chats, setChats, reload } = useChats();
+  const { transcript, conn, chatId, send, stop, switchChat } = useChat(reload);
 
-  const newChat = () => {
+  const select = (id: string | null) => {
     setSidebarOpen(false);
-    switchChat(null);
+    switchChat(id);
+  };
+
+  // Deleting the current chat starts a new one, as New chat does.
+  const deleted = (id: string) => {
+    setChats((list) => list.filter((c) => c.chat_id !== id));
+    if (id === chatId) select(null);
+    reload();
   };
 
   return (
     <div id="app" data-sidebar={sidebarOpen ? "open" : undefined}>
       <aside id="sidebar" aria-label="Chats">
-        <button id="new-chat" type="button" title="Start a new session" onClick={newChat}>
-          New chat
-        </button>
+        <ChatList
+          chats={chats}
+          active={chatId}
+          replyRunning={transcript.waiting > 0}
+          onSelect={select}
+          onNew={() => select(null)}
+          onChanged={reload}
+          onDeleted={deleted}
+        />
       </aside>
       <div id="chat">
         <header>
@@ -49,7 +63,7 @@ export default function App() {
           </span>
         </header>
         <MessageList transcript={transcript} conn={conn.state} />
-        <Composer canSend={open} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
+        <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
       </div>
     </div>
   );
