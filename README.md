@@ -865,9 +865,27 @@ and press Enter. Each reply is a full agent turn, tools included.
   `{"path":"uploads/ab12cd34-chart.png","url":"/ui/media/uploads/ab12cd34-chart.png","name":"chart.png","kind":"image"}`.
   The sent message names each file by its workspace path as markdown
   (`![chart.png](uploads/ab12cd34-chart.png)`, or `[report.pdf](…)` for
-  other files), which the agent can open with its file tools; the agent
-  loop takes no media input yet, so the file is not given to the model
-  as an image part.
+  other files) for the transcript, and lists the files in the chat
+  frame's `media`. The gateway trusts only each entry's `/ui/media/`
+  URL, resolving it to a workspace file with the same confinement as the
+  media route (anything else rejects the frame; at most 16 files), and
+  hands the paths to the agent:
+  - **Images** (png, jpeg, gif, webp, checked by content) go to the
+    model as vision parts — `image_url` data URLs for OpenAI-compatible
+    providers, base64 `image` blocks for Anthropic — each after an
+    `[image: <path>]` note. Limits: 3.75 MB per image (Anthropic's 5 MB
+    cap once base64-encoded), 8 images per message, 16 MiB of images
+    per request with the newest messages first. An image that is
+    missing, unsupported or over a limit is sent as
+    `[image: <path> (not attached: <why>)]` instead; the turn goes on.
+  - **Other files** (PDF, text, SVG, …) are appended to the message as
+    `[Attachment: <path>]` lines for the agent to read with its tools.
+
+  The session stores the image **paths** (`"media":[...]` on the user
+  message), never the bytes: each request reads them from disk again,
+  so later turns still see earlier images while the files exist. The
+  model's vision support is up to the configured model; a text-only
+  model may reject image parts.
 - **Stop.** While a reply is due a **Stop** button sends a `stop` frame
   (typing `/stop` does the same): the turn in flight is canceled and
   answered "Stopped.", and it is not saved to the session. Messages sent
@@ -895,7 +913,7 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 |-----------|-------|
 | server → client, on connect | `{"type":"hello","chat_id":"..."}` |
 | server → client, right after `hello` | `{"type":"history","messages":[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]}` (`[]` for a new chat) |
-| client → server | `{"type":"chat","content":"..."}`, or plain text |
+| client → server | `{"type":"chat","content":"...","media":[{"url":"/ui/media/uploads/...","name":"...","kind":"image"}]}` (`media` optional; text or media required), or plain text |
 | client → server | `{"type":"stop"}` (same as sending `/stop`) |
 | server → client, while a turn runs | `{"type":"progress","content":"..."}` (transient status; the next `message` supersedes it) |
 | server → client, while a reply streams | `{"type":"delta","content":"..."}` (the next piece of text, to append; never stored) |

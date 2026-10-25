@@ -333,14 +333,31 @@ Phase 2 is complete; phase 3 is in progress.
     thumbnails and download chips. `POST /ui/upload` (auth-gated,
     same-origin, 10 MiB like nanobot's per-file limit) saves to
     `uploads/<random>-<safe name>`; the composer names uploads by
-    workspace path in the message text, since the agent loop has no
-    media input. Not ported: HMAC-signed `/api/media/<sig>/<payload>`
-    URLs (the route relies on the sign-in cookie instead), staging
-    copies into a media directory, video/audio previews and byte-range
-    video playback in the page, uploads passed to the model as image
-    parts or reference attachments (PDF/Office extraction), storing
-    media in the session (assistant `media` lists are not in `history`),
-    Discord-style outbound media pipelines, the sandbox media bind.
+    workspace path in the message text and sends them as the chat
+    frame's `media` (see the next item). Not ported: HMAC-signed
+    `/api/media/<sig>/<payload>` URLs (the route relies on the sign-in
+    cookie instead), staging copies into a media directory, video/audio
+    previews and byte-range video playback in the page, assistant
+    `media` lists in `history`, Discord-style outbound media pipelines,
+    the sandbox media bind.
+  - Done (simplified): multimodal WebUI uploads
+    (`internal/providers/media.go`, `agent/loop.go`,
+    `channels/websocket/media.go`; `webui/src/protocol.ts`). Chat frames
+    carry `media` refs; the channel resolves each `/ui/media/` URL to a
+    confined workspace path for `InboundMessage.Media`. The loop ports
+    `reference_non_image_attachments` (`providers.SplitMedia`: images by
+    extension, others as `[Attachment: path]`), keeps image paths on the
+    user `providers.Message.Media` (persisted as paths, like nanobot's
+    session `media`), and `providers.ExpandMedia` rebuilds the parts for
+    every request like `build_user_content` (`[image: path]` plus the
+    image, MIME sniffed from the bytes, raster only), which OpenAI sends
+    as `image_url` data URLs and Anthropic as base64 `image` blocks.
+    Unlike nanobot, which replays history images as `[image: path]`
+    text only, replayed history keeps its images, within a per-request
+    budget (newest first). Not ported: `prepare_inline_images`' PIL
+    shrinking (over-cap images become a text note instead), PDF/Office
+    text extraction, inbound photos from Telegram/WeChat, MCP image
+    results as image parts, image generation.
   - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
     webuicmd.go`). It enables `channels.websocket` in the config
     (confirming on a terminal, or `--yes`; a missing config is created
@@ -389,8 +406,7 @@ Phase 2 is complete; phase 3 is in progress.
     `bootstrapSecret` URL fragment, `localStorage` secret storage, TLS
     (`sslCertfile`/`sslKeyfile`), persisting sessions across restarts.
   - Next WebUI slices: i18n, a richer
-    layout and components (nanobot's Radix/Tailwind UI), media input
-    for the agent loop (uploads as image parts), the skills, models and
+    layout and components (nanobot's Radix/Tailwind UI), the skills, models and
     channel pages listed below.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18n, KaTeX/Mermaid), settings/models/
@@ -1202,8 +1218,9 @@ Phase 2 is complete; phase 3 is in progress.
   same sign-in as the rest of the WebUI (the cookie rides along with
   `<img>`), with no copies and no signatures; any signed-in browser can
   fetch any non-hidden workspace file. Uploads land in the workspace
-  (`uploads/`), not a media directory, and reach the agent as paths in
-  the message text rather than as `InboundMessage.Media`.
+  (`uploads/`), not a media directory, and reach the agent as
+  `InboundMessage.Media` paths resolved from the frame's `/ui/media/`
+  URLs (client-supplied paths are never trusted).
 - **Undeliverable replies are dropped.** A reply for a chat with no open
   socket is a `channels.Permanent` error, so the manager logs it instead
   of retrying (a retrying reply would hold up every other chat's replies
