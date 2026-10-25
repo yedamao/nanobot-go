@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -47,14 +50,17 @@ const (
 // the gateway.
 //
 // It mirrors nanobot's `nanobot webui` launcher, simplified: the WebUI
-// lives on the gateway's own port and has no token, and there is no
-// background gateway manager, so the gateway this command starts lives
-// only as long as the command.
+// lives on the gateway's own port, and there is no background gateway
+// manager, so the gateway this command starts lives only as long as the
+// command. A gateway.host beyond loopback needs a sign-in secret; when
+// there is none, setup generates channels.websocket.tokenIssueSecret
+// (with confirmation) and never prints it.
 func (a *app) webui(ctx context.Context, args []string) error {
-	fs := a.newFlagSet("webui", "webui [--config path] [--workspace dir] [--port n] [--dev] [--no-open] [--yes]")
+	fs := a.newFlagSet("webui", "webui [--config path] [--workspace dir] [--host addr] [--port n] [--dev] [--no-open] [--yes]")
 	flags := addCommonFlags(fs)
 	fs.StringVar(&flags.config, "c", "", "shorthand for --config")
 	fs.StringVar(&flags.workspace, "w", "", "shorthand for --workspace")
+	host := fs.String("host", "", "gateway host to listen on (sets gateway.host; beyond loopback, browsers must sign in)")
 	port := fs.Int("port", 0, "gateway port, where the WebUI is served (sets gateway.port; default from the config)")
 	fs.IntVar(port, "p", 0, "shorthand for --port")
 	gatewayPort := fs.Int("gateway-port", 0, "same as --port: nanobot-go serves the WebUI on the gateway port")
@@ -91,9 +97,15 @@ func (a *app) webui(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	changes, err := ensureLocalWebUI(cfg, p)
+	changes, secretCreated, err := ensureLocalWebUI(cfg, strings.TrimSpace(*host), p)
 	if err != nil {
 		return err
+	}
+	g := cfg.Gateway
+	if !security.IsLoopbackHost(g.Host) {
+		fmt.Fprintf(a.stderr, "Warning: gateway.host is %q, so the WebUI is reachable beyond this device. "+
+			"Browsers there must sign in with channels.websocket.tokenIssueSecret (or token); "+
+			"/healthz stays unauthenticated and traffic is plain HTTP. Keep port %d to a trusted network.\n", g.Host, g.Port)
 	}
 	if len(changes) > 0 && exists {
 		fmt.Fprintf(a.stdout, "WebUI setup will update %s: %s.\n", path, strings.Join(changes, ", "))
@@ -104,10 +116,6 @@ func (a *app) webui(ctx context.Context, args []string) error {
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
-	g := cfg.Gateway
-	if !security.IsLoopbackHost(g.Host) {
-		return fmt.Errorf("gateway.host is %q: the WebUI has no authentication yet, so nanobot-go serves it only on loopback. Set gateway.host to 127.0.0.1 in %s (the gateway would refuse to start the websocket channel)", g.Host, path)
-	}
 	if g.Port == 0 {
 		return errors.New("gateway.port is 0 (a random port): the WebUI needs a fixed one; pass --port")
 	}
@@ -116,6 +124,10 @@ func (a *app) webui(ctx context.Context, args []string) error {
 			return err
 		}
 		fmt.Fprintf(a.stdout, "Saved WebUI settings to %s\n", path)
+	}
+	if secretCreated {
+		fmt.Fprintf(a.stdout, "A tokenIssueSecret was written to %s under channels.%s (not shown here); "+
+			"open the WebUI from another device and sign in with it.\n", path, websocket.Name)
 	}
 	if !exists {
 		if err := a.writeWorkspace(cfg, flags.workspace); err != nil {
@@ -201,39 +213,65 @@ func webuiPort(port, gatewayPort int) (int, error) {
 }
 
 // ensureLocalWebUI enables the websocket channel (keeping the section's
-// other keys) and, when port is set, sets gateway.port. It reports the
-// changes made to cfg, none when it already serves the WebUI there.
-func ensureLocalWebUI(cfg *config.Config, port int) ([]string, error) {
+// other keys) and, when set, sets gateway.host to host and gateway.port
+// to port. When gateway.host is then beyond loopback and the section has
+// no token or tokenIssueSecret, it generates a tokenIssueSecret and
+// reports secretCreated. It reports the changes made to cfg, none when
+// it already serves the WebUI there; they never include the secret.
+func ensureLocalWebUI(cfg *config.Config, host string, port int) (changes []string, secretCreated bool, err error) {
 	raw := cfg.Channels[websocket.Name]
 	section := map[string]json.RawMessage{}
 	cur := websocket.Config{}
 	if len(bytes.TrimSpace(raw)) > 0 && string(bytes.TrimSpace(raw)) != "null" {
-		var err error
 		if cur, err = websocket.ParseConfig(raw); err != nil {
-			return nil, fmt.Errorf("channels.%s: %w", websocket.Name, err)
+			return nil, false, fmt.Errorf("channels.%s: %w", websocket.Name, err)
 		}
 		if err := json.Unmarshal(raw, &section); err != nil {
-			return nil, fmt.Errorf("channels.%s: %w", websocket.Name, err)
+			return nil, false, fmt.Errorf("channels.%s: %w", websocket.Name, err)
 		}
 	}
-	var changes []string
+	if host != "" && cfg.Gateway.Host != host {
+		cfg.Gateway.Host = host
+		changes = append(changes, fmt.Sprintf("set gateway.host to %s", host))
+	}
+	edited := false
 	if !cur.Enabled {
 		section["enabled"] = json.RawMessage("true")
+		edited = true
+		changes = append(changes, "enable channels."+websocket.Name)
+	}
+	if !security.IsLoopbackHost(cfg.Gateway.Host) && !cur.HasSecret() {
+		secret, err := json.Marshal(newAccessSecret())
+		if err != nil {
+			return nil, false, err
+		}
+		section["tokenIssueSecret"] = secret
+		edited, secretCreated = true, true
+		changes = append(changes, "generate channels."+websocket.Name+".tokenIssueSecret for sign-in beyond this device")
+	}
+	if edited {
 		data, err := json.Marshal(section)
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		if cfg.Channels == nil {
 			cfg.Channels = map[string]json.RawMessage{}
 		}
 		cfg.Channels[websocket.Name] = data
-		changes = append(changes, "enable channels."+websocket.Name)
 	}
 	if port > 0 && cfg.Gateway.Port != port {
 		cfg.Gateway.Port = port
 		changes = append(changes, fmt.Sprintf("set gateway.port to %d", port))
 	}
-	return changes, nil
+	return changes, secretCreated, nil
+}
+
+// newAccessSecret returns 32 random bytes, URL-safe base64 encoded, like
+// Python's secrets.token_urlsafe(32).
+func newAccessSecret() string {
+	b := make([]byte, 32)
+	rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 
 // confirm asks question on a terminal; without one (or with yes) it
@@ -500,6 +538,9 @@ func (a *app) printWebUIReady(openURL, base, path string, dev, managed bool) {
 	}
 	fmt.Fprintf(w, "Health:  %s/healthz\n", base)
 	fmt.Fprintf(w, "Config:  %s\n\n", path)
+	if u, err := url.Parse(openURL); err == nil && !security.IsLoopbackHost(u.Hostname()) {
+		fmt.Fprintf(w, "That address is beyond loopback: sign in with channels.%s.tokenIssueSecret (or token) from the config.\n\n", websocket.Name)
+	}
 	switch {
 	case managed:
 		fmt.Fprintln(w, "This command started the gateway; keep this terminal open while using WebUI.")

@@ -51,6 +51,12 @@ func (s *syncBuffer) String() string {
 	return s.b.String()
 }
 
+func (s *syncBuffer) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.b.Reset()
+}
+
 type testEnv struct {
 	dir, configPath, workspace string
 	env                        map[string]string

@@ -216,27 +216,51 @@ func TestWebUIPortFlags(t *testing.T) {
 
 func TestEnsureLocalWebUI(t *testing.T) {
 	cfg := config.Default()
-	changes, err := ensureLocalWebUI(cfg, 0)
-	if err != nil || len(changes) != 1 {
-		t.Fatalf("changes = %v, %v", changes, err)
+	changes, created, err := ensureLocalWebUI(cfg, "", 0)
+	if err != nil || len(changes) != 1 || created {
+		t.Fatalf("changes = %v, %v, %v", changes, created, err)
 	}
 	if got := string(cfg.Channels[wschan.Name]); got != `{"enabled":true}` {
 		t.Errorf("section = %s", got)
 	}
-	if changes, err := ensureLocalWebUI(cfg, 0); err != nil || len(changes) != 0 {
+	if changes, _, err := ensureLocalWebUI(cfg, "", 0); err != nil || len(changes) != 0 {
 		t.Errorf("second pass changes = %v, %v", changes, err)
 	}
-	if changes, err := ensureLocalWebUI(cfg, 18888); err != nil || len(changes) != 1 || cfg.Gateway.Port != 18888 {
+	if changes, _, err := ensureLocalWebUI(cfg, "", 18888); err != nil || len(changes) != 1 || cfg.Gateway.Port != 18888 {
 		t.Errorf("port changes = %v, %v, port %d", changes, err, cfg.Gateway.Port)
 	}
 
 	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": false}`)
-	if changes, _ := ensureLocalWebUI(cfg, 18888); len(changes) != 1 || string(cfg.Channels[wschan.Name]) != `{"enabled":true}` {
+	if changes, _, _ := ensureLocalWebUI(cfg, "", 18888); len(changes) != 1 || string(cfg.Channels[wschan.Name]) != `{"enabled":true}` {
 		t.Errorf("disabled section: changes %v, section %s", changes, cfg.Channels[wschan.Name])
 	}
 	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": true, "tokn": "x"}`)
-	if _, err := ensureLocalWebUI(cfg, 0); err == nil || !strings.Contains(err.Error(), "channels.websocket") {
+	if _, _, err := ensureLocalWebUI(cfg, "", 0); err == nil || !strings.Contains(err.Error(), "channels.websocket") {
 		t.Errorf("unknown key error = %v", err)
+	}
+}
+
+func TestEnsureLocalWebUIBeyondLoopback(t *testing.T) {
+	cfg := config.Default()
+	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": true, "token_issue_secret": ""}`)
+	changes, created, err := ensureLocalWebUI(cfg, "0.0.0.0", 0)
+	if err != nil || !created || len(changes) != 2 || cfg.Gateway.Host != "0.0.0.0" {
+		t.Fatalf("changes = %v, created %v, %v, host %q", changes, created, err, cfg.Gateway.Host)
+	}
+	ws, err := wschan.ParseConfig(cfg.Channels[wschan.Name])
+	if err != nil || len(ws.TokenIssueSecret) < 40 || !ws.Enabled {
+		t.Fatalf("section = %+v, %v", ws, err)
+	}
+	if strings.Contains(strings.Join(changes, " "), ws.TokenIssueSecret) {
+		t.Errorf("changes show the secret: %v", changes)
+	}
+	// A configured secret is kept.
+	if changes, created, err := ensureLocalWebUI(cfg, "0.0.0.0", 0); err != nil || created || len(changes) != 0 {
+		t.Errorf("second pass = %v, %v, %v", changes, created, err)
+	}
+	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": true, "token": "mine"}`)
+	if _, created, _ := ensureLocalWebUI(cfg, "", 0); created || compact(cfg.Channels[wschan.Name]) != `{"enabled":true,"token":"mine"}` {
+		t.Errorf("token kept: created %v, section %s", created, cfg.Channels[wschan.Name])
 	}
 }
 
@@ -293,16 +317,74 @@ func TestWebUINeedsConfirmation(t *testing.T) {
 	}
 }
 
-func TestWebUIRefusesNonLoopback(t *testing.T) {
+// TestWebUIBeyondLoopback needs confirmation to generate a sign-in
+// secret for a gateway.host beyond loopback, and never prints it.
+func TestWebUIBeyondLoopback(t *testing.T) {
 	e := newTestEnv(t)
+	port := fakeGateway(t, true)
 	cfg := config.Default()
+	cfg.Agents.Defaults.Workspace = e.workspace
 	cfg.Gateway.Host = "0.0.0.0"
+	cfg.Gateway.Port = port
 	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled":true}`)
 	if err := cfg.Save(e.configPath); err != nil {
 		t.Fatal(err)
 	}
-	if code := e.run(t, nil, "webui", "--no-open"); code != 1 || !strings.Contains(e.stderr.String(), "only on loopback") {
-		t.Errorf("exit = %d, stderr %s", code, e.stderr)
+	before, _ := os.ReadFile(e.configPath)
+	if code := e.run(t, nil, "webui", "--no-open"); code != 1 || !strings.Contains(e.stderr.String(), "--yes") ||
+		!strings.Contains(e.stdout.String(), "tokenIssueSecret") || !strings.Contains(e.stderr.String(), "beyond this device") {
+		t.Fatalf("exit = %d, stdout %s, stderr %s", code, e.stdout, e.stderr)
+	}
+	if after, _ := os.ReadFile(e.configPath); string(after) != string(before) {
+		t.Fatal("unconfirmed setup changed the config")
+	}
+
+	e.stdout.Reset()
+	e.stderr.Reset()
+	r := e.startWebUI(t, e.app(nil), "--yes")
+	if url, want := r.waitOpened(t, e), localURL("127.0.0.1", port, "/ui/"); url != want {
+		t.Errorf("opened %s, want %s", url, want)
+	}
+	e.interrupts <- os.Interrupt
+	if code := r.waitExit(t, e); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	saved, err := config.Load(e.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws, err := wschan.ParseConfig(saved.Channels[wschan.Name])
+	if err != nil || ws.TokenIssueSecret == "" {
+		t.Fatalf("websocket section %+v, %v", ws, err)
+	}
+	out := e.stdout.String() + e.stderr.String()
+	if strings.Contains(out, ws.TokenIssueSecret) {
+		t.Error("output shows the secret")
+	}
+	if !strings.Contains(out, "A tokenIssueSecret was written") {
+		t.Errorf("output: %s", out)
+	}
+
+	// With a secret configured nothing changes and nothing is asked.
+	e.stdout.Reset()
+	e.stderr.Reset()
+	r = e.startWebUI(t, e.app(nil), "--host", "0.0.0.0")
+	r.waitOpened(t, e)
+	e.interrupts <- os.Interrupt
+	if code := r.waitExit(t, e); code != 0 {
+		t.Fatalf("exit = %d, stderr %s", code, e.stderr)
+	}
+	if strings.Contains(e.stdout.String(), "Saved WebUI settings") {
+		t.Errorf("stdout: %s", e.stdout)
+	}
+}
+
+func TestWebUIHostFlag(t *testing.T) {
+	e := newTestEnv(t)
+	e.writeWebUIConfig(t, freePort(t), true)
+	if code := e.run(t, nil, "webui", "--no-open", "--host", "192.168.1.5"); code != 1 ||
+		!strings.Contains(e.stdout.String(), "set gateway.host to 192.168.1.5") {
+		t.Errorf("exit = %d, stdout %s, stderr %s", code, e.stdout, e.stderr)
 	}
 }
 
