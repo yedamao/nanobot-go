@@ -394,7 +394,7 @@ func TestServesUI(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `<script src="app.js">`) {
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), `src="/ui/assets/`) {
 		t.Errorf("GET /ui/ = %d %q", resp.StatusCode, body)
 	}
 }

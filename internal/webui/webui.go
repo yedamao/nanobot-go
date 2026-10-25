@@ -1,8 +1,10 @@
 // Package webui is the browser chat page the gateway serves when the
-// websocket channel is enabled: plain HTML, CSS and JavaScript embedded
-// in the binary, with no build step. The page talks to the channel's
-// WebSocket endpoint (/ws) on the same origin. It is a first slice of
-// nanobot's React WebUI (webui/), not a port of it.
+// websocket channel is enabled: the React app in the repository's webui/
+// directory, built by Vite into static/ (committed, so Go needs no Node)
+// and embedded in the binary. Regenerate it with
+// `cd webui && npm install && npm run build`. The page talks to the
+// channel's WebSocket endpoint (/ws) and /ui/ endpoints on the same
+// origin. It is a lean app of its own, not a port of nanobot's WebUI.
 package webui
 
 import (

@@ -50,7 +50,7 @@ func TestGatewayWebUIRoundTrip(t *testing.T) {
 	if code, body := get(t, "http://"+g.addr+"/healthz"); code != http.StatusOK || body != healthBody {
 		t.Errorf("GET /healthz = %d %q", code, body)
 	}
-	if code, body := get(t, "http://"+g.addr+"/"); code != http.StatusOK || !strings.Contains(body, "app.js") {
+	if code, body := get(t, "http://"+g.addr+"/"); code != http.StatusOK || !strings.Contains(body, `src="/ui/assets/`) {
 		t.Errorf("GET / = %d %q", code, body)
 	}
 	code, body := get(t, "http://"+g.addr+wschan.StatusPath)
