@@ -62,14 +62,15 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   WebSocket on its own address (loopback by default; beyond it, on a LAN,
   browsers sign in with a configured secret). Chat lists/renames/deletes,
   streams replies (and thinking), media upload/preview, status/settings,
-  plus **Cron**, **Channels** (with pairing approve/deny/revoke) and
-  **Skills** pages. `nanobot webui` enables it, attaches or starts a
+  plus **Cron** (list/run/create/edit/enable/remove; system jobs protected),
+  **Channels** (with pairing approve/deny/revoke) and **Skills** pages.
+  `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
 triggers, the fuller WebUI (provider keys, MCP, apps, skill marketplace,
-automation create/edit UI, ...). See
+skill install marketplace, MCP/apps settings, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
