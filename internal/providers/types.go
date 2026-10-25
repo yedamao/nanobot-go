@@ -56,6 +56,13 @@ type Message struct {
 	// as tool_result.is_error; OpenAI has no equivalent field, so the
 	// content itself must describe the failure.
 	IsError bool `json:"is_error,omitempty"`
+	// Media lists the image files attached to a user message, as absolute
+	// or workspace-relative paths. Sessions store only these paths;
+	// ExpandMedia reads the files into Parts for each request.
+	Media []string `json:"media,omitempty"`
+	// Parts, when set, replaces Content on the wire with multimodal
+	// parts (see ExpandMedia). It is never persisted.
+	Parts []Part `json:"-"`
 }
 
 // ToolCall is a tool invocation requested by the model.

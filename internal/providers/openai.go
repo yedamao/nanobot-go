@@ -101,11 +101,37 @@ type openAIStreamOptions struct {
 
 type openAIMessage struct {
 	Role string `json:"role"`
-	// Content is a pointer so assistant tool-call messages can send null.
-	Content    *string          `json:"content"`
+	// Content is a *string, so assistant tool-call messages can send
+	// null, or []openAIPart for a multimodal user message.
+	Content    any              `json:"content"`
 	ToolCalls  []openAIToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string           `json:"tool_call_id,omitempty"`
 	Name       string           `json:"name,omitempty"`
+}
+
+type openAIPart struct {
+	Type     string          `json:"type"`
+	Text     string          `json:"text,omitempty"`
+	ImageURL *openAIImageURL `json:"image_url,omitempty"`
+}
+
+type openAIImageURL struct {
+	URL string `json:"url"`
+}
+
+// openAIParts maps multimodal parts to content parts, leaving out blank
+// text.
+func openAIParts(parts []Part) []openAIPart {
+	out := make([]openAIPart, 0, len(parts))
+	for _, p := range parts {
+		switch {
+		case p.Image != nil:
+			out = append(out, openAIPart{Type: "image_url", ImageURL: &openAIImageURL{URL: p.Image.DataURL()}})
+		case hasText(p.Text):
+			out = append(out, openAIPart{Type: "text", Text: p.Text})
+		}
+	}
+	return out
 }
 
 type openAIToolCall struct {
@@ -152,7 +178,10 @@ func (o *OpenAI) buildRequest(req ChatRequest) openAIRequest {
 		if m.Role == RoleTool {
 			msg.Name = m.Name
 		}
-		if m.Content != "" || len(m.ToolCalls) == 0 {
+		switch {
+		case m.Role == RoleUser && len(m.Parts) > 0:
+			msg.Content = openAIParts(m.Parts)
+		case m.Content != "" || len(m.ToolCalls) == 0:
 			msg.Content = &m.Content
 		}
 		for _, tc := range m.ToolCalls {

@@ -114,6 +114,14 @@ type anthropicBlock struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   string `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// image
+	Source *anthropicSource `json:"source,omitempty"`
+}
+
+type anthropicSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type anthropicTool struct {
@@ -160,7 +168,9 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 			blocks = []anthropicBlock{{Type: "tool_result", ToolUseID: m.ToolCallID, Content: m.Content, IsError: m.IsError}}
 		default:
 			role = "user"
-			if hasText(m.Content) {
+			if len(m.Parts) > 0 {
+				blocks = anthropicParts(m.Parts)
+			} else if hasText(m.Content) {
 				blocks = []anthropicBlock{{Type: "text", Text: m.Content}}
 			}
 		}
@@ -186,6 +196,21 @@ func (a *Anthropic) buildRequest(req ChatRequest) anthropicRequest {
 	}
 	if len(out.Tools) > 0 && req.ToolChoice != ToolChoiceAuto {
 		out.ToolChoice = &anthropicChoice{Type: string(req.ToolChoice)}
+	}
+	return out
+}
+
+// anthropicParts maps multimodal parts to text and base64 image blocks,
+// leaving out blank text.
+func anthropicParts(parts []Part) []anthropicBlock {
+	var out []anthropicBlock
+	for _, p := range parts {
+		switch {
+		case p.Image != nil:
+			out = append(out, anthropicBlock{Type: "image", Source: &anthropicSource{Type: "base64", MediaType: p.Image.MediaType, Data: p.Image.Data}})
+		case hasText(p.Text):
+			out = append(out, anthropicBlock{Type: "text", Text: p.Text})
+		}
 	}
 	return out
 }
