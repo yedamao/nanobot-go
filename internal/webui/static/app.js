@@ -7,6 +7,10 @@
 //                  {"type":"error","content":"..."}
 // The sidebar lists stored chats from GET /ui/chats:
 //   {"chats":[{"chat_id":"...","updated_at":"...","title":"...","preview":"..."}]}
+// The Status panel shows GET /ui/status (read-only):
+//   {"version":"...","go":"...","started_at":"...","uptime_seconds":0,"model":"...",
+//    "provider":"...","workspace":"...","channels":[{"name":"...","enabled":true,"running":true}],
+//    "api_enabled":false,"tools":{"exec":true,"web_fetch":true}}
 "use strict";
 
 const CHAT_KEY = "nanobot-go.chatId";
@@ -140,6 +144,62 @@ function when(iso) {
   return d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
 }
 
+const statusPanel = document.getElementById("status-panel");
+const statusList = document.getElementById("status-list");
+
+// loadStatus fetches the gateway status and fills the panel; a failed
+// fetch says so in the panel.
+async function loadStatus() {
+  let st;
+  try {
+    const resp = await fetch("status", { cache: "no-store" });
+    if (!resp.ok) throw new Error("HTTP " + resp.status);
+    st = await resp.json();
+  } catch (err) {
+    statusList.replaceChildren(statusRow("Error", "Cannot load the status (" + err.message + ")."));
+    return;
+  }
+  const onOff = (b) => (b ? "on" : "off");
+  const chans = (st.channels || []).map(
+    (c) => c.name + " (" + (c.running ? "running" : c.enabled ? "enabled, not running" : "disabled") + ")",
+  );
+  statusList.replaceChildren(
+    statusRow("Version", st.version + (st.go ? " (" + st.go + ")" : "")),
+    statusRow("Uptime", duration(st.uptime_seconds || 0)),
+    statusRow("Model", st.model || "—"),
+    statusRow("Provider", st.provider || "—"),
+    statusRow("Workspace", st.workspace || "—"),
+    statusRow("Channels", chans.length ? chans.join(", ") : "none"),
+    statusRow("API", onOff(st.api_enabled)),
+    statusRow("Tools", "exec " + onOff(st.tools && st.tools.exec) + ", web_fetch " + onOff(st.tools && st.tools.web_fetch)),
+  );
+}
+
+function statusRow(name, value) {
+  const row = document.createElement("div");
+  const dt = document.createElement("dt");
+  dt.textContent = name;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  row.append(dt, dd);
+  return row;
+}
+
+// duration formats seconds as "3d 4h", "2h 5m", "7m 3s" or "9s".
+function duration(s) {
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  if (d) return d + "d " + h + "h";
+  if (h) return h + "h " + m + "m";
+  if (m) return m + "m " + (s % 60) + "s";
+  return s + "s";
+}
+
+function showStatus() {
+  statusList.replaceChildren(statusRow("Status", "Loading…"));
+  statusPanel.showModal();
+  loadStatus();
+}
+
 function showSidebar(open) {
   if (open) document.body.dataset.sidebar = "open";
   else delete document.body.dataset.sidebar;
@@ -256,6 +316,11 @@ stopButton.addEventListener("click", () => {
 });
 newChat.addEventListener("click", () => switchChat(null));
 toggleChats.addEventListener("click", () => showSidebar(document.body.dataset.sidebar !== "open"));
+document.getElementById("show-status").addEventListener("click", showStatus);
+document.getElementById("refresh-status").addEventListener("click", loadStatus);
+document.getElementById("close-status").addEventListener("click", () => statusPanel.close());
+// Esc closes the dialog natively.
+statusPanel.addEventListener("close", () => input.focus());
 // Other tabs may have changed the list meanwhile.
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") loadChats();

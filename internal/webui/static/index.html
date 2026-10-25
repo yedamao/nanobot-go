@@ -16,6 +16,7 @@
   <button id="toggle-chats" type="button" title="Show the chat list" aria-controls="sidebar" aria-expanded="false">Chats</button>
   <h1>nanobot-go</h1>
   <span id="status" class="status" data-state="connecting">Connecting…</span>
+  <button id="show-status" type="button" title="Show the gateway status" aria-controls="status-panel">Status</button>
 </header>
 <main id="messages" aria-live="polite"></main>
 <form id="composer" autocomplete="off">
@@ -24,6 +25,15 @@
   <button id="send" type="submit" disabled>Send</button>
 </form>
 </div>
+<dialog id="status-panel" aria-labelledby="status-title">
+  <h2 id="status-title">Gateway status</h2>
+  <dl id="status-list"></dl>
+  <p class="status-note">Read-only. Change settings in config.json and restart the gateway.</p>
+  <div class="status-actions">
+    <button id="refresh-status" type="button">Refresh</button>
+    <button id="close-status" type="button">Close</button>
+  </div>
+</dialog>
 <script src="app.js"></script>
 </body>
 </html>
