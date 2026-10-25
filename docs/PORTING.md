@@ -408,11 +408,21 @@ Phase 2 is complete; phase 3 is in progress.
     `DELETE /ui/cron/{id}` (403 for system) go through the live
     `cron.Service`. `GET /ui/pairing` plus approve/deny/revoke POST
     routes use the same `pairing.Store` as Telegram/WeChat.
-    `GET /ui/skills` lists `skills/*/SKILL.md` under the workspace
-    (frontmatter name/description; no absolute paths). The React header
+    `GET /ui/skills` lists `skills/*/SKILL.md` under the workspace plus
+    the bundled builtins not yet installed (`internal/skills`, embedded
+    `cron`/`weather`); `PATCH /ui/skills/{name}` edits
+    `agents.defaults.disabledSkills` (like nanobot's `disabled_skills`,
+    held live so the next turn's prompt follows), `POST
+    /ui/skills/install` copies a builtin into the workspace (409 when
+    present) and `DELETE /ui/skills/{name}` removes a workspace skill
+    through `os.Root` (403 for builtins). The system prompt now carries
+    a skills summary of the enabled workspace skills. The React header
     nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
     no automation create/edit UI, no enable/disable toggle, no run
-    history/result viewer, no skill marketplace/install/enable/delete,
+    history/result viewer, no skill marketplace (skills.sh/ClawHub),
+    skill detail/raw view, requirement checks (`requires.bins/env`) or
+    brew/apt install options, builtins only reach the prompt once
+    installed (nanobot lists them in place), no `$skill` invocation,
     no channel configure/validate or token forms, no session-bound
     automations filter.
   - Next WebUI slices: i18n, a richer layout and components (nanobot's

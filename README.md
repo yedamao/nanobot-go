@@ -63,13 +63,14 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   browsers sign in with a configured secret). Chat lists/renames/deletes,
   streams replies (and thinking), media upload/preview, status/settings,
   plus **Cron** (list/run/create/edit/enable/remove; system jobs protected),
-  **Channels** (with pairing approve/deny/revoke) and **Skills** pages.
+  **Channels** (with pairing approve/deny/revoke) and **Skills**
+  (enable/disable, install bundled, delete) pages.
   `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
-triggers, the fuller WebUI (provider keys, MCP/apps settings, skill install
+triggers, the fuller WebUI (provider keys, MCP/apps settings, a skill
 marketplace, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
@@ -129,7 +130,8 @@ Missing fields keep their defaults; unknown keys are an error.
       "dream": {"batchEntries": 20, "maxHistoryEntries": 1000, "intervalH": 2, "cron": ""},
       "fallbackModels": [
         {"provider": "openrouter", "model": "anthropic/claude-sonnet-4-5"}
-      ]
+      ],
+      "disabledSkills": []
     }
   },
   "providers": {
@@ -709,7 +711,8 @@ and press Enter. Each reply is a full agent turn, tools included.
   status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`),
   cron (`GET /ui/cron`, `POST /ui/cron/{id}/run`, `DELETE /ui/cron/{id}`),
   pairing (`GET /ui/pairing`, `POST …/approve|deny|revoke`),
-  skills (`GET /ui/skills`), workspace files (`GET /ui/media/…`,
+  skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
+  `POST /ui/skills/install`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
@@ -770,9 +773,18 @@ and press Enter. Each reply is a full agent turn, tools included.
   status from `GET /ui/status`, pending pairing codes with Approve/Deny,
   and approved senders with Revoke — the same store as
   `nanobot pairing`. No channel tokens or secrets appear in the JSON.
-- **Skills.** The **Skills** page lists `skills/<name>/SKILL.md` under
-  the workspace (name/description from YAML frontmatter when present).
-  No marketplace, enable/disable or delete in this slice.
+- **Skills.** The **Skills** page lists the workspace skills
+  (`skills/<name>/SKILL.md`; the name is the directory, the description
+  comes from YAML frontmatter when present) and the skills bundled with
+  the binary (`cron`, `weather`). **Disable**/**Enable** saves
+  `agents.defaults.disabledSkills` and applies from the agent's next
+  turn: the system prompt lists the enabled workspace skills, and the
+  agent reads a SKILL.md with `read_file` when it needs it. **Install**
+  copies a bundled skill into `skills/<name>/` (never over an existing
+  directory: 409); **Delete** removes a workspace skill's directory
+  (bundled skills not installed answer 403). There is no marketplace
+  (skills.sh / ClawHub) and no requirement checks or brew/apt install
+  hints yet.
 - **Status.** The header shows Connecting… / Connected / Disconnected
   (with the retry delay); sending is enabled once the history has
   arrived.
