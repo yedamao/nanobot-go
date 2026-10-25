@@ -243,6 +243,16 @@ Phase 2 is complete; phase 3 is in progress.
     `chat_id`, `updated_at`, a title (first user message) and a preview
     (last text); the page shows them in a sidebar, highlights the
     current chat and switches by reconnecting with `?chat_id=`.
+  - Done: chat rename and delete. `PATCH /ui/chats/{chat_id}`
+    (`{"title":"..."}`, at most 60 characters; empty clears it) stores a
+    custom title in the session metadata (`title`, `title_user_edited`),
+    which the list prefers over the first user message;
+    `DELETE /ui/chats/{chat_id}` deletes the session (204, also when it
+    is missing). Both are loopback-gated, same-origin only and limited
+    to `websocket:*` sessions, and go through the `session.Manager` so
+    the agent loop's cache stays in step. The sidebar has rename (a
+    prompt) and delete (with a confirm) buttons per chat; deleting the
+    current chat starts a new one.
   - Done: a read-only status panel. `GET /ui/status` (the channel's,
     loopback-gated, mounted only when `websocket.Options.Status` is set)
     returns version, Go version, start time and uptime, model, resolved
@@ -253,7 +263,8 @@ Phase 2 is complete; phase 3 is in progress.
     channels/skills/apps/automations/cron/pairing pages (settings
     writes, model picker, provider key forms, MCP servers and OAuth,
     restart button), topics list,
-    chat rename/delete/archive, pins, search and generated titles,
+    chat archive, pins, search, bulk delete, generated titles,
+    cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
     temporary chats, conversation groups,
     token streaming, structured tool events, reasoning, media and
@@ -938,6 +949,23 @@ Phase 2 is complete; phase 3 is in progress.
   type. It lists only `websocket:*` sessions (at most 50), loads each
   for its title and preview rather than storing them, and leaves out
   chats with no user or assistant text yet.
+- **Rename and delete over HTTP, through the Manager.** nanobot renames
+  through its session metadata (`title`, `title_user_edited`) and
+  deletes with a `session.delete` mutation. nanobot-go keeps the same
+  metadata keys but serves `PATCH` and `DELETE /ui/chats/{chat_id}` next
+  to the list, taking only chat ids (so only `websocket:*` keys) and
+  refusing cross-origin requests (`http.CrossOriginProtection`) besides
+  the loopback gate. An empty title clears the custom one; titles are
+  never generated. The channel gets the agent loop's `session.Manager`,
+  not its store: renames load a fresh copy and save it with
+  `Manager.Save`, which replaces the cached session, and deletes go
+  through `Manager.Delete`, which drops it, so the next turn neither
+  saves over a new title nor brings a deleted chat back from the cache.
+  A rename or delete racing a turn of the same chat is still unsafe (the
+  turn's save fails on a SQLite generation conflict, or with JSONL
+  overwrites the title or recreates the chat), so the page refuses both
+  while its current chat's reply is running; another tab's running turn
+  is not detected.
 - **Status, not settings.** nanobot's WebUI settings read and write the
   config (models, providers and their keys, channels, MCP, OAuth) and
   can restart the gateway. nanobot-go serves only a read-only overview
@@ -957,8 +985,9 @@ Phase 2 is complete; phase 3 is in progress.
   full transcript filtered to user/assistant text (not
   `Session.History`'s replay window, which starts after the
   consolidation marker), capped to the newest 200 messages and 256 KiB.
-  It is read from the `session.Store`, not the `Manager`, whose cached
-  `*Session` belongs to the agent loop's worker. Tool calls, progress
+  It is read with `session.Manager.Load`, a fresh copy from the store,
+  not the cached `*Session` that belongs to the agent loop's worker
+  (`GetOrCreate`). Tool calls, progress
   and media are not replayed; a reconnect during a turn shows its
   progress again from the next tool call.
 - **Undeliverable replies are dropped.** A reply for a chat with no open

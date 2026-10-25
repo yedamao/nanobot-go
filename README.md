@@ -59,9 +59,10 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
   gateway serves a plain browser chat page and a WebSocket on its own
   loopback address; each chat runs a full agent turn, and a reload shows
-  the chat's earlier messages again. The page shows the tool being run
-  while a turn is in progress and can stop it, and a read-only status
-  panel (version, model, provider, channels).
+  the chat's earlier messages again. The page lists, renames and deletes
+  its chats, shows the tool being run while a turn is in progress and can
+  stop it, and has a read-only status panel (version, model, provider,
+  channels).
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
@@ -597,7 +598,9 @@ Open `http://127.0.0.1:18790/` (it redirects to `/ui/`), type a message
 and press Enter. Each reply is a full agent turn, tools included.
 
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
-  (`GET /ui/chats`), the status (`GET /ui/status`) and the WebSocket (`GET /ws`) are mounted on the gateway's HTTP server next to
+  (`GET /ui/chats`, with `PATCH`/`DELETE /ui/chats/{chat_id}`), the
+  status (`GET /ui/status`) and the WebSocket (`GET /ws`) are mounted on
+  the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
@@ -605,8 +608,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   it, so a reload continues the same session; **New chat** starts a new
   id (and an empty page). Two tabs on the same id both get the replies.
 - **Chat list.** A sidebar (a **Chats** overlay on narrow screens) lists
-  the stored WebUI chats, newest first: the first user message as the
-  title, the last message as a preview, and when it was last updated.
+  the stored WebUI chats, newest first: the custom title if the chat was
+  renamed, else the first user message, as the title, the last message
+  as a preview, and when it was last updated.
   The current chat is highlighted; one with nothing stored yet shows as
   "New chat" on top until its first turn is saved. Clicking a chat
   reconnects with its id, so its history loads as on a reload. The list
@@ -614,8 +618,25 @@ and press Enter. Each reply is a full agent turn, tools included.
   `history` and `message` frame and when the tab becomes visible:
   `{"chats":[{"chat_id":"...","updated_at":"2026-10-25T12:00:00Z","title":"...","preview":"..."}]}`.
   It holds only `websocket:*` sessions, at most 50, with titles cut to
-  60 and previews to 80 characters. Chats cannot be renamed, deleted or
-  searched yet.
+  60 and previews to 80 characters. Chats cannot be searched, archived
+  or pinned yet.
+- **Rename and delete.** Each stored chat in the sidebar has a ✎ button,
+  which asks for a new title, and a ✕ button, which deletes the chat
+  after "Delete this chat?"; the list is refreshed afterwards. Deleting
+  the current chat starts a new one, as **New chat** does. Both are
+  refused while the current chat's reply is running (stop it or wait).
+  Over HTTP (loopback only, same-origin only, `websocket:*` chats only;
+  an invalid chat id is 400):
+  - `PATCH /ui/chats/{chat_id}` with `{"title":"Summer trip"}` stores a
+    custom title (at most 60 characters, whitespace collapsed; longer is
+    400) in the session's metadata (`title`, `title_user_edited`) and
+    answers with the chat's list entry,
+    `{"chat_id":"...","updated_at":"...","title":"Summer trip","preview":"..."}`;
+    an empty title clears it, so the first user message is shown again.
+    A chat that is not stored is 404.
+  - `DELETE /ui/chats/{chat_id}` deletes the session and answers 204,
+    also when it did not exist. Only the session goes: memory, cron jobs
+    and other channels' sessions are untouched.
 - **History on reload.** On every connect, after `hello`, the server
   sends a `history` frame with the chat's stored transcript and the page
   redraws from it, so a reload or reconnect shows the earlier messages
