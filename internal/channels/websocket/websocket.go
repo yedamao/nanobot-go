@@ -4,7 +4,8 @@
 // it opens no listener of its own. Each connection is one chat: text
 // frames become bus.InboundMessage values and replies for that chat are
 // written back as JSON frames. On connect the chat's stored transcript is
-// sent as a "history" frame so a reloaded page can show it again.
+// sent as a "history" frame so a reloaded page can show it again, and
+// GET /ui/chats lists the stored chats for the page's sidebar.
 //
 // It borrows only the idea of nanobot's WebSocket channel
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
@@ -24,12 +25,15 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/coder/websocket"
 
@@ -65,6 +69,15 @@ const (
 	// messages are dropped first. The newest message is sent even when
 	// it alone is larger.
 	MaxHistoryBytes = 256 << 10
+
+	// ChatsPath lists the stored chats as JSON (see ChatList).
+	ChatsPath = "/ui/chats"
+	// MaxChats caps the chats listed: only the most recently updated ones.
+	MaxChats = 50
+	// maxTitleRunes and maxPreviewRunes cap a listed chat's title and
+	// preview.
+	maxTitleRunes   = 60
+	maxPreviewRunes = 80
 )
 
 // stopCommand is the agent loop's command for a stop frame
@@ -128,14 +141,17 @@ type Options struct {
 	// Sessions loads a chat's stored session for the history frame sent
 	// on connect. Pass the session Store rather than the Manager: the
 	// store returns a fresh copy, while the Manager's cached *Session
-	// belongs to the agent loop's worker. Nil sends an empty history.
-	Sessions HistoryLoader
+	// belongs to the agent loop's worker. Nil sends an empty history and
+	// lists no chats.
+	Sessions SessionReader
 }
 
-// HistoryLoader loads a stored session; session.Store implements it. Load
-// returns an error wrapping session.ErrNotFound for an unknown key.
-type HistoryLoader interface {
+// SessionReader reads stored sessions; session.Store implements it. Load
+// returns an error wrapping session.ErrNotFound for an unknown key; List
+// returns every session, most recently updated first.
+type SessionReader interface {
 	Load(key string) (*session.Session, error)
+	List() ([]session.Info, error)
 }
 
 // Factory returns the channels.Factory for the websocket channel.
@@ -154,7 +170,7 @@ func Factory(opts Options) channels.Factory {
 type Channel struct {
 	bus      *bus.MessageBus
 	log      *slog.Logger
-	sessions HistoryLoader
+	sessions SessionReader
 
 	mu      sync.Mutex
 	started bool
@@ -186,11 +202,13 @@ func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
 // Name implements channels.Channel.
 func (c *Channel) Name() string { return Name }
 
-// Mount implements channels.Mounter: GET /ws upgrades to a WebSocket and
-// GET / and /ui/ serve the chat page. Requests whose Host is not a
-// loopback name are refused. Until Start and after Stop, /ws answers 503.
+// Mount implements channels.Mounter: GET /ws upgrades to a WebSocket,
+// GET /ui/chats lists the stored chats and GET / and /ui/ serve the chat
+// page. Requests whose Host is not a loopback name are refused. Until
+// Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	mux.Handle("GET "+Path, loopbackOnly(http.HandlerFunc(c.serveWS)))
+	mux.Handle("GET "+ChatsPath, loopbackOnly(http.HandlerFunc(c.serveChats)))
 	ui := loopbackOnly(webui.Handler())
 	mux.Handle("GET /{$}", ui)
 	mux.Handle("GET "+webui.Prefix, ui)
@@ -413,6 +431,95 @@ func transcript(msgs []providers.Message, maxMessages, maxBytes int) []HistoryMe
 		start--
 	}
 	return out[start:]
+}
+
+// ChatList is the body of GET /ui/chats.
+type ChatList struct {
+	Chats []ChatInfo `json:"chats"`
+}
+
+// ChatInfo is one stored chat in a ChatList.
+type ChatInfo struct {
+	ChatID    string    `json:"chat_id"`
+	UpdatedAt time.Time `json:"updated_at"`
+	// Title is the chat's first user message, shortened.
+	Title string `json:"title"`
+	// Preview is the chat's last user or assistant text, shortened.
+	Preview string `json:"preview"`
+}
+
+// serveChats answers GET /ui/chats with the stored chats as a ChatList.
+func (c *Channel) serveChats(w http.ResponseWriter, _ *http.Request) {
+	list, err := c.chats()
+	if err != nil {
+		c.log.Warn("websocket: list chats", "error", err)
+		http.Error(w, "cannot list chats", http.StatusInternalServerError)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", "application/json")
+	h.Set("Cache-Control", "no-store")
+	h.Set("X-Content-Type-Options", "nosniff")
+	json.NewEncoder(w).Encode(list)
+}
+
+// chats lists the stored websocket chats, most recently updated first and
+// at most MaxChats of them. Each one is loaded for its title and preview;
+// chats with no user or assistant text yet, and chats that fail to load
+// (which is logged), are left out.
+func (c *Channel) chats() (ChatList, error) {
+	out := ChatList{Chats: []ChatInfo{}}
+	if c.sessions == nil {
+		return out, nil
+	}
+	infos, err := c.sessions.List()
+	if err != nil {
+		return out, err
+	}
+	for _, info := range infos {
+		if len(out.Chats) == MaxChats {
+			break
+		}
+		chatID, ok := strings.CutPrefix(info.Key, Name+":")
+		if !ok || !chatIDRE.MatchString(chatID) {
+			continue
+		}
+		sess, err := c.sessions.Load(info.Key)
+		if err != nil {
+			if !errors.Is(err, session.ErrNotFound) {
+				c.log.Warn("websocket: load chat", "session", info.Key, "error", err)
+			}
+			continue
+		}
+		if entry, ok := chatInfo(chatID, sess); ok {
+			out.Chats = append(out.Chats, entry)
+		}
+	}
+	return out, nil
+}
+
+// chatInfo summarizes a stored chat, or reports false when it has no
+// user or assistant text.
+func chatInfo(chatID string, sess *session.Session) (ChatInfo, bool) {
+	msgs := transcript(sess.Messages, len(sess.Messages), math.MaxInt)
+	if len(msgs) == 0 {
+		return ChatInfo{}, false
+	}
+	info := ChatInfo{ChatID: chatID, UpdatedAt: sess.UpdatedAt, Preview: shorten(msgs[len(msgs)-1].Content, maxPreviewRunes)}
+	if i := slices.IndexFunc(msgs, func(m HistoryMessage) bool { return m.Role == string(providers.RoleUser) }); i >= 0 {
+		info.Title = shorten(msgs[i].Content, maxTitleRunes)
+	}
+	return info, true
+}
+
+// shorten collapses s's whitespace to single spaces and cuts it to at most
+// n runes, ending a cut text with an ellipsis.
+func shorten(s string, n int) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	return strings.TrimSpace(string([]rune(s)[:n-1])) + "…"
 }
 
 func (c *Channel) register(chatID string, conn *websocket.Conn) bool {

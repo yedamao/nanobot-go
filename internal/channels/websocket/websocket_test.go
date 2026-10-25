@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -316,6 +317,8 @@ func TestRefusesForeignHostAndOrigin(t *testing.T) {
 	}{
 		{"rebound host on ws", Path, "evil.example:80", "", http.StatusForbidden},
 		{"rebound host on ui", "/ui/", "evil.example", "", http.StatusForbidden},
+		{"rebound host on chats", ChatsPath, "evil.example", "", http.StatusForbidden},
+		{"chats on loopback", ChatsPath, "", "", http.StatusOK},
 		{"cross-site origin", Path, "", "http://evil.example", http.StatusForbidden},
 		{"ui on loopback", "/ui/", "", "", http.StatusOK},
 		{"localhost name", "/ui/", "localhost:1234", "", http.StatusOK},
@@ -410,6 +413,10 @@ func (failingLoader) Load(string) (*session.Session, error) {
 	return nil, errors.New("disk on fire")
 }
 
+func (failingLoader) List() ([]session.Info, error) {
+	return nil, errors.New("disk on fire")
+}
+
 func TestHistoryOnConnect(t *testing.T) {
 	store := session.NewJSONLStore(t.TempDir())
 	noArgs := json.RawMessage(`{}`)
@@ -432,7 +439,7 @@ func TestHistoryOnConnect(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		loader HistoryLoader
+		loader SessionReader
 		query  string
 		want   []HistoryMessage
 	}{
@@ -507,5 +514,115 @@ func TestTranscriptCaps(t *testing.T) {
 	}
 	if got := transcript(nil, 10, 10); got == nil || len(got) != 0 {
 		t.Errorf("transcript(nil) = %#v, want an empty list", got)
+	}
+}
+
+func TestChatList(t *testing.T) {
+	store := session.NewJSONLStore(t.TempDir())
+	base := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	save := func(key string, age time.Duration, msgs ...providers.Message) {
+		t.Helper()
+		sess := session.New(key)
+		sess.Append(msgs...)
+		sess.UpdatedAt = base.Add(-age)
+		if err := store.Save(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	user := func(s string) providers.Message { return providers.Message{Role: providers.RoleUser, Content: s} }
+	bot := func(s string) providers.Message { return providers.Message{Role: providers.RoleAssistant, Content: s} }
+	save(Name+":older", 2*time.Hour, user("first question"), bot("an answer"))
+	save(Name+":newer", time.Hour, user("  plan\n\nthe   trip  "), bot(strings.Repeat("é", 100)))
+	save(Name+":no-text", 0, providers.Message{Role: providers.RoleSystem, Content: "note"})
+	save(Name+":bot-only", 3*time.Hour, bot("hello from cron"))
+	save("telegram:42", 0, user("not a web chat"))
+
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: store})
+	resp, err := http.Get(h.srv.URL + ChatsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("GET %s = %d %q", ChatsPath, resp.StatusCode, resp.Header.Get("Content-Type"))
+	}
+	var got ChatList
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	want := []ChatInfo{
+		{ChatID: "newer", UpdatedAt: base.Add(-time.Hour), Title: "plan the trip", Preview: strings.Repeat("é", 79) + "…"},
+		{ChatID: "older", UpdatedAt: base.Add(-2 * time.Hour), Title: "first question", Preview: "an answer"},
+		{ChatID: "bot-only", UpdatedAt: base.Add(-3 * time.Hour), Preview: "hello from cron"},
+	}
+	if !slices.EqualFunc(got.Chats, want, func(a, b ChatInfo) bool {
+		return a.ChatID == b.ChatID && a.UpdatedAt.Equal(b.UpdatedAt) && a.Title == b.Title && a.Preview == b.Preview
+	}) {
+		t.Errorf("chats = %+v, want %+v", got.Chats, want)
+	}
+}
+
+func TestChatListCapAndFailures(t *testing.T) {
+	store := session.NewJSONLStore(t.TempDir())
+	for i := range MaxChats + 5 {
+		sess := session.New(fmt.Sprintf("%s:chat-%02d", Name, i))
+		sess.Append(providers.Message{Role: providers.RoleUser, Content: "hi"})
+		if err := store.Save(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tests := []struct {
+		name   string
+		reader SessionReader
+		code   int
+		chats  int
+	}{
+		{"capped", store, http.StatusOK, MaxChats},
+		{"no store", nil, http.StatusOK, 0},
+		{"list error", failingLoader{}, http.StatusInternalServerError, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Sessions: tt.reader})
+			resp, err := http.Get(h.srv.URL + ChatsPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != tt.code {
+				t.Fatalf("status = %d, want %d (%s)", resp.StatusCode, tt.code, body)
+			}
+			if tt.code != http.StatusOK {
+				return
+			}
+			var got ChatList
+			if err := json.Unmarshal(body, &got); err != nil {
+				t.Fatal(err)
+			}
+			if got.Chats == nil || len(got.Chats) != tt.chats {
+				t.Errorf("chats = %s, want %d entries", body, tt.chats)
+			}
+		})
+	}
+}
+
+func TestShorten(t *testing.T) {
+	tests := []struct {
+		in   string
+		n    int
+		want string
+	}{
+		{"short", 10, "short"},
+		{" a \n b\t", 10, "a b"},
+		{"abcdefghij", 10, "abcdefghij"},
+		{"abcdefghijk", 10, "abcdefghi…"},
+		{"abcd efghijk", 6, "abcd…"},
+		{"日本語のテキスト", 4, "日本語…"},
+	}
+	for _, tt := range tests {
+		if got := shorten(tt.in, tt.n); got != tt.want {
+			t.Errorf("shorten(%q, %d) = %q, want %q", tt.in, tt.n, got, tt.want)
+		}
 	}
 }
