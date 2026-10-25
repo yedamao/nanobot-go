@@ -4,8 +4,9 @@
 // it opens no listener of its own. Each connection is one chat: text
 // frames become bus.InboundMessage values and replies for that chat are
 // written back as JSON frames. On connect the chat's stored transcript is
-// sent as a "history" frame so a reloaded page can show it again, and
-// GET /ui/chats lists the stored chats for the page's sidebar.
+// sent as a "history" frame so a reloaded page can show it again,
+// GET /ui/chats lists the stored chats for the page's sidebar and
+// GET /ui/status reports a read-only overview for its status panel.
 //
 // It borrows only the idea of nanobot's WebSocket channel
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
@@ -78,6 +79,9 @@ const (
 	// preview.
 	maxTitleRunes   = 60
 	maxPreviewRunes = 80
+
+	// StatusPath reports the gateway's overview as JSON (see Status).
+	StatusPath = "/ui/status"
 )
 
 // stopCommand is the agent loop's command for a stop frame
@@ -144,6 +148,44 @@ type Options struct {
 	// belongs to the agent loop's worker. Nil sends an empty history and
 	// lists no chats.
 	Sessions SessionReader
+	// Status returns the overview served at GET /ui/status; it is called
+	// once per request. Nil leaves the path unmounted (404).
+	Status func() Status
+}
+
+// Status is the body of GET /ui/status: a read-only overview for the
+// page's status panel. It holds names and flags only, never key material,
+// tokens, allow lists, environment values or absolute paths.
+type Status struct {
+	Version string `json:"version"`
+	Go      string `json:"go,omitempty"`
+	// StartedAt is when the gateway started; UptimeSeconds is the time
+	// since, rounded down.
+	StartedAt     time.Time `json:"started_at,omitzero"`
+	UptimeSeconds int64     `json:"uptime_seconds"`
+	Model         string    `json:"model"`
+	// Provider is the resolved provider preset's name, or the configured
+	// provider when it does not resolve.
+	Provider string `json:"provider"`
+	// Workspace is the workspace directory's base name.
+	Workspace string `json:"workspace"`
+	// Channels lists the configured channels by name.
+	Channels   []ChannelStatus `json:"channels"`
+	APIEnabled bool            `json:"api_enabled"`
+	Tools      ToolStatus      `json:"tools"`
+}
+
+// ChannelStatus is one configured channel in a Status.
+type ChannelStatus struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+	Running bool   `json:"running"`
+}
+
+// ToolStatus reports which optional tools are on.
+type ToolStatus struct {
+	Exec     bool `json:"exec"`
+	WebFetch bool `json:"web_fetch"`
 }
 
 // SessionReader reads stored sessions; session.Store implements it. Load
@@ -171,6 +213,7 @@ type Channel struct {
 	bus      *bus.MessageBus
 	log      *slog.Logger
 	sessions SessionReader
+	status   func() Status
 
 	mu      sync.Mutex
 	started bool
@@ -196,19 +239,23 @@ func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
 func (c *Channel) Name() string { return Name }
 
 // Mount implements channels.Mounter: GET /ws upgrades to a WebSocket,
-// GET /ui/chats lists the stored chats and GET / and /ui/ serve the chat
-// page. Requests whose Host is not a loopback name are refused. Until
+// GET /ui/chats lists the stored chats, GET /ui/status (when
+// Options.Status is set) reports the overview and GET / and /ui/ serve
+// the chat page. Requests whose Host is not a loopback name are refused. Until
 // Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	mux.Handle("GET "+Path, loopbackOnly(http.HandlerFunc(c.serveWS)))
 	mux.Handle("GET "+ChatsPath, loopbackOnly(http.HandlerFunc(c.serveChats)))
+	if c.status != nil {
+		mux.Handle("GET "+StatusPath, loopbackOnly(http.HandlerFunc(c.serveStatus)))
+	}
 	ui := loopbackOnly(webui.Handler())
 	mux.Handle("GET /{$}", ui)
 	mux.Handle("GET "+webui.Prefix, ui)
@@ -456,11 +503,24 @@ func (c *Channel) serveChats(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "cannot list chats", http.StatusInternalServerError)
 		return
 	}
+	writeJSON(w, list)
+}
+
+// serveStatus answers GET /ui/status with Options.Status's overview.
+func (c *Channel) serveStatus(w http.ResponseWriter, _ *http.Request) {
+	st := c.status()
+	if st.Channels == nil {
+		st.Channels = []ChannelStatus{}
+	}
+	writeJSON(w, st)
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")
 	h.Set("X-Content-Type-Options", "nosniff")
-	json.NewEncoder(w).Encode(list)
+	json.NewEncoder(w).Encode(v)
 }
 
 // chats lists the stored websocket chats, most recently updated first and

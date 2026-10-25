@@ -607,6 +607,90 @@ func TestChatListCapAndFailures(t *testing.T) {
 	}
 }
 
+func TestStatus(t *testing.T) {
+	started := time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC)
+	calls := 0
+	opts := Options{Host: "127.0.0.1", Status: func() Status {
+		calls++
+		return Status{
+			Version: "1.2.3", Go: "go1.99", StartedAt: started, UptimeSeconds: 42,
+			Model: "m", Provider: "anthropic", Workspace: "workspace",
+			Channels:   []ChannelStatus{{Name: Name, Enabled: true, Running: true}, {Name: "telegram", Enabled: true}},
+			APIEnabled: true, Tools: ToolStatus{Exec: true},
+		}
+	}}
+	h := newHarnessWith(t, false, opts)
+	get := func(host string) *http.Response {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodGet, h.srv.URL+StatusPath, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if host != "" {
+			req.Host = host
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { resp.Body.Close() })
+		return resp
+	}
+
+	if resp := get("evil.example"); resp.StatusCode != http.StatusForbidden || calls != 0 {
+		t.Errorf("rebound host: status = %d, calls = %d", resp.StatusCode, calls)
+	}
+	resp := get("")
+	if resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Type") != "application/json" ||
+		resp.Header.Get("Cache-Control") != "no-store" {
+		t.Fatalf("GET %s = %d %q %q", StatusPath, resp.StatusCode, resp.Header.Get("Content-Type"), resp.Header.Get("Cache-Control"))
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"version":"1.2.3","go":"go1.99","started_at":"2026-10-25T09:00:00Z","uptime_seconds":42,` +
+		`"model":"m","provider":"anthropic","workspace":"workspace",` +
+		`"channels":[{"name":"websocket","enabled":true,"running":true},{"name":"telegram","enabled":true,"running":false}],` +
+		`"api_enabled":true,"tools":{"exec":true,"web_fetch":false}}` + "\n"
+	if string(body) != want {
+		t.Errorf("body =\n%s\nwant\n%s", body, want)
+	}
+	if calls != 1 {
+		t.Errorf("Status called %d times, want 1", calls)
+	}
+}
+
+func TestStatusEmptyAndUnset(t *testing.T) {
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Status: func() Status { return Status{} }})
+	resp, err := http.Get(h.srv.URL + StatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var got map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if ch, ok := got["channels"].([]any); !ok || len(ch) != 0 {
+		t.Errorf("channels = %#v, want []", got["channels"])
+	}
+	if _, ok := got["started_at"]; ok {
+		t.Errorf("zero started_at is present: %v", got)
+	}
+
+	// Without Options.Status the path is not mounted.
+	h = newHarness(t, false)
+	resp, err = http.Get(h.srv.URL + StatusPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("unset Status: status = %d, want 404", resp.StatusCode)
+	}
+}
+
 func TestShorten(t *testing.T) {
 	tests := []struct {
 		in   string
