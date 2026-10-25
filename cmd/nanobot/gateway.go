@@ -105,7 +105,16 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		return err
 	}
 
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.sessions.Store())
+	// The WebUI's status reads mgr, which is set before the HTTP server
+	// starts serving.
+	var mgr *channels.Manager
+	status := webStatus(rt.cfg, time.Now(), func() []string {
+		if mgr == nil {
+			return nil
+		}
+		return mgr.Running()
+	})
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.sessions.Store(), status)
 	if err != nil {
 		return err
 	}
@@ -113,7 +122,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	mgr, err := channels.NewManager(b, chans, channels.WithLogger(log))
+	mgr, err = channels.NewManager(b, chans, channels.WithLogger(log))
 	if err != nil {
 		return err
 	}
@@ -312,8 +321,8 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // config file, and so does the WeChat login (state/weixin). host is the
 // gateway's listen address, which the websocket channel requires to be
 // loopback; sessions is the store it loads a chat's history from on
-// connect.
-func (a *app) channelRegistry(configPath, host string, sessions session.Store) (*channels.Registry, error) {
+// connect, and status the source of its GET /ui/status (see webStatus).
+func (a *app) channelRegistry(configPath, host string, sessions session.Store, status func() websocket.Status) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -327,7 +336,7 @@ func (a *app) channelRegistry(configPath, host string, sessions session.Store) (
 			DefaultStateDir: weixin.DefaultStateDir(configPath),
 			Version:         version,
 		}),
-		websocket.Name: websocket.Factory(websocket.Options{Host: host, Sessions: sessions}),
+		websocket.Name: websocket.Factory(websocket.Options{Host: host, Sessions: sessions, Status: status}),
 	}
 	for name, f := range builtins {
 		if _, override := a.channelFactories[name]; override {

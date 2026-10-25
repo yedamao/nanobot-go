@@ -52,6 +52,15 @@ func TestGatewayWebUIRoundTrip(t *testing.T) {
 	if code, body := get(t, "http://"+g.addr+"/"); code != http.StatusOK || !strings.Contains(body, "app.js") {
 		t.Errorf("GET / = %d %q", code, body)
 	}
+	code, body := get(t, "http://"+g.addr+wschan.StatusPath)
+	var st wschan.Status
+	if err := json.Unmarshal([]byte(body), &st); code != http.StatusOK || err != nil {
+		t.Fatalf("GET %s = %d %q: %v", wschan.StatusPath, code, body, err)
+	}
+	if st.Version != version || st.Model == "" ||
+		!slices.Contains(st.Channels, wschan.ChannelStatus{Name: wschan.Name, Enabled: true, Running: true}) {
+		t.Errorf("status = %+v", st)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -116,7 +125,7 @@ func TestGatewayWebUIDisabled(t *testing.T) {
 		c.Channels[wschan.Name] = json.RawMessage(`{"enabled": false}`)
 	})
 	g := startGateway(t, e, newFakeChat(&eventLog{}))
-	for _, path := range []string{"/", "/ui/", "/ws"} {
+	for _, path := range []string{"/", "/ui/", "/ws", wschan.StatusPath} {
 		if code, _ := get(t, "http://"+g.addr+path); code != http.StatusNotFound {
 			t.Errorf("GET %s = %d, want 404", path, code)
 		}
