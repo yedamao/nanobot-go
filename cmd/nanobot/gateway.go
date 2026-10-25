@@ -138,7 +138,8 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	})
 	settings := newWebSettings(rt.configPath, rt.cfg, a.getenv)
 	rt.skills.SetPersist(settings.saveDisabledSkills)
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills)
+	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore)
 	if err != nil {
 		return err
 	}
@@ -363,9 +364,10 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // them through, keeping the agent's cache in step; status is the source
 // of its GET /ui/status (see webStatus), settings is the store of its
 // /ui/settings (see webSettings), cronSvc backs /ui/cron, skillsMgr backs
-// /ui/skills, and the pairing store backs /ui/pairing (shared with
+// /ui/skills, mcpStore backs /ui/mcp (see webMCP; nil leaves it
+// unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -382,6 +384,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,
 			Workspace: ws, Cron: cronSvc, Pairing: store, Skills: skillsMgr,
+			MCP: mcpStore,
 		}),
 	}
 	for name, f := range builtins {

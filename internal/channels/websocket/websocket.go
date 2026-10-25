@@ -229,6 +229,9 @@ type Options struct {
 	// Pairing is the pairing store for GET /ui/pairing and approve/deny/
 	// revoke. Nil leaves those paths unmounted (404).
 	Pairing *pairing.Store
+	// MCP reads and changes tools.mcpServers for /ui/mcp. Nil leaves
+	// those paths unmounted (404).
+	MCP MCPStore
 }
 
 // Status is the body of GET /ui/status: a read-only overview for the
@@ -308,6 +311,7 @@ type Channel struct {
 	workspace *security.Workspace
 	cron      *cron.Service
 	pairing   *pairing.Store
+	mcp       MCPStore
 
 	mu      sync.Mutex
 	started bool
@@ -340,7 +344,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -358,7 +362,7 @@ func (c *Channel) Name() string { return Name }
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
 // requests are served. Cross-origin renames, deletes, settings changes,
-// uploads, cron/pairing/skill mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
+// uploads, cron/pairing/skill/MCP mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	a := c.auth
 	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
@@ -399,6 +403,12 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 		mux.Handle("POST "+PairingPath+"/approve", a.protect(sameOrigin.Handler(http.HandlerFunc(c.approvePairing))))
 		mux.Handle("POST "+PairingPath+"/deny", a.protect(sameOrigin.Handler(http.HandlerFunc(c.denyPairing))))
 		mux.Handle("POST "+PairingPath+"/revoke", a.protect(sameOrigin.Handler(http.HandlerFunc(c.revokePairing))))
+	}
+	if c.mcp != nil {
+		mux.Handle("GET "+MCPPath, a.protect(http.HandlerFunc(c.serveMCP)))
+		mux.Handle("PUT "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.putMCP))))
+		mux.Handle("PATCH "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchMCP))))
+		mux.Handle("DELETE "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.deleteMCP))))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))

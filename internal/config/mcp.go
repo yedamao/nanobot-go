@@ -57,6 +57,9 @@ type MCPServerConfig struct {
 	Enabled *bool `json:"enabled,omitempty"`
 }
 
+// ValidMCPName reports whether name may name an MCP server.
+func ValidMCPName(name string) bool { return validMCPName.MatchString(name) }
+
 // Transport returns the configured or inferred transport.
 func (m MCPServerConfig) Transport() string {
 	switch {
