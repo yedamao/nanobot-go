@@ -30,6 +30,7 @@ const (
 // curatedModels are the built-in suggestions per preset, most useful
 // first. They are advisory: providers add and retire models faster than
 // nanobot releases, so the Models page always accepts a typed ID.
+// Last refreshed 2026-10-25 against each provider's model docs.
 var curatedModels = map[string][]string{
 	"anthropic": {
 		"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-1",
@@ -37,14 +38,15 @@ var curatedModels = map[string][]string{
 		"claude-opus-4-6", "claude-sonnet-4-6", config.DefaultModel, "claude-haiku-4-5",
 	},
 	"openai": {
-		"gpt-5", "gpt-5-mini", "gpt-5-nano", "gpt-4.1", "gpt-4.1-mini",
-		"gpt-4o", "gpt-4o-mini", "o3", "o4-mini", "o3-mini",
+		"gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-6-sol",
+		"gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna",
 	},
-	"deepseek": {"deepseek-chat", "deepseek-reasoner"},
+	"deepseek": {"deepseek-flash", "deepseek-v4-pro"},
 	"openrouter": {
-		"anthropic/claude-opus-4.5", "anthropic/claude-sonnet-4.5", "openai/gpt-5", "openai/gpt-4o",
-		"google/gemini-2.5-pro", "google/gemini-2.5-flash", "deepseek/deepseek-chat",
-		"meta-llama/llama-3.3-70b-instruct",
+		"anthropic/claude-opus-5.5", "anthropic/claude-sonnet-5.5", "anthropic/claude-haiku-5.5",
+		"openai/gpt-6-astra", "openai/gpt-6.1-sol", "openai/gpt-6-luna",
+		"deepseek/deepseek-v4.1-flash", "deepseek/deepseek-v4-pro",
+		"google/gemini-4-argon", "google/gemini-3.8-flash",
 	},
 }
 

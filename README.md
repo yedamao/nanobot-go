@@ -850,7 +850,7 @@ and press Enter. Each reply is a full agent turn, tools included.
   adds, removes and reorders the fallback list, through the same API.
   Each model field suggests IDs for its row's provider from
   `GET /ui/providers/{name}/models` (`{name}` a preset or `auto`;
-  local or signed in): a built-in curated list, or for `openai`,
+  local or signed in): a built-in curated list (refreshed 2026-10-25), or for `openai`,
   `deepseek` and `openrouter` with an API key (saved or from the
   environment) the provider's own `GET {apiBase}/models` (10 s timeout,
   at most 500 IDs, sorted). Without a key the answer is the curated list
@@ -875,7 +875,7 @@ and press Enter. Each reply is a full agent turn, tools included.
   | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
 
   `GET /ui/settings` reads the file and answers
-  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-4o"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
+  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
   `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings
