@@ -288,11 +288,23 @@ Phase 2 is complete; phase 3 is in progress.
     settings dialog. `npm run build` writes it to
     `internal/webui/static/`, which is committed and embedded, so Go
     needs no Node.
-  - Next WebUI slices: markdown and code rendering, i18n, a richer
+  - Done: markdown and code rendering. Assistant bubbles (and the
+    streaming one, re-rendered per delta and memoized) go through
+    `react-markdown` + `remark-gfm` + `remark-breaks`, where nanobot uses
+    Streamdown. No `rehype-raw`: raw HTML is skipped; `urlTransform`
+    keeps only http(s), mailto and relative URLs; images become links.
+    Fences naming a language are highlighted by a small rehype plugin on
+    `lowlight` with ~20 highlight.js grammars (not nanobot's
+    react-syntax-highlighter), with a copy button; token colors come
+    from the page's theme variables. User, error and progress bubbles
+    stay plain. Not ported: KaTeX math, Mermaid, nanobot's remend-style
+    repair of half-streamed markdown (an unclosed fence is already a code
+    block under CommonMark), file chips and previews.
+  - Next WebUI slices: i18n, a richer
     layout and components (nanobot's Radix/Tailwind UI), file previews,
     the skills, models and channel pages listed below.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
-    Radix, i18n, markdown/KaTeX), settings/models/
+    Radix, i18n, KaTeX/Mermaid), settings/models/
     channels/skills/apps/automations/cron/pairing pages (settings beyond
     the whitelist, the full model catalog and picker, provider key
     forms, channel tokens and allow lists, SSRF whitelist, MCP servers

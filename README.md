@@ -718,6 +718,16 @@ and press Enter. Each reply is a full agent turn, tools included.
   which is what the session saves. A stopped turn's partial text becomes
   "Stopped.". Anthropic's extended thinking is not streamed; only reply
   text is. Telegram and WeChat ignore deltas and send the final reply.
+- **Markdown.** Assistant replies, streaming ones included, render as
+  GitHub-flavored Markdown (tables, task lists, strikethrough,
+  autolinks; single newlines break lines). Fenced code that names a
+  language (`go`, `python`, `ts`, `bash`, `json`, `yaml`, `sql`, `rust`,
+  `diff`, …) is highlighted and has a **Copy** button; an unfinished
+  fence shows as code while it streams. Raw HTML in a reply is dropped,
+  links keep only `http`, `https`, `mailto` and relative URLs (opening in
+  a new tab), and images show as links, since the CSP blocks remote
+  images. Your own messages, errors and progress stay plain text. Math
+  (KaTeX) and Mermaid diagrams are not rendered.
 - **Stop.** While a reply is due a **Stop** button sends a `stop` frame
   (typing `/stop` does the same): the turn in flight is canceled and
   answered "Stopped.", and it is not saved to the session. Messages sent
@@ -757,8 +767,9 @@ letters, digits, `-`, `_`); without it the server picks a random id.
 #### Building the page
 
 The page's source is the Vite + React + TypeScript app in `webui/`
-(React is its only runtime dependency; no Tailwind, router or markdown
-yet). Its production build is written to `internal/webui/static/`
+(runtime dependencies: React, plus `react-markdown`, `remark-gfm`,
+`remark-breaks`, `lowlight` and `highlight.js` with a curated grammar set
+for replies; no Tailwind or router). Its production build is written to `internal/webui/static/`
 (`index.html` and hashed `assets/`) and **committed**: the Go package
 embeds that directory with `//go:embed`, so `go build` and `go test`
 need no Node. After changing `webui/`, regenerate and commit it:
@@ -766,7 +777,7 @@ need no Node. After changing `webui/`, regenerate and commit it:
 ```sh
 cd webui
 npm install
-npm test        # reducer and settings tests (Node's built-in runner)
+npm test        # reducer, settings and markdown tests (Node's built-in runner)
 npm run build   # type-checks, then rewrites internal/webui/static/
 ```
 
