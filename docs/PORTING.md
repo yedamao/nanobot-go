@@ -21,6 +21,7 @@ in which we port them.
 | `nanobot/config`                         | `internal/config`                | JSON config, defaults, validation |
 | `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard`, `webui` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
+| heartbeat in `cli/gateway_runtime.py`, `utils/evaluator.py` | `internal/heartbeat` | `HEARTBEAT.md` tasks, target-chat picker, notification check |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
 | `nanobot/channels/telegram`              | `internal/channels/telegram`     | Bot API over `net/http`: long polling, allowFrom, plain-text replies |
 | `nanobot/channels/weixin`                | `internal/channels/weixin`       | iLink bot API over `net/http`: QR login, long polling, context tokens, text replies |
@@ -101,8 +102,8 @@ Phase 2 is complete; phase 3 is in progress.
     in-flight turns finish); `GET /healthz` (and `/health`); graceful
     shutdown on SIGINT/SIGTERM with a forced exit on the second signal;
     `status` rows for the gateway and channels.
-  - Not ported: local triggers (`nanobot/triggers`), heartbeat
-    (`HEARTBEAT.md`; Dream now runs as a gateway job), the readiness payload
+  - Done: the heartbeat (`internal/heartbeat`, see `internal/cron` below).
+  - Not ported: local triggers (`nanobot/triggers`), the readiness payload
     (`process`/`ready`/`websocket`), restart notices, config hot reload,
     the on-demand gateway client lease, `gateway --background`. (The
     WebUI and a simplified `nanobot webui` launcher landed in phase 4.)
@@ -166,9 +167,18 @@ Phase 2 is complete; phase 3 is in progress.
     origin chat), the `cron` tool (add/list/remove) with the turn's chat
     taken from `tools.TurnFrom`, gateway wiring (start after the loop,
     stop with it, Dream system job), `nanobot cron list|remove|run`.
-  - Not ported: heartbeat (`HEARTBEAT.md` and its target-chat picker),
-    local triggers, run records (`cron/runs/`), run history, the WebUI
-    automation views and `change_binding`.
+  - Done: the heartbeat (`internal/heartbeat`): config
+    `gateway.heartbeat` (`enabled`, `intervalS`), the protected system job
+    `heartbeat` (registered or removed at gateway start, banner line),
+    `_heartbeat_has_active_tasks`, the target-chat picker over
+    `session.Manager.List` and the running channels, the preamble prompt
+    run in session `heartbeat` without publishing, `evaluate_response`
+    (the `evaluate_notification` tool, fail closed, override
+    `prompts/evaluator.md`), delivery plus `Loop.Record` into the chat's
+    session; the `HEARTBEAT.md` template.
+  - Not ported: local triggers, run records (`cron/runs/`), run history,
+    the WebUI automation views and `change_binding`; for the heartbeat,
+    see Cron below.
 - `internal/api`: an OpenAI-compatible API.
   - Done: `api.Server` (`GET /health`, `GET /v1/models`,
     `POST /v1/chat/completions` with SSE streaming, bearer token, refusal
@@ -921,9 +931,35 @@ Phase 2 is complete; phase 3 is in progress.
   managed through the agent and the WebUI). `list` and `remove` need no
   provider; `run` runs the job's turn in the CLI process and prints the
   reply instead of delivering it.
-- **No heartbeat.** nanobot's `gateway.heartbeat` (a system job that reads
-  `HEARTBEAT.md`, picks a recently active chat and posts the result after
-  an evaluator pass) is not ported yet.
+- **Heartbeat.** As in nanobot: `gateway.heartbeat.enabled` (default
+  true) and `intervalS` (default 1800; must be positive while enabled,
+  `interval_s` is not accepted), the protected job `heartbeat` every
+  `intervalS` seconds, no model call without an active task, the turn in
+  session `heartbeat` with the target chat's channel and id, and a
+  fail-closed `evaluate_notification` check before the reply is sent and
+  recorded in the chat's session. Differences:
+  - The target picker sees only `channel:chat` keys of running channels.
+    nanobot-go has no unified session and no WebUI sidebar archive, so
+    there is no `unified_session` route and no archived-key filter. Keys
+    with more parts (Telegram forum topics, `telegram:<chat>:topic:<n>`)
+    are skipped, since the chat id alone would post outside the topic.
+  - There is no message tool, so nothing has to be suppressed during the
+    turn; the reply is the only output and goes through the check. Tool
+    progress is not streamed anywhere.
+  - The delivery is recorded without nanobot's session-generation check:
+    a chat cleared with `/new` during the run still gets the result in
+    its new history.
+  - The check uses the provider's default model with temperature 0 and
+    4096 tokens, unstreamed. A truncated reply (`length`) or an error
+    finish counts as no.
+  - No `/evaluator` (`/evaluator_prompt`) command to create or show the
+    override; write `prompts/evaluator.md` by hand. No WebUI settings for
+    the heartbeat (config file only), no `llm_usage` source tagging, no
+    run records.
+  - A run with nothing to do (no file, no task, no chat) is recorded as
+    `ok`, like nanobot, not `skipped`, so it does not log a warning every
+    interval. `nanobot cron run heartbeat` picks from every channel and
+    prints the result instead of sending or recording it.
 
 ### Exec sandbox
 

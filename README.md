@@ -39,7 +39,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   reminders and recurring tasks (once, every N seconds, or a cron
   expression in a time zone) bound to the chat they were created in; the
   gateway runs them and delivers the replies there. The gateway also runs
-  Dream every two hours.
+  Dream every two hours, and the heartbeat (the tasks in `HEARTBEAT.md`)
+  every 30 minutes, telling you only what is worth telling.
 - OpenAI-compatible API (phase 3, part 3): `nanobot serve` (or the
   gateway with `api.enabled`) answers `POST /v1/chat/completions` with a
   full agent turn, tools included, in a server-side session; SSE
@@ -72,9 +73,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   next gateway start. `nanobot webui` enables it, starts (or attaches
   to) the gateway and opens the browser.
 
-Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
-(`HEARTBEAT.md`), the full WebUI (provider keys, MCP, apps, automations,
-...). See
+Not yet: other chat channels (Slack, Discord, WeCom, ...), local
+triggers, the full WebUI (provider keys, MCP, apps, automations, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -151,7 +151,8 @@ Missing fields keep their defaults; unknown keys are an error.
     "mcpServers": {}
   },
   "channels": {},
-  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30},
+  "gateway": {"host": "127.0.0.1", "port": 18790, "shutdownTimeout": 30,
+              "heartbeat": {"enabled": true, "intervalS": 1800}},
   "api": {"enabled": false, "host": "127.0.0.1", "port": 8900, "timeout": 120, "apiKey": ""}
 }
 ```
@@ -166,7 +167,9 @@ The workspace may contain `AGENTS.md` (instructions), `SOUL.md`
 (personality), `USER.md` (about you) and `memory/MEMORY.md` (long-term
 memory); they are added to the system prompt, except `AGENTS.md`,
 `USER.md` and `MEMORY.md` while they are still the untouched templates
-`nanobot onboard` creates. Sessions are stored in a SQLite database,
+`nanobot onboard` creates. `nanobot onboard` also writes `HEARTBEAT.md`,
+the heartbeat's task list (see [Heartbeat](#heartbeat)), which is not
+part of the system prompt. Sessions are stored in a SQLite database,
 `~/.nanobot-go/sessions/<workspace id>/sessions.sqlite3` (the ID is a hash
 of the workspace path; `nanobot status` prints the full path), next to the
 config file and outside the workspace. Session files from older versions
@@ -274,8 +277,51 @@ nanobot cron run <id> [--force]
 
 `list` and `remove` only read and write `jobs.json` and need no API key.
 `run` runs the job's turn right away in this process and prints the reply
-(it does not send it to the chat). The `dream` job cannot be removed;
-change `dream.intervalH`/`dream.cron` instead.
+(it does not send it to the chat). The `dream` and `heartbeat` jobs
+cannot be removed; change `dream.intervalH`/`dream.cron` or
+`gateway.heartbeat` instead.
+
+### Heartbeat
+
+The heartbeat is for background checks with flexible timing that should
+stay quiet unless there is something to report ("tell me if the nightly
+build failed", "check `todo.md` for overdue items"). For a fixed time or
+interval, such as "every day at 8am", ask for a cron job instead.
+
+Write the checks as lines under `## Active Tasks` in
+`<workspace>/HEARTBEAT.md`; headings, blank lines and `<!-- -->` comments
+are ignored, and so is anything under other sections. Delete tasks once
+they are done.
+
+```markdown
+## Active Tasks
+
+- If build/status.txt says FAILED, tell me which step failed.
+```
+
+While `gateway.heartbeat.enabled` is true (the default), `nanobot gateway`
+runs the protected cron job `heartbeat` every `gateway.heartbeat.intervalS`
+seconds (default 1800, like nanobot) and prints `Heartbeat: every 30m` at
+startup (`Heartbeat: disabled` otherwise). Each run:
+
+1. reads `HEARTBEAT.md`; if it is missing or has no active task, the run
+   ends there, without calling the model;
+2. picks the chat to report to: the most recently active chat of a
+   running channel (not the CLI). Without one, the run ends;
+3. runs the tasks as an agent turn, with all tools, in the separate
+   `heartbeat` session; the reply is not sent yet;
+4. asks the model, in one short extra request, whether the reply is worth
+   telling you (an error, a result, a reminder) or routine ("All clear.").
+   If that check fails in any way the answer is no;
+5. only if it is yes, sends the reply to that chat, where it also joins the
+   chat's history so you can reply to it.
+
+The check's instructions can be replaced by writing
+`<workspace>/prompts/evaluator.md`. `nanobot cron run heartbeat` does one
+run from the shell, picking the most recent chat of any channel, and
+prints the reply instead of sending it when the check lets it through. The
+heartbeat settings live in the config file only; the WebUI settings panel
+does not show them.
 
 ### MCP servers
 
@@ -1084,7 +1130,10 @@ service and the health endpoint around it, and `internal/api` (in
 `serve`, or the gateway with `api.enabled`) turns HTTP requests into
 `Loop.Process` calls in `api:<session>` sessions. Tools learn which chat a turn
 belongs to from its context (`tools.TurnFrom`), which is how the `cron`
-tool binds a job to its chat.
+tool binds a job to its chat. `internal/heartbeat` runs the heartbeat
+system job: a `Loop.ProcessMessage` turn in the `heartbeat` session, a
+notification check against the provider, then delivery on the bus and
+`Loop.Record` into the chat's session.
 
 ## Safety notes
 
