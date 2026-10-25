@@ -816,8 +816,18 @@ and press Enter. Each reply is a full agent turn, tools included.
   calls streams too, set apart from later text by a blank line. The
   final `message` frame replaces the streamed text with the whole reply,
   which is what the session saves. A stopped turn's partial text becomes
-  "Stopped.". Anthropic's extended thinking is not streamed; only reply
-  text is. Telegram and WeChat ignore deltas and send the final reply.
+  "Stopped.". Telegram and WeChat ignore deltas and send the final reply.
+- **Thinking.** When the model streams its reasoning (Anthropic
+  `thinking_delta`, or `reasoning_content` from OpenAI-compatible servers
+  such as DeepSeek) the server sends it as `thinking` frames, and a
+  `thinking_end` frame when the answer starts or the response ends. The
+  page shows it in a muted, collapsible "Thinking…" panel above the
+  reply, open while it streams and collapsed after; it is never part of
+  the reply. Thinking is ephemeral: it is not saved in the session, so a
+  reload or reconnect drops it. Telegram and WeChat never show it.
+  nanobot-go does not turn Anthropic extended thinking on in its
+  requests, so the panel appears only for models or servers that think
+  on their own.
 - **Markdown.** Assistant replies, streaming ones included, render as
   GitHub-flavored Markdown (tables, task lists, strikethrough,
   autolinks; single newlines break lines). Fenced code that names a
@@ -917,6 +927,7 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 | client → server | `{"type":"stop"}` (same as sending `/stop`) |
 | server → client, while a turn runs | `{"type":"progress","content":"..."}` (transient status; the next `message` supersedes it) |
 | server → client, while a reply streams | `{"type":"delta","content":"..."}` (the next piece of text, to append; never stored) |
+| server → client, while the model thinks | `{"type":"thinking","content":"..."}` (the next piece of its thinking, to append; shown apart from the reply, never stored), then `{"type":"thinking_end"}` |
 | server → client | `{"type":"message","role":"assistant","content":"..."}` (the whole reply; replaces any streamed text), with `"media":[{"url":"/ui/media/...","name":"...","kind":"image"}]` when the reply has workspace files (`kind` is `image` or `file`) |
 | server → client | `{"type":"error","content":"..."}` (bad frame) |
 

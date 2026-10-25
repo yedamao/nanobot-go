@@ -418,9 +418,9 @@ Phase 2 is complete; phase 3 is in progress.
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
     temporary chats, conversation groups,
-    Anthropic `thinking_delta`, `StreamEndEvent` and the rest of the
-    stream event taxonomy, `<think>` scrubbing of streamed text,
-    structured tool events, reasoning, signed media URLs and media
+    `StreamEndEvent` and the rest of the stream event taxonomy (thinking
+    is streamed; see "Thinking (simplified)" below), `<think>` scrubbing of streamed text,
+    structured tool events, persisted reasoning, signed media URLs and media
     staging, video previews, restart control, the
     on-demand gateway, `trusted_proxy_auth` and issued tokens (see LAN
     access above), TLS (`sslCertfile`), the separate port 8765, Vite
@@ -553,17 +553,34 @@ Phase 2 is complete; phase 3 is in progress.
   deltas, `tool_use` blocks are rebuilt from `input_json_delta` (never
   sent as deltas), `message_delta` gives `stop_reason` and usage, and
   the end of the reply is `message_stop` (an `error` event is an
-  `APIError`). `thinking_delta` is dropped, as there is no thinking
-  channel yet, and nanobot's idle timeout is left to ctx cancel.
+  `APIError`). `thinking_delta` pieces go to `ChatRequest.OnThinking`
+  (nanobot's `on_thinking_delta`), as does OpenAI-compatible
+  `delta.reasoning_content`; neither enters `Content`. `signature_delta`
+  and `redacted_thinking` are dropped, and nanobot's idle timeout is
+  left to ctx cancel.
   Only failures before the reply starts are retried; a stream cut off
   mid-reply is a connection error. `FallbackProvider` fails over a
-  streamed request only while no delta has been passed on, since another
-  provider's reply would be appended to the partial one. Only bus-driven
-  turns stream (API and cron turns do not); later responses of a turn
-  (after tool calls) start their deltas with a blank line, and the final
-  reply, the only text saved, supersedes them. Streamed text is not
-  scrubbed of `<think>` blocks (DeepSeek's `reasoning_content` is
-  ignored).
+  streamed request only while no delta or thinking has been passed on,
+  since another provider's reply would be appended to the partial one.
+  Only bus-driven turns stream (API and cron turns do not); later
+  responses of a turn (after tool calls) start their deltas with a blank
+  line, and the final reply, the only text saved, supersedes them.
+- **Thinking (simplified).** The runner passes streamed thinking to
+  `Hooks.OnThinking` and calls `Hooks.OnThinkingEnd` once per run of it,
+  when the answer's first delta arrives or the response returns
+  (nanobot's `emit_reasoning` / `emit_reasoning_end`). Bus-driven turns
+  publish it as `_thinking` / `_thinking_end` outbound metadata
+  (`bus.IsThinking`, `bus.IsThinkingEnd`; `bus.IsStreamed` covers all
+  transient kinds); the websocket channel sends `thinking` /
+  `thinking_end` frames (nanobot's `reasoning_delta` / `reasoning_end`
+  events) and the page shows a collapsible panel. Telegram and WeChat
+  always drop it. Gaps: no `show_reasoning` config, thinking is not
+  persisted in the session or history, streamed answer text is not
+  scrubbed of `<think>` tags, requests never enable Anthropic thinking
+  (`thinking` budget) or send `reasoning_effort`, non-streamed responses'
+  thinking blocks are not surfaced, thinking is not sent back to
+  Anthropic with tool results (signatures dropped), and there is no
+  Bedrock provider.
 
 ### MCP
 
@@ -689,9 +706,10 @@ Phase 2 is complete; phase 3 is in progress.
   deltas (editing Telegram messages as they grow), sends progress/tool
   hints/reasoning, and suppresses duplicate replies. nanobot-go delivers
   final replies plus one-string tool hints marked as progress
-  (`bus.IsProgress`) and streamed deltas (`bus.IsDelta`), which are tried
-  once and dropped quietly for unknown channels; only the websocket
-  channel shows deltas, Telegram and WeChat drop them and send the final
+  (`bus.IsProgress`), streamed deltas (`bus.IsDelta`) and thinking
+  (`bus.IsThinking`, `bus.IsThinkingEnd`), which are tried once and
+  dropped quietly for unknown channels; only the websocket channel shows
+  deltas and thinking, Telegram and WeChat drop them and send the final
   reply. On a forced or timed-out stop, queued replies are dropped with a
   warning.
 - **Channel config is a raw object per channel.** nanobot's `channels`
