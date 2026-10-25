@@ -224,8 +224,9 @@ Phase 2 is complete; phase 3 is in progress.
     (`hello`, `chat` or plain text, `message`, `error`); one chat id per
     connection, random or resumed with `?chat_id=`, session
     `websocket:<chat id>`, replies fanned out to every socket of the
-    chat; loopback-only (startup refusal, `Host` check, same-origin
-    upgrades); WebUI-aware server timeouts; a `WebUI:` banner line.
+    chat; loopback-only without a sign-in secret (startup refusal,
+    `Host` check, same-origin upgrades; see LAN access below);
+    WebUI-aware server timeouts; a `WebUI:` banner line.
   - Done: history on reload/reconnect. After `hello` the channel sends a
     `history` frame (user and assistant texts of the stored session,
     newest 200 messages / 256 KiB), loaded through
@@ -239,7 +240,7 @@ Phase 2 is complete; phase 3 is in progress.
     the page shows it in the thinking bubble. `Loop.Cancel` and `/stop`
     (also the `stop` frame and a Stop button) cancel a session's turn in
     flight.
-  - Done: a chat list. `GET /ui/chats` (the channel's, loopback-gated)
+  - Done: a chat list. `GET /ui/chats` (the channel's, auth-gated)
     lists the stored `websocket:*` sessions, newest 50, each with
     `chat_id`, `updated_at`, a title (first user message) and a preview
     (last text); the page shows them in a sidebar, highlights the
@@ -249,19 +250,19 @@ Phase 2 is complete; phase 3 is in progress.
     custom title in the session metadata (`title`, `title_user_edited`),
     which the list prefers over the first user message;
     `DELETE /ui/chats/{chat_id}` deletes the session (204, also when it
-    is missing). Both are loopback-gated, same-origin only and limited
+    is missing). Both are auth-gated, same-origin only and limited
     to `websocket:*` sessions, and go through the `session.Manager` so
     the agent loop's cache stays in step. The sidebar has rename (a
     prompt) and delete (with a confirm) buttons per chat; deleting the
     current chat starts a new one.
   - Done: a read-only status panel. `GET /ui/status` (the channel's,
-    loopback-gated, mounted only when `websocket.Options.Status` is set)
+    auth-gated, mounted only when `websocket.Options.Status` is set)
     returns version, Go version, start time and uptime, model, resolved
     provider name, workspace base name, configured channels (enabled,
     running), and API/exec/web_fetch flags; the gateway fills it from
     its config and `Manager.Running()`. The page shows it in a dialog.
   - Done: a safe settings whitelist. `GET`/`PATCH /ui/settings`
-    (loopback-gated, PATCH same-origin only, mounted only when
+    (auth-gated, PATCH same-origin only, mounted only when
     `websocket.Options.Settings` is set) read and save `model`,
     `provider`, `tools.exec`, `tools.web_fetch`, `tools.exec_sandbox`
     and `channels.<name>.enabled` (configured telegram/weixin/websocket
@@ -320,11 +321,34 @@ Phase 2 is complete; phase 3 is in progress.
     Gaps against nanobot: no on-demand gateway lease, PID files or
     `gateway --background` daemon manager (the started gateway lives
     only as long as the command), no separate WebUI port (`--port`
-    *is* the gateway port), no token or `bootstrapSecret` sign-in link
-    (so a non-loopback `gateway.host` is refused rather than warned
-    about), no WebUI bundle rebuild check (the build is committed), no
+    *is* the gateway port), no `bootstrapSecret` sign-in link (a
+    non-loopback `--host`/`gateway.host` gets a generated
+    `tokenIssueSecret` instead, never printed; see the next item), no
+    WebUI bundle rebuild check (the build is committed), no
     log tail of a background gateway (the child's warnings and errors
     go to stderr), no WSL/Windows browser launcher.
+  - Done (simplified): LAN access with `token`/`tokenIssueSecret` auth
+    (`internal/channels/websocket/auth.go`). Config
+    `channels.websocket.token`, `tokenIssueSecret` (also
+    `token_issue_secret`) and `websocketRequiresToken`. As in nanobot, a
+    non-loopback `gateway.host` needs a secret (nanobot only checks the
+    wildcard hosts; nanobot-go checks every non-loopback host, like its
+    `api` package). Requests from this device (loopback `Host`, loopback
+    peer, no proxy forwarding header) need no sign-in unless
+    `websocketRequiresToken` is true; nanobot instead requires the token
+    for every handshake by default, which nanobot-go keeps off so the
+    local workflow is unchanged. Everyone else presents a secret
+    (`Authorization: Bearer`, `X-Nanobot-Auth`, or `?token=` on `/ws`)
+    or the `httpOnly` `SameSite=Strict` session cookie set by
+    `POST /ui/login` (random id, in memory, 24 hours; `POST /ui/logout`;
+    per-address throttling of failed sign-ins). The page and
+    `GET /ui/auth` stay public so the React sign-in form can load.
+    Secrets are compared by SHA-256 digest in constant time and never
+    leave the config. Not ported: `trusted_proxy_auth`, nanobot's issued
+    `nbwt_` tokens with separate API and WebSocket token pools (the
+    session cookie replaces them), `/webui/bootstrap` and the
+    `bootstrapSecret` URL fragment, `localStorage` secret storage, TLS
+    (`sslCertfile`/`sslKeyfile`), persisting sessions across restarts.
   - Next WebUI slices: i18n, a richer
     layout and components (nanobot's Radix/Tailwind UI), file previews,
     the skills, models and channel pages listed below.
@@ -342,9 +366,9 @@ Phase 2 is complete; phase 3 is in progress.
     stream event taxonomy, `<think>` scrubbing of streamed text,
     structured tool events, reasoning, media and
     uploads, file previews, restart control, the
-    on-demand gateway, LAN access, `token`/
-    `tokenIssueSecret`/`websocketRequiresToken` auth, TLS
-    (`sslCertfile`), the separate port 8765, Vite HMR.
+    on-demand gateway, `trusted_proxy_auth` and issued tokens (see LAN
+    access above), TLS (`sslCertfile`), the separate port 8765, Vite
+    HMR.
 
 ## Design decisions we keep
 

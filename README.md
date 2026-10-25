@@ -59,7 +59,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
   gateway serves a browser chat page (a small React app embedded in the
   binary) and a WebSocket on its own
-  loopback address; each chat runs a full agent turn, and a reload shows
+  address (loopback by default; beyond it, on a LAN, browsers sign in
+  with a configured secret); each chat runs a full agent turn, and a reload shows
   the chat's earlier messages again. The page lists, renames and deletes
   its chats, streams the reply as it is written (OpenAI-compatible
   providers such as DeepSeek), shows the tool being run while a turn is
@@ -612,8 +613,14 @@ one (and the workspace) after the same confirmation.
   parity; the two must agree) sets `gateway.port` and saves it.
 - **Errors, not guesses.** If something other than a nanobot-go gateway
   holds the port, or a gateway runs there without the WebUI, it says so
-  and exits. A non-loopback `gateway.host` is refused, since the WebUI
-  has no login yet.
+  and exits.
+- **`--host`** sets `gateway.host` and saves it. Beyond loopback (e.g.
+  `--host 0.0.0.0` for the LAN) it warns, and if
+  `channels.websocket` has no `token` or `tokenIssueSecret` yet it
+  generates a random `tokenIssueSecret` as part of the setup it asks
+  to confirm (or `--yes`). The secret goes into the config (mode 0600)
+  and is never printed; see
+  [Access beyond this device](#access-beyond-this-device-lan).
 - **`--dev`** also runs the Vite dev server (`npm run dev` in `webui/`,
   with hot reload) on `http://127.0.0.1:5173/ui/`, proxying to the
   gateway; it needs Node, `npm install` in `webui/`, and the source
@@ -664,7 +671,7 @@ and press Enter. Each reply is a full agent turn, tools included.
   The current chat is highlighted; one with nothing stored yet shows as
   "New chat" on top until its first turn is saved. Clicking a chat
   reconnects with its id, so its history loads as on a reload. The list
-  is `GET /ui/chats` (loopback only, like `/ws`), refetched after each
+  is `GET /ui/chats` (local or signed in, like `/ws`), refetched after each
   `history` and `message` frame and when the tab becomes visible:
   `{"chats":[{"chat_id":"...","updated_at":"2026-10-25T12:00:00Z","title":"...","preview":"..."}]}`.
   It holds only `websocket:*` sessions, at most 50, with titles cut to
@@ -675,7 +682,7 @@ and press Enter. Each reply is a full agent turn, tools included.
   after "Delete this chat?"; the list is refreshed afterwards. Deleting
   the current chat starts a new one, as **New chat** does. Both are
   refused while the current chat's reply is running (stop it or wait).
-  Over HTTP (loopback only, same-origin only, `websocket:*` chats only;
+  Over HTTP (local or signed in, same-origin only, `websocket:*` chats only;
   an invalid chat id is 400):
   - `PATCH /ui/chats/{chat_id}` with `{"title":"Summer trip"}` stores a
     custom title (at most 60 characters, whitespace collapsed; longer is
@@ -701,7 +708,7 @@ and press Enter. Each reply is a full agent turn, tools included.
   (with the retry delay); sending is enabled once the history has
   arrived.
 - **Status panel.** The header's **Status** button opens an overview of
-  what the gateway is running with, fetched from `GET /ui/status` (loopback only)
+  what the gateway is running with, fetched from `GET /ui/status` (local or signed in)
   when it opens and on **Refresh**:
   `{"version":"0.1.0-dev","go":"go1.26.0","started_at":"2026-10-25T09:00:00Z","uptime_seconds":3600,"model":"claude-opus-4-5","provider":"anthropic","workspace":"workspace","channels":[{"name":"websocket","enabled":true,"running":true}],"api_enabled":false,"tools":{"exec":true,"web_fetch":true}}`.
   `provider` is the resolved preset's name, `workspace` the directory's
@@ -726,7 +733,7 @@ and press Enter. Each reply is a full agent turn, tools included.
 
   `GET /ui/settings` reads the file and answers
   `{"settings":{"model":"...","provider":"auto","tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
-  `PATCH /ui/settings` (loopback only, same-origin only) takes the
+  `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings
   that differ from the running gateway's, `env_overrides` the ones
@@ -741,8 +748,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   survive; values from the environment are never written. The file is
   rewritten in full, with defaults filled in, as `nanobot onboard` does.
   Keys, tokens, allow lists, MCP servers and the rest stay in
-  `config.json`. Disabling the `websocket` channel asks first: the page
-  is gone after the restart.
+  `config.json`. The sign-in secrets (`token`, `tokenIssueSecret`) are
+  never in the view and cannot be set through it. Disabling the
+  `websocket` channel asks first: the page is gone after the restart.
 - **Progress.** While a reply is due the page shows a muted "nanobot is
   thinking…" bubble. As each tool call starts the server sends a
   `progress` frame with a short hint (`read …/notes/todo.md`,
@@ -775,13 +783,14 @@ and press Enter. Each reply is a full agent turn, tools included.
   (typing `/stop` does the same): the turn in flight is canceled and
   answered "Stopped.", and it is not saved to the session. Messages sent
   after it still run.
-- **Loopback only.** There is no browser login yet, so the gateway
-  refuses to start with the channel enabled unless `gateway.host` (or
-  `--host`) is a loopback address. The channel also refuses requests
-  whose `Host` header is not `localhost`/`127.0.0.1`/`[::1]` (DNS
-  rebinding) and WebSocket upgrades from another origin (other web
-  pages). Anyone who can reach the port on this machine can chat with
-  the agent, which can run commands. The page holds no secrets.
+- **Local by default.** Without a sign-in secret the gateway refuses to
+  start with the channel enabled unless `gateway.host` (or `--host`) is
+  a loopback address, and the channel answers only local requests: a
+  `Host` header of `localhost`/`127.0.0.1`/`[::1]` (which stops DNS
+  rebinding) from a loopback peer. WebSocket upgrades from another
+  origin (other web pages) are refused. Anyone who can reach the port
+  on this machine can chat with the agent, which can run commands. The
+  page holds no secrets.
 - **Timeouts.** With the WebUI mounted the server bounds only the request
   header read (2 seconds) and closes idle keep-alive connections after 2
   minutes, so a socket can stay open through long turns; the channel
@@ -807,6 +816,56 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 `ws://127.0.0.1:18790/ws?chat_id=<id>` joins an existing chat (1-64
 letters, digits, `-`, `_`); without it the server picks a random id.
 
+#### Access beyond this device (LAN)
+
+To use the WebUI from a phone or another computer, let the gateway listen
+beyond loopback **and** give the channel a sign-in secret:
+
+```json
+{
+  "channels": {
+    "websocket": {"enabled": true, "tokenIssueSecret": "<a long random string>"}
+  },
+  "gateway": {"host": "0.0.0.0", "port": 18790}
+}
+```
+
+`nanobot webui --host 0.0.0.0` writes both for you (it generates the
+secret and does not print it; read it from the config). `token` works
+the same as `tokenIssueSecret` (either one is accepted when both are
+set), and nanobot's `token_issue_secret` spelling is accepted too.
+Without either, the gateway refuses a non-loopback `gateway.host`.
+
+- **This device needs no sign-in.** A request is local when its `Host`
+  is a loopback name, its peer is a loopback address and it carries no
+  proxy header (`Forwarded`, `X-Forwarded-For`, `X-Forwarded-Host`,
+  `X-Real-IP`); `http://127.0.0.1:18790/ui/` keeps working as before.
+  Set `"websocketRequiresToken": true` to make local browsers sign in
+  too. A LAN client that sends `Host: 127.0.0.1` is not local.
+- **Everything else signs in.** Opening `http://<lan ip>:18790/ui/`
+  shows a sign-in form; enter the secret. `POST /ui/login`
+  (`{"token":"..."}`, same-origin) answers 204 with an `httpOnly`,
+  `SameSite=Strict` cookie, `nanobot_go_session`, holding a random
+  session id (the secret is never stored in the browser); sessions live
+  in the gateway's memory for 24 hours, so a gateway restart signs
+  everyone out. **Sign out** (`POST /ui/logout`) ends the session. Ten
+  failed sign-ins from one address within 5 minutes are answered 429
+  until the window passes.
+- **What is protected.** `/ws`, `/ui/chats`, `/ui/status` and
+  `/ui/settings` answer 401 (`WWW-Authenticate: Bearer`) to a remote
+  request without a valid session cookie or the secret as
+  `Authorization: Bearer <secret>` or `X-Nanobot-Auth: <secret>`; `/ws`
+  also takes `?token=<secret>` for scripts. The page, its assets,
+  `GET /ui/auth` (`{"required":true,"authenticated":false}`) and the
+  sign-in endpoints stay public so the form can load. `/healthz` is
+  unauthenticated, as always.
+- **Plain HTTP.** There is no TLS: the secret and the cookie cross the
+  network in the clear. Use it on a network you trust, or put a TLS
+  reverse proxy in front (the cookie is then not marked `Secure`, since
+  the gateway sees plain HTTP). A reverse proxy on this machine must
+  send `X-Forwarded-For` (most do), or its requests look local and skip
+  sign-in.
+
 #### Building the page
 
 The page's source is the Vite + React + TypeScript app in `webui/`
@@ -827,11 +886,11 @@ npm run build   # type-checks, then rewrites internal/webui/static/
 The build has no inline scripts or styles, so the page keeps its strict
 CSP (`default-src 'self'`). `npm run dev` serves the app with hot reload
 on `http://localhost:5173/ui/` and proxies `/ws` and
-`/ui/{chats,status,settings}` to a gateway already running on
-`127.0.0.1:18790`, or on `$NANOBOT_GO_GATEWAY_URL` if set
+`/ui/{chats,status,settings,auth,login,logout}` to a gateway already
+running on `127.0.0.1:18790`, or on `$NANOBOT_GO_GATEWAY_URL` if set
 (`nanobot webui --dev` sets it and starts the gateway if needed); the
-gateway itself never serves the dev server. The gateway stays
-loopback-only either way.
+gateway itself never serves the dev server. The dev server listens on
+loopback, so its proxied requests count as local.
 
 ### OpenAI-compatible API
 
@@ -989,9 +1048,13 @@ tool binds a job to its chat.
 nanobot-go runs commands and edits files on your machine on the model's
 behalf. Treat it like giving someone a shell.
 
-- The [WebUI](#webui) has no login: it runs only on a loopback gateway
-  and answers only loopback `Host` names and same-origin sockets, but any
-  local user or process that can reach the port can drive the agent.
+- The [WebUI](#webui) has no login for this device: any local user or
+  process that can reach the port can drive the agent. It answers only
+  same-origin sockets, and other devices only after they sign in with
+  `channels.websocket.tokenIssueSecret` (or `token`), which is required
+  before the gateway listens beyond loopback. That traffic is plain
+  HTTP, so keep a LAN-exposed WebUI on a network you trust. The secrets
+  are never shown by `/ui/settings` or printed by `nanobot webui`.
 
 - `restrictToWorkspace` (default `true`) confines file tools to the
   workspace, including through symlinks and `..`, and makes the shell guard
