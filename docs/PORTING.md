@@ -19,7 +19,7 @@ in which we port them.
 | `nanobot/providers`                      | `internal/providers`             | `Provider` interface, OpenAI-compatible + Anthropic over `net/http`, retry, `Fallback` |
 | `nanobot/session`                        | `internal/session`               | `Store` interface; SQLite (default) and JSONL |
 | `nanobot/config`                         | `internal/config`                | JSON config, defaults, validation |
-| `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard` subcommands |
+| `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard`, `webui` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
 | `nanobot/channels/telegram`              | `internal/channels/telegram`     | Bot API over `net/http`: long polling, allowFrom, plain-text replies |
@@ -104,7 +104,8 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported: local triggers (`nanobot/triggers`), heartbeat
     (`HEARTBEAT.md`; Dream now runs as a gateway job), the readiness payload
     (`process`/`ready`/`websocket`), restart notices, config hot reload,
-    the on-demand gateway client lease, WebUI.
+    the on-demand gateway client lease, `gateway --background`. (The
+    WebUI and a simplified `nanobot webui` launcher landed in phase 4.)
 - `internal/channels`: Telegram, Slack, and others, each self-contained.
   - Done: the `Channel` interface, `Registry` (factories keyed by name,
     built from config `channels.<name>` when `enabled`), `Manager`
@@ -300,6 +301,30 @@ Phase 2 is complete; phase 3 is in progress.
     stay plain. Not ported: KaTeX math, Mermaid, nanobot's remend-style
     repair of half-streamed markdown (an unclosed fence is already a code
     block under CommonMark), file chips and previews.
+  - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
+    webuicmd.go`). It enables `channels.websocket` in the config
+    (confirming on a terminal, or `--yes`; a missing config is created
+    with its workspace), then attaches to a gateway already answering
+    `/healthz` and `/ui/` on `gateway.host:gateway.port` (left running
+    on exit) or starts `nanobot gateway --config … [--workspace …]
+    --port N` as a child process in its own process group, waits up to
+    20 seconds for it, prints the ready URL and opens the browser
+    (`open`/`xdg-open`). Ctrl-C stops the child (interrupt, then kill
+    after the shutdown timeout). A port held by something else, or a
+    gateway without the WebUI, is a clear error. `--dev` runs `npm run
+    dev` in `webui/` with `NANOBOT_GO_GATEWAY_URL` pointing Vite's proxy
+    at the gateway and opens `http://127.0.0.1:5173/ui/`. Flags follow
+    nanobot: `--port/-p`, `--gateway-port` (must equal `--port`),
+    `--workspace/-w`, `--config/-c`, `--dev`, `--no-open`, `--yes/-y`,
+    `--background` (deprecated, exits 1 with the replacement commands).
+    Gaps against nanobot: no on-demand gateway lease, PID files or
+    `gateway --background` daemon manager (the started gateway lives
+    only as long as the command), no separate WebUI port (`--port`
+    *is* the gateway port), no token or `bootstrapSecret` sign-in link
+    (so a non-loopback `gateway.host` is refused rather than warned
+    about), no WebUI bundle rebuild check (the build is committed), no
+    log tail of a background gateway (the child's warnings and errors
+    go to stderr), no WSL/Windows browser launcher.
   - Next WebUI slices: i18n, a richer
     layout and components (nanobot's Radix/Tailwind UI), file previews,
     the skills, models and channel pages listed below.
@@ -317,7 +342,7 @@ Phase 2 is complete; phase 3 is in progress.
     stream event taxonomy, `<think>` scrubbing of streamed text,
     structured tool events, reasoning, media and
     uploads, file previews, restart control, the
-    `nanobot webui` launcher and on-demand gateway, LAN access, `token`/
+    on-demand gateway, LAN access, `token`/
     `tokenIssueSecret`/`websocketRequiresToken` auth, TLS
     (`sslCertfile`), the separate port 8765, Vite HMR.
 
@@ -1096,6 +1121,7 @@ Phase 2 is complete; phase 3 is in progress.
   no npm; run `cd webui && npm install && npm run build` after changing
   it. The build has no inline scripts or styles and is served with the
   same strict CSP (`default-src 'self'`). The gateway never proxies a
-  Vite dev server (`npm run dev` proxies to the gateway instead). The
-  `nanobot webui` launcher is not ported: enable the channel and run
-  `nanobot gateway`.
+  Vite dev server (`npm run dev` proxies to the gateway instead, at
+  `$NANOBOT_GO_GATEWAY_URL` or 127.0.0.1:18790). `nanobot webui` is a
+  thin launcher over `nanobot gateway`, owning the gateway child it
+  starts rather than a shared background instance.

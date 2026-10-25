@@ -54,7 +54,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
   `cron` (`list`, `remove`, `run`), `pairing` (`list`, `approve`, `deny`,
   `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
-  MCP servers), `version`.
+  MCP servers), `webui` (one-command WebUI launcher), `version`.
 
 - WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
   gateway serves a browser chat page (a small React app embedded in the
@@ -66,7 +66,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   in progress and can stop it, and has a status panel (version, model,
   provider, channels) that can also save a small whitelist of settings
   (model, provider, tool switches, exec sandbox, channel on/off) for the
-  next gateway start.
+  next gateway start. `nanobot webui` enables it, starts (or attaches
+  to) the gateway and opens the browser.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (provider keys, MCP, apps, automations,
@@ -582,7 +583,49 @@ replaced exactly that token.
 A minimal browser chat page (phase 4, first slice), served by the
 `websocket` channel on the gateway's own address. The page is a small
 React app (see [Building the page](#building-the-page)) built into the
-binary, so running it needs no Node. Enable it and start the gateway:
+binary, so running it needs no Node. One command sets it up and opens
+it:
+
+```sh
+bin/nanobot webui
+# WebUI setup will update ~/.nanobot-go/config.json: enable channels.websocket.
+# Set up WebUI? [y/N] y
+# Starting the gateway...
+#
+# WebUI ready
+#
+# Open in your browser:
+#   http://127.0.0.1:18790/ui/
+```
+
+`nanobot webui` enables `channels.websocket` in the config (asking
+first; `--yes`/`-y` skips the question, and without a terminal it is
+required), then **attaches** to a gateway already serving the WebUI on
+`gateway.host:gateway.port` or **starts** `nanobot gateway` as a child
+process, waits for `/healthz` and `/ui/`, and opens the browser
+(`--no-open` doesn't). It runs until Ctrl-C, which stops a gateway it
+started but never one it attached to. With no config file it creates
+one (and the workspace) after the same confirmation.
+
+- **Port.** The WebUI lives on the gateway's port; there is no separate
+  UI port. `--port`/`-p` (or `--gateway-port`, accepted for nanobot
+  parity; the two must agree) sets `gateway.port` and saves it.
+- **Errors, not guesses.** If something other than a nanobot-go gateway
+  holds the port, or a gateway runs there without the WebUI, it says so
+  and exits. A non-loopback `gateway.host` is refused, since the WebUI
+  has no login yet.
+- **`--dev`** also runs the Vite dev server (`npm run dev` in `webui/`,
+  with hot reload) on `http://127.0.0.1:5173/ui/`, proxying to the
+  gateway; it needs Node, `npm install` in `webui/`, and the source
+  checkout (run it inside the repo, or set `NANOBOT_GO_WEBUI_DIR`).
+- **`--background`** is deprecated as in nanobot: run `nanobot gateway`
+  yourself (in another terminal, or under nohup/launchd/systemd) and
+  then `nanobot webui`, which attaches to it.
+- `--config`/`-c` and `--workspace`/`-w` work as for the other commands;
+  `--verbose` passes on the gateway's info logs (normally only its
+  warnings and errors are shown).
+
+Or enable it by hand and start the gateway yourself:
 
 ```json
 {
@@ -785,8 +828,10 @@ The build has no inline scripts or styles, so the page keeps its strict
 CSP (`default-src 'self'`). `npm run dev` serves the app with hot reload
 on `http://localhost:5173/ui/` and proxies `/ws` and
 `/ui/{chats,status,settings}` to a gateway already running on
-`127.0.0.1:18790`; the gateway itself never serves the dev server. The
-gateway stays loopback-only either way.
+`127.0.0.1:18790`, or on `$NANOBOT_GO_GATEWAY_URL` if set
+(`nanobot webui --dev` sets it and starts the gateway if needed); the
+gateway itself never serves the dev server. The gateway stays
+loopback-only either way.
 
 ### OpenAI-compatible API
 
