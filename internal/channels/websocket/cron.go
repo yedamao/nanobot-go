@@ -3,17 +3,19 @@ package websocket
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/yedamao/nanobot-go/internal/cron"
 )
 
 const (
-	// CronPath lists scheduled jobs (GET) and hosts run/remove under
-	// /ui/cron/{id}/run and /ui/cron/{id}.
+	// CronPath lists scheduled jobs (GET), creates (POST), and hosts
+	// run/edit/remove under /ui/cron/{id}/run and /ui/cron/{id}.
 	CronPath = "/ui/cron"
 	// maxCronMessageRunes caps payload.message in list/run responses.
 	maxCronMessageRunes = 500
@@ -227,5 +229,202 @@ func (c *Channel) removeCron(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "system cron jobs cannot be removed", http.StatusForbidden)
 	default:
 		http.Error(w, "cannot remove the cron job", http.StatusInternalServerError)
+	}
+}
+
+// cronWriteBody is the JSON body of POST /ui/cron and PATCH /ui/cron/{id}.
+// Create requires message and schedule; patch fields are optional.
+type cronWriteBody struct {
+	Name           *string            `json:"name"`
+	Message        *string            `json:"message"`
+	Enabled        *bool              `json:"enabled"`
+	DeleteAfterRun *bool              `json:"deleteAfterRun"`
+	Schedule       *cronScheduleInput `json:"schedule"`
+	Binding        *CronBindingView   `json:"binding"`
+}
+
+// cronScheduleInput is the schedule fields the page sends (kind + one of
+// at / everyMs / expr).
+type cronScheduleInput struct {
+	Kind    string `json:"kind"`
+	At      string `json:"at,omitempty"`
+	EveryMs int64  `json:"everyMs,omitempty"`
+	Expr    string `json:"expr,omitempty"`
+	TZ      string `json:"tz,omitempty"`
+}
+
+func parseCronSchedule(in *cronScheduleInput) (cron.Schedule, error) {
+	if in == nil {
+		return cron.Schedule{}, errors.New("schedule is required")
+	}
+	kind := cron.Kind(strings.TrimSpace(in.Kind))
+	switch kind {
+	case cron.KindEvery:
+		if in.EveryMs <= 0 {
+			return cron.Schedule{}, errors.New("every schedule requires a positive everyMs")
+		}
+		return cron.Schedule{Kind: cron.KindEvery, Every: time.Duration(in.EveryMs) * time.Millisecond}, nil
+	case cron.KindCron:
+		if strings.TrimSpace(in.Expr) == "" {
+			return cron.Schedule{}, errors.New("cron schedule requires expr")
+		}
+		s := cron.Schedule{Kind: cron.KindCron, Expr: strings.TrimSpace(in.Expr), TZ: strings.TrimSpace(in.TZ)}
+		if err := s.Validate(); err != nil {
+			return cron.Schedule{}, err
+		}
+		return s, nil
+	case cron.KindAt:
+		if strings.TrimSpace(in.At) == "" {
+			return cron.Schedule{}, errors.New("at schedule requires at (RFC3339)")
+		}
+		at, err := time.Parse(time.RFC3339, strings.TrimSpace(in.At))
+		if err != nil {
+			at, err = time.Parse(time.RFC3339Nano, strings.TrimSpace(in.At))
+		}
+		if err != nil {
+			return cron.Schedule{}, fmt.Errorf("invalid at time %q (want RFC3339)", in.At)
+		}
+		return cron.Schedule{Kind: cron.KindAt, At: at.UTC()}, nil
+	default:
+		return cron.Schedule{}, fmt.Errorf("unknown schedule kind %q", in.Kind)
+	}
+}
+
+// defaultWebCronBinding is used when create omits binding: jobs run in a
+// shared websocket chat so they have somewhere to deliver.
+func defaultWebCronBinding() *cron.Binding {
+	return &cron.Binding{Channel: Name, ChatID: "cron", SessionKey: Name + ":cron"}
+}
+
+func bindingFromView(v *CronBindingView) *cron.Binding {
+	if v == nil {
+		return nil
+	}
+	ch := strings.TrimSpace(v.Channel)
+	id := strings.TrimSpace(v.ChatID)
+	if ch == "" && id == "" {
+		return &cron.Binding{} // clear
+	}
+	if ch == "" || id == "" {
+		return nil // invalid; caller checks
+	}
+	return &cron.Binding{Channel: ch, ChatID: id, SessionKey: ch + ":" + id}
+}
+
+// createCron answers POST /ui/cron: create an agent-turn job.
+func (c *Channel) createCron(w http.ResponseWriter, r *http.Request) {
+	var body cronWriteBody
+	if err := decodeJSONBody(r, &body, 1<<16); err != nil {
+		http.Error(w, `body must be JSON with message and schedule`, http.StatusBadRequest)
+		return
+	}
+	if body.Message == nil || strings.TrimSpace(*body.Message) == "" {
+		http.Error(w, "message is required", http.StatusBadRequest)
+		return
+	}
+	sched, err := parseCronSchedule(body.Schedule)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	spec := cron.AddSpec{
+		Message:  strings.TrimSpace(*body.Message),
+		Schedule: sched,
+	}
+	if body.Name != nil {
+		spec.Name = strings.TrimSpace(*body.Name)
+	}
+	if body.DeleteAfterRun != nil {
+		spec.DeleteAfterRun = *body.DeleteAfterRun
+	} else if sched.Kind == cron.KindAt {
+		spec.DeleteAfterRun = true
+	}
+	switch {
+	case body.Binding != nil:
+		b := bindingFromView(body.Binding)
+		if b == nil || (b.Channel == "" && b.ChatID == "") {
+			http.Error(w, `binding needs both channel and chatId`, http.StatusBadRequest)
+			return
+		}
+		if b.Channel != "" {
+			spec.Binding = b
+		}
+	default:
+		spec.Binding = defaultWebCronBinding()
+	}
+	job, err := c.cron.Add(spec)
+	if err != nil {
+		c.log.Warn("websocket: create cron job", "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	// Optional enabled:false after create.
+	if body.Enabled != nil && !*body.Enabled {
+		off := false
+		job, _, err = c.cron.Update(job.ID, cron.UpdateSpec{Enabled: &off})
+		if err != nil {
+			c.log.Warn("websocket: disable new cron job", "error", err)
+			http.Error(w, "created but could not disable: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+	w.WriteHeader(http.StatusCreated)
+	writeJSON(w, cronJobView(job))
+}
+
+// patchCron answers PATCH /ui/cron/{id}: update a non-system job.
+func (c *Channel) patchCron(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, "job id is required", http.StatusBadRequest)
+		return
+	}
+	var body cronWriteBody
+	if err := decodeJSONBody(r, &body, 1<<16); err != nil {
+		http.Error(w, `body must be a JSON object`, http.StatusBadRequest)
+		return
+	}
+	if body.Name == nil && body.Message == nil && body.Schedule == nil &&
+		body.Enabled == nil && body.DeleteAfterRun == nil && body.Binding == nil {
+		http.Error(w, "no fields to update", http.StatusBadRequest)
+		return
+	}
+	patch := cron.UpdateSpec{
+		Name:           body.Name,
+		Message:        body.Message,
+		Enabled:        body.Enabled,
+		DeleteAfterRun: body.DeleteAfterRun,
+	}
+	if body.Schedule != nil {
+		sched, err := parseCronSchedule(body.Schedule)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		patch.Schedule = &sched
+	}
+	if body.Binding != nil {
+		b := bindingFromView(body.Binding)
+		if b == nil {
+			http.Error(w, `binding needs both channel and chatId (or both empty to clear)`, http.StatusBadRequest)
+			return
+		}
+		patch.Binding = b
+	}
+	job, res, err := c.cron.Update(id, patch)
+	if err != nil {
+		c.log.Warn("websocket: update cron job", "job", id, "error", err)
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	switch res {
+	case cron.Updated:
+		writeJSON(w, cronJobView(job))
+	case cron.UpdateNotFound:
+		http.Error(w, "no such cron job", http.StatusNotFound)
+	case cron.UpdateProtected:
+		http.Error(w, "system cron jobs cannot be edited", http.StatusForbidden)
+	default:
+		http.Error(w, "cannot update the cron job", http.StatusInternalServerError)
 	}
 }
