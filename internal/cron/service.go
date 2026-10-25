@@ -234,6 +234,125 @@ func (s *Service) Remove(id string) (RemoveResult, error) {
 	return res, nil
 }
 
+// UpdateSpec is a partial update for an agent-turn job. Nil pointer
+// fields are left unchanged. Schedule, when set, replaces the whole
+// schedule and recomputes NextRun when the job is enabled.
+type UpdateSpec struct {
+	Name           *string
+	Message        *string
+	Schedule       *Schedule
+	Enabled        *bool
+	DeleteAfterRun *bool
+	// Binding, when non-nil, replaces the chat binding. A Binding with
+	// empty Channel and ChatID clears it.
+	Binding *Binding
+}
+
+// UpdateResult is the outcome of Update.
+type UpdateResult int
+
+// Update outcomes.
+const (
+	Updated UpdateResult = iota
+	// UpdateNotFound means no job with that id exists.
+	UpdateNotFound
+	// UpdateProtected means the job is a system job, which Update refuses.
+	UpdateProtected
+)
+
+// Update changes mutable fields of the job with id. System jobs are
+// refused. An empty Message is rejected. When the schedule changes (or
+// the job is re-enabled), NextRun is recomputed; disabling clears it.
+func (s *Service) Update(id string, patch UpdateSpec) (Job, UpdateResult, error) {
+	if patch.Message != nil && strings.TrimSpace(*patch.Message) == "" {
+		return Job{}, Updated, errors.New("message must not be empty")
+	}
+	if patch.Schedule != nil {
+		if err := patch.Schedule.Validate(); err != nil {
+			return Job{}, Updated, err
+		}
+	}
+	res := UpdateNotFound
+	var out Job
+	err := s.store.Update(func(jobs []Job) ([]Job, error) {
+		i := find(jobs, id)
+		if i < 0 {
+			res = UpdateNotFound
+			return jobs, nil
+		}
+		if jobs[i].System() {
+			res = UpdateProtected
+			return jobs, nil
+		}
+		j := jobs[i]
+		now := s.clock.Now()
+		scheduleChanged := false
+		if patch.Schedule != nil {
+			if *patch.Schedule != j.Schedule {
+				scheduleChanged = true
+			}
+			j.Schedule = *patch.Schedule
+		}
+		if patch.Name != nil {
+			name := strings.TrimSpace(*patch.Name)
+			if name == "" {
+				msg := j.Payload.Message
+				if patch.Message != nil {
+					msg = *patch.Message
+				}
+				name = truncate(strings.Join(strings.Fields(msg), " "), 30)
+			}
+			j.Name = name
+		}
+		if patch.Message != nil {
+			j.Payload.Message = *patch.Message
+			j.Payload.Kind = PayloadAgentTurn
+		}
+		if patch.DeleteAfterRun != nil {
+			j.DeleteAfterRun = *patch.DeleteAfterRun
+		}
+		if patch.Binding != nil {
+			if patch.Binding.Channel == "" && patch.Binding.ChatID == "" {
+				j.Binding = nil
+			} else {
+				b := *patch.Binding
+				j.Binding = &b
+			}
+		}
+		enabledChanged := false
+		if patch.Enabled != nil && *patch.Enabled != j.Enabled {
+			j.Enabled = *patch.Enabled
+			enabledChanged = true
+		}
+		switch {
+		case !j.Enabled:
+			j.State.NextRun = time.Time{}
+		case scheduleChanged || (enabledChanged && j.Enabled):
+			next, ok := j.Schedule.Next(now)
+			if !ok {
+				if j.Schedule.Kind == KindAt {
+					return jobs, fmt.Errorf("one-time job time %s is not in the future", j.Schedule.At.Format(time.RFC3339))
+				}
+				return jobs, errors.New("schedule never runs")
+			}
+			j.State.NextRun = next
+		}
+		j.UpdatedAt = now
+		jobs[i] = j
+		out = j
+		res = Updated
+		return jobs, nil
+	})
+	if err != nil {
+		return Job{}, Updated, err
+	}
+	if res == Updated {
+		s.notify()
+		s.log.Info("cron: updated job", "job", out.ID, "name", out.Name)
+	}
+	return out, res, nil
+}
+
 // RegisterSystemJob adds or replaces the system job with job.ID,
 // resetting its state (idempotent on restart, like nanobot's
 // register_system_job).

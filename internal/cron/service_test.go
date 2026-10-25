@@ -459,3 +459,51 @@ func TestServiceWithoutRunFunc(t *testing.T) {
 		t.Error("NewService without a store succeeded")
 	}
 }
+
+func TestUpdateJob(t *testing.T) {
+	svc, err := NewService(ServiceConfig{Store: NewStore(t.TempDir())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.Add(AddSpec{
+		Name:     "n1",
+		Message:  "ping",
+		Schedule: Schedule{Kind: KindEvery, Every: time.Hour},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.RegisterSystemJob(Job{
+		ID: "sys", Name: "sys",
+		Schedule: Schedule{Kind: KindEvery, Every: 2 * time.Hour},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	name := "renamed"
+	msg := "pong"
+	enabled := false
+	got, res, err := svc.Update(job.ID, UpdateSpec{Name: &name, Message: &msg, Enabled: &enabled})
+	if err != nil || res != Updated {
+		t.Fatalf("Update = %v %v %v", got, res, err)
+	}
+	if got.Name != "renamed" || got.Payload.Message != "pong" || got.Enabled || !got.State.NextRun.IsZero() {
+		t.Errorf("got = %+v", got)
+	}
+
+	_, res, err = svc.Update("sys", UpdateSpec{Name: &name})
+	if err != nil || res != UpdateProtected {
+		t.Fatalf("system Update = %v %v", res, err)
+	}
+	_, res, err = svc.Update("missing", UpdateSpec{Name: &name})
+	if err != nil || res != UpdateNotFound {
+		t.Fatalf("missing Update = %v %v", res, err)
+	}
+
+	every := Schedule{Kind: KindEvery, Every: 30 * time.Minute}
+	on := true
+	got, res, err = svc.Update(job.ID, UpdateSpec{Schedule: &every, Enabled: &on})
+	if err != nil || res != Updated || got.Schedule.Every != 30*time.Minute || got.State.NextRun.IsZero() {
+		t.Fatalf("reschedule = %+v %v %v", got, res, err)
+	}
+}
