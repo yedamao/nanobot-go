@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"slices"
 	"strings"
@@ -116,6 +117,66 @@ func TestGatewayWebUIRoundTrip(t *testing.T) {
 	}
 	if s, err := e.loadSession(t, "websocket:"+hello.ChatID); err != nil || len(s.Messages) != 2 {
 		t.Errorf("session websocket:%s = %+v, %v", hello.ChatID, s, err)
+	}
+}
+
+// TestGatewayWebUISettings saves a setting through the running gateway's
+// /ui/settings: the file changes, the running gateway does not.
+func TestGatewayWebUISettings(t *testing.T) {
+	e := newTestEnv(t)
+	e.writeGatewayConfig(t, func(c *config.Config) {
+		enableWebUI(c)
+		c.Providers.Anthropic.APIKey = "sk-settings-test-key"
+	})
+	g := startGateway(t, e, nil)
+	url := "http://" + g.addr + wschan.SettingsPath
+
+	code, body := get(t, url)
+	var v wschan.SettingsView
+	if err := json.Unmarshal([]byte(body), &v); code != http.StatusOK || err != nil || !v.Settings.Tools.Exec {
+		t.Fatalf("GET %s = %d %q: %v", wschan.SettingsPath, code, body, err)
+	}
+	if strings.Contains(body, "sk-settings-test-key") {
+		t.Errorf("settings expose the key: %s", body)
+	}
+	patch := func(body string) (int, string) {
+		t.Helper()
+		req, err := http.NewRequest(http.MethodPatch, url, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		data, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(data)
+	}
+	if code, body := patch(`{"providers":{"anthropic":{"apiKey":"x"}}}`); code != http.StatusBadRequest {
+		t.Errorf("secret PATCH = %d %q", code, body)
+	}
+	code, body = patch(`{"tools":{"exec":false}}`)
+	if err := json.Unmarshal([]byte(body), &v); code != http.StatusOK || err != nil ||
+		v.Settings.Tools.Exec || !slices.Equal(v.RestartRequired, []string{"tools.exec"}) {
+		t.Fatalf("PATCH = %d %q: %v", code, body, err)
+	}
+	saved, err := config.Load(e.configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Tools.Exec.Enable || saved.Providers.Anthropic.APIKey != "sk-settings-test-key" {
+		t.Errorf("saved config: exec %v, key kept %v", saved.Tools.Exec.Enable, saved.Providers.Anthropic.APIKey != "")
+	}
+	// The status still reports what the gateway runs with.
+	_, body = get(t, "http://"+g.addr+wschan.StatusPath)
+	var st wschan.Status
+	if err := json.Unmarshal([]byte(body), &st); err != nil || !st.Tools.Exec {
+		t.Errorf("status after save = %+v, %v", st, err)
+	}
+	g.cancel()
+	if code := g.wait(t); code != 0 {
+		t.Fatalf("exit = %d, stderr:\n%s", code, e.stderr)
 	}
 }
 
