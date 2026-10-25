@@ -390,6 +390,9 @@ button:disabled { opacity: 0.5; cursor: default; }
   color: var(--muted);
 }
 .skills-list p { margin: 6px 0 0; font-size: 14px; }
+.skills-list li[data-disabled] { opacity: 0.65; }
+.skill-head { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+.skill-head .page-actions { margin-left: auto; }
 
 /* Cron create / edit */
 .cron-form {

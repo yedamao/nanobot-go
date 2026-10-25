@@ -254,14 +254,56 @@ export async function revokePairing(channel: string, senderId: string): Promise<
 }
 
 // GET /ui/skills
+// GET /ui/skills lists workspace skills, then bundled builtins not yet
+// installed. PATCH /ui/skills/{name} {"enabled":bool} enables or
+// disables one, POST /ui/skills/install {"name":"..."} copies a builtin
+// into the workspace (201) and DELETE /ui/skills/{name} removes a
+// workspace skill (204).
 export interface Skill {
   name: string;
   description?: string;
-  path: string;
+  source: "workspace" | "builtin";
+  builtin: boolean;
+  installed: boolean;
+  enabled: boolean;
+  /** Workspace-relative SKILL.md path; absent for an uninstalled builtin. */
+  path?: string;
 }
 
-export async function listSkills(): Promise<Skill[]> {
+export interface SkillsList {
+  skills: Skill[];
+  /** Whether enable/disable is saved to the config. */
+  persistent: boolean;
+}
+
+export async function listSkills(): Promise<SkillsList> {
   const resp = await fetch("skills", { cache: "no-store" });
   if (!resp.ok) throw await requestError(resp);
-  return ((await resp.json()) as { skills?: Skill[] }).skills ?? [];
+  const body = (await resp.json()) as Partial<SkillsList>;
+  return { skills: body.skills ?? [], persistent: !!body.persistent };
+}
+
+export async function setSkillEnabled(name: string, enabled: boolean): Promise<Skill> {
+  const resp = await fetch("skills/" + encodeURIComponent(name), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function installSkill(name: string): Promise<Skill> {
+  const resp = await fetch("skills/install", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function deleteSkill(name: string): Promise<void> {
+  const resp = await fetch("skills/" + encodeURIComponent(name), { method: "DELETE" });
+  if (!resp.ok) throw await requestError(resp);
 }
