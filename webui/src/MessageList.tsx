@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef } from "react";
+import { Markdown } from "./Markdown";
 import type { Transcript } from "./transcript";
 import type { ConnState } from "./useChat";
 
@@ -26,7 +27,7 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
       )}
       {messages.map((m) => (
         <div key={m.id} className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
-          {m.content}
+          {m.kind === "assistant" ? <Markdown text={m.content} /> : m.content}
         </div>
       ))}
       {waiting > 0 && !pendingHidden && (
