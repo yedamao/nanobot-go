@@ -524,7 +524,11 @@ func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		content, problem := parseChat(data)
+		content, refs, problem := parseChat(data)
+		var media []string
+		if problem == "" {
+			media, problem = c.mediaPaths(refs)
+		}
 		if problem != "" {
 			if writeFrame(ctx, conn, Frame{Type: TypeError, Content: problem}) != nil {
 				return
@@ -536,6 +540,7 @@ func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 			SenderID:  SenderID,
 			ChatID:    chatID,
 			Content:   content,
+			Media:     media,
 			Timestamp: time.Now(),
 		}
 		if err := c.bus.PublishInbound(ctx, msg); err != nil {
@@ -828,32 +833,32 @@ func (c *Channel) unregister(chatID string, conn *websocket.Conn) {
 	}
 }
 
-// parseChat returns a client frame's chat text, or why it was rejected.
-// A frame that is not a JSON object is taken as plain text; a stop frame
-// becomes stopCommand.
-func parseChat(data []byte) (content, problem string) {
+// parseChat returns a client frame's chat text and attachments, or why it
+// was rejected. A frame that is not a JSON object is taken as plain text;
+// a stop frame becomes stopCommand. A chat frame needs text or media.
+func parseChat(data []byte) (content string, media []MediaRef, problem string) {
 	text := strings.TrimSpace(string(data))
 	if !strings.HasPrefix(text, "{") {
 		if text == "" {
-			return "", "empty message"
+			return "", nil, "empty message"
 		}
-		return text, ""
+		return text, nil, ""
 	}
 	var f Frame
 	if err := json.Unmarshal(data, &f); err != nil {
-		return "", "malformed JSON frame"
+		return "", nil, "malformed JSON frame"
 	}
 	switch f.Type {
 	case TypeChat:
 	case TypeStop:
-		return stopCommand, ""
+		return stopCommand, nil, ""
 	default:
-		return "", fmt.Sprintf("unsupported frame type %q (want %q or %q)", f.Type, TypeChat, TypeStop)
+		return "", nil, fmt.Sprintf("unsupported frame type %q (want %q or %q)", f.Type, TypeChat, TypeStop)
 	}
-	if strings.TrimSpace(f.Content) == "" {
-		return "", "empty message"
+	if strings.TrimSpace(f.Content) == "" && len(f.Media) == 0 {
+		return "", nil, "empty message"
 	}
-	return f.Content, ""
+	return f.Content, f.Media, ""
 }
 
 func writeFrame(ctx context.Context, conn *websocket.Conn, f Frame) error {

@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"mime"
 	"net/http"
@@ -192,6 +193,48 @@ func (c *Channel) mediaRefs(paths []string) []MediaRef {
 		out = append(out, MediaRef{URL: mediaURL(rel), Name: name, Kind: mediaKind(name)})
 	}
 	return out
+}
+
+// MaxChatMedia caps the files attached to one chat frame.
+const MaxChatMedia = 16
+
+// mediaPaths returns the absolute workspace paths of a chat frame's
+// attachments, or why the frame is rejected. Only the MediaRef URLs are
+// trusted, and only as MediaPath URLs naming files the media route would
+// serve, so a client cannot attach a file outside the workspace.
+func (c *Channel) mediaPaths(refs []MediaRef) ([]string, string) {
+	if len(refs) > MaxChatMedia {
+		return nil, fmt.Sprintf("too many attachments (at most %d)", MaxChatMedia)
+	}
+	var out []string
+	for _, r := range refs {
+		p, ok := c.mediaPath(r.URL)
+		if !ok {
+			return nil, fmt.Sprintf("attachment %q is not a workspace file", r.URL)
+		}
+		out = append(out, p)
+	}
+	return out, ""
+}
+
+// mediaPath returns the absolute path of the workspace file at the
+// MediaPath URL u, or false when u is not one the media route serves.
+func (c *Channel) mediaPath(u string) (string, bool) {
+	escaped, ok := strings.CutPrefix(u, MediaPath)
+	if !ok || c.workspace == nil {
+		return "", false
+	}
+	rel, err := url.PathUnescape(escaped)
+	if err != nil {
+		return "", false
+	}
+	if rel, ok = mediaRel(rel); !ok {
+		return "", false
+	}
+	if rel, ok = c.workspaceRel(filepath.FromSlash(rel)); !ok {
+		return "", false
+	}
+	return filepath.Join(c.workspace.Root, filepath.FromSlash(rel)), true
 }
 
 // markdownImageRE matches a markdown image: ![alt](target) or

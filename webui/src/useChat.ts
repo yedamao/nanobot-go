@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { checkSignedIn } from "./auth";
 import { mediaRefs, type MediaRef } from "./media";
-import { parseFrame, socketURL, storeChatId, storedChatId, type ClientFrame } from "./protocol";
+import { chatFrame, parseFrame, socketURL, storeChatId, storedChatId, type ClientFrame } from "./protocol";
 import { emptyTranscript, reduce } from "./transcript";
 
 export type ConnState = "connecting" | "open" | "closed";
@@ -96,13 +96,14 @@ export function useChat(onSaved: () => void) {
     return true;
   }, []);
 
-  // send sends a chat message, whose bubble shows media (the files it
-  // names); "/stop" stops the running turn instead (only the stopped turn
-  // is answered). It reports whether it was sent.
+  // send sends a chat message with its attached media, which the bubble
+  // shows and the model receives (images as image parts); "/stop" stops
+  // the running turn instead (only the stopped turn is answered). It
+  // reports whether it was sent.
   const send = useCallback(
     (text: string, media?: MediaRef[]): boolean => {
-      if (text.toLowerCase() === "/stop") return sendFrame({ type: "stop" });
-      if (!sendFrame({ type: "chat", content: text })) return false;
+      if (text.toLowerCase() === "/stop" && !media?.length) return sendFrame({ type: "stop" });
+      if (!sendFrame(chatFrame(text, media))) return false;
       dispatch({ type: "sent", content: text, media });
       return true;
     },
