@@ -28,6 +28,7 @@ export default defineConfig({
       "/ui/status": gateway,
       "/ui/settings": gateway,
       "/ui/media": gateway,
+      "/ui/upload": gateway,
       "/ui/auth": gateway,
       "/ui/login": gateway,
       "/ui/logout": gateway,

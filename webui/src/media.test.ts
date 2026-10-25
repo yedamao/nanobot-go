@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { imagesInText, isMediaImage, isMediaURL, mediaRefs } from "./media.ts";
+import { attachmentText, imagesInText, isMediaImage, isMediaURL, mediaRefs } from "./media.ts";
 
 test("isMediaURL", () => {
   assert.ok(isMediaURL("/ui/media/a.png"));
@@ -41,6 +41,11 @@ test("mediaRefs keeps media URLs only", () => {
   );
   assert.deepEqual(mediaRefs(undefined), []);
   assert.deepEqual(mediaRefs({ url: "/ui/media/a.png" }), []);
+});
+
+test("attachmentText", () => {
+  assert.equal(attachmentText({ path: "uploads/ab-c.png", name: "c.png", kind: "image" }), "![c.png](uploads/ab-c.png)");
+  assert.equal(attachmentText({ path: "uploads/ab-r.pdf", name: "a]b[.pdf", kind: "file" }), "[a_b_.pdf](uploads/ab-r.pdf)");
 });
 
 test("imagesInText", () => {

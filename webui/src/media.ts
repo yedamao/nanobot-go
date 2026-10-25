@@ -59,7 +59,15 @@ export function mediaRefs(v: unknown): MediaRef[] {
   return out;
 }
 
-const markdownImage = /!\[([^\]\n]*)\]\((\/ui\/media\/[^)\s]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/g;
+// attachmentText is how an uploaded file is named in a chat message: a
+// markdown image or link to its workspace path, which the agent can open
+// with its file tools and the gateway turns into a preview.
+export function attachmentText(a: { path: string; name: string; kind: string }): string {
+  const label = a.name.replace(/[[\]\\]/g, "_");
+  return (a.kind === "image" ? "!" : "") + "[" + label + "](" + a.path + ")";
+}
+
+const markdownImage =/!\[([^\]\n]*)\]\((\/ui\/media\/[^)\s]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/g;
 
 // imagesInText returns the media images a user message's markdown names
 // (the gateway rewrites workspace paths to media URLs), so the plain-text

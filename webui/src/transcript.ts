@@ -21,7 +21,7 @@ export interface Transcript {
 
 export type Action =
   | { type: "history"; messages: HistoryMessage[] }
-  | { type: "sent"; content: string }
+  | { type: "sent"; content: string; media?: MediaRef[] }
   | { type: "progress"; content: string }
   | { type: "delta"; content: string }
   | { type: "message"; content: string; media?: MediaRef[] }
@@ -59,7 +59,10 @@ export function reduce(t: Transcript, a: Action): Transcript {
       return next;
     }
     case "sent":
-      return { ...push(t, { kind: "user", content: a.content }), waiting: t.waiting + 1 };
+      return {
+        ...push(t, { kind: "user", content: a.content, media: a.media?.length ? a.media : undefined }),
+        waiting: t.waiting + 1,
+      };
     case "progress":
       // Progress is never stored: the next message or history clears it.
       return { ...t, waiting: due(t), progress: a.content, pendingHidden: false };

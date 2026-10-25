@@ -327,13 +327,14 @@ func (c *Channel) Name() string { return Name }
 // /ui/chats/{chat_id} (when Options.Sessions is set) rename and delete
 // one, GET /ui/status (when Options.Status is set) reports the overview,
 // GET and PATCH /ui/settings (when Options.Settings is set) read and
-// change the editable settings, GET /ui/media/ (when Options.Workspace is
-// set) serves workspace files, GET /ui/auth, POST /ui/login and POST
+// change the editable settings, GET /ui/media/ and POST /ui/upload (when
+// Options.Workspace is set) serve workspace files and save uploads to the
+// workspace, GET /ui/auth, POST /ui/login and POST
 // /ui/logout handle sign-in and GET / and /ui/ serve the chat page.
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
-// requests are served. Cross-origin renames, deletes, settings changes
-// and sign-ins are refused. Until Start and after Stop, /ws answers 503.
+// requests are served. Cross-origin renames, deletes, settings changes,
+// uploads and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	a := c.auth
 	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
@@ -352,6 +353,7 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	}
 	if c.workspace != nil {
 		mux.Handle("GET "+MediaPath+"{path...}", a.protect(http.HandlerFunc(c.serveMedia)))
+		mux.Handle("POST "+UploadPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.upload))))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))

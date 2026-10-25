@@ -42,6 +42,24 @@ export function deleteChat(id: string): Promise<void> {
   return chatRequest(id, "DELETE");
 }
 
+// POST /ui/upload saves a file to the workspace's uploads/ directory and
+// answers where: path is what the agent's file tools take, url is where
+// the page shows it.
+export interface Upload {
+  path: string;
+  url: string;
+  name: string;
+  kind: "image" | "file";
+}
+
+export async function uploadFile(file: File): Promise<Upload> {
+  const form = new FormData();
+  form.append("file", file);
+  const resp = await fetch("upload", { method: "POST", body: form });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
 // GET /ui/status is what the gateway runs with now.
 export interface Status {
   version: string;

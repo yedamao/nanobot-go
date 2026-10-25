@@ -254,6 +254,11 @@ button:disabled { opacity: 0.5; cursor: default; }
   border: 1px solid var(--border);
   border-radius: 8px;
 }
+#composer { flex-wrap: wrap; }
+.pending-attachments { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.pending-attachments .remove { padding: 0 4px; border: 0; background: none; color: var(--muted); line-height: 1; }
+.pending-attachments .uploading { color: var(--muted); font-size: 0.9em; }
+.pending-attachments .upload-error { color: var(--error); font-size: 0.9em; }
 #send { background: var(--user); color: var(--user-text); border-color: var(--user); }
 #stop { color: var(--error); border-color: var(--error); }
 #status-panel {
