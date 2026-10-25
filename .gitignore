@@ -19,3 +19,7 @@ coverage.*
 # Local config and secrets
 .env
 *.local.json
+
+# WebUI sources (webui/); its build is committed in internal/webui/static
+/webui/node_modules/
+/webui/dist/
