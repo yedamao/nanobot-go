@@ -10,8 +10,12 @@ export interface ChatEntry {
   preview?: string;
 }
 
+import { signInRequired } from "./auth";
+
 // requestError is the reason a response failed: its text, or the status.
+// A 401 also shows the sign-in form.
 async function requestError(resp: Response): Promise<Error> {
+  if (resp.status === 401) signInRequired();
   return new Error((await resp.text()).trim() || "HTTP " + resp.status);
 }
 

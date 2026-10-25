@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { getAuth, logout, onSignInRequired } from "./auth";
 import { ChatList, useChats } from "./ChatList";
+import { Login } from "./Login";
 import { Composer } from "./Composer";
 import { MessageList } from "./MessageList";
 import { StatusDialog } from "./StatusDialog";
@@ -16,7 +18,43 @@ function statusText(c: Connection): string {
   }
 }
 
+type Gate = "checking" | "sign-in" | "ready";
+
+// App shows the sign-in form when the gateway asks this page to sign in
+// (it is reached beyond loopback), and the chat otherwise.
 export default function App() {
+  const [gate, setGate] = useState<Gate>("checking");
+  const [signedIn, setSignedIn] = useState(false);
+
+  const check = useCallback(() => {
+    getAuth()
+      .then((st) => {
+        setSignedIn(st.required && st.authenticated);
+        setGate(st.required && !st.authenticated ? "sign-in" : "ready");
+      })
+      .catch(() => setGate("ready")); // the chat shows the gateway is down
+  }, []);
+
+  useEffect(() => {
+    check();
+    return onSignInRequired(() => setGate("sign-in"));
+  }, [check]);
+
+  const signOut = () => {
+    void logout().finally(check);
+  };
+
+  switch (gate) {
+    case "checking":
+      return null;
+    case "sign-in":
+      return <Login onSignedIn={check} />;
+    case "ready":
+      return <Chat onSignOut={signedIn ? signOut : undefined} />;
+  }
+}
+
+function Chat({ onSignOut }: { onSignOut?: () => void }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [statusOpen, setStatusOpen] = useState(false);
   const { chats, setChats, reload } = useChats();
@@ -72,6 +110,11 @@ export default function App() {
           >
             Status
           </button>
+          {onSignOut && (
+            <button id="sign-out" type="button" title="Sign out of this browser" onClick={onSignOut}>
+              Sign out
+            </button>
+          )}
         </header>
         <MessageList transcript={transcript} conn={conn.state} />
         <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />

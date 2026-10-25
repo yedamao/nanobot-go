@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { checkSignedIn } from "./auth";
 import { parseFrame, socketURL, storeChatId, storedChatId, type ClientFrame } from "./protocol";
 import { emptyTranscript, reduce } from "./transcript";
 
@@ -69,6 +70,7 @@ export function useChat(onSaved: () => void) {
       sock.onclose = () => {
         if (disposed) return;
         ws.current = null;
+        void checkSignedIn();
         dispatch({ type: "disconnected" });
         setConn({ state: "closed", retryIn: Math.round(retryDelay / 1000) });
         retryTimer = setTimeout(connect, retryDelay);
