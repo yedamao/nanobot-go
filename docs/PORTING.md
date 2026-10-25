@@ -179,7 +179,8 @@ Phase 2 is complete; phase 3 is in progress.
     `prompts/evaluator.md`), delivery plus `Loop.Record` into the chat's
     session; the `HEARTBEAT.md` template.
   - Not ported: local triggers, run records (`cron/runs/`), run history,
-    the WebUI automation views and `change_binding`; for the heartbeat,
+    WebUI create/edit/`change_binding` (list/run/remove are under WebUI);
+    for the heartbeat,
     see Cron below.
 - `internal/api`: an OpenAI-compatible API.
   - Done: `api.Server` (`GET /health`, `GET /v1/models`,
@@ -400,15 +401,27 @@ Phase 2 is complete; phase 3 is in progress.
     session cookie replaces them), `/webui/bootstrap` and the
     `bootstrapSecret` URL fragment, `localStorage` secret storage, TLS
     (`sslCertfile`/`sslKeyfile`), persisting sessions across restarts.
-  - Next WebUI slices: i18n, a richer
-    layout and components (nanobot's Radix/Tailwind UI), the skills, models and
-    channel pages listed below.
+  - Done (simplified): Cron / Channels / Skills workbench pages.
+    `GET /ui/cron` lists jobs (safe fields only; system flagged);
+    `POST /ui/cron/{id}/run` (`{"force":true}` for disabled) and
+    `DELETE /ui/cron/{id}` (403 for system) go through the live
+    `cron.Service`. `GET /ui/pairing` plus approve/deny/revoke POST
+    routes use the same `pairing.Store` as Telegram/WeChat.
+    `GET /ui/skills` lists `skills/*/SKILL.md` under the workspace
+    (frontmatter name/description; no absolute paths). The React header
+    nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
+    no automation create/edit UI, no enable/disable toggle, no run
+    history/result viewer, no skill marketplace/install/enable/delete,
+    no channel configure/validate or token forms, no session-bound
+    automations filter.
+  - Next WebUI slices: i18n, a richer layout and components (nanobot's
+    Radix/Tailwind UI), models page, MCP/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
-    Radix, i18n, KaTeX/Mermaid), settings/models/
-    channels/skills/apps/automations/cron/pairing pages (settings beyond
-    the whitelist, the full model catalog and picker, provider key
-    forms, channel tokens and allow lists, SSRF whitelist, MCP servers
-    and OAuth, a restart button, hot-applying saved settings), topics list,
+    Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
+    (settings beyond the whitelist, the full model catalog and picker,
+    provider key forms, channel tokens and allow lists, SSRF whitelist,
+    MCP servers and OAuth, a restart button, hot-applying saved
+    settings), topics list,
     chat archive, pins, search, bulk delete, generated titles,
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,

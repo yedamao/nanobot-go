@@ -57,25 +57,19 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
   MCP servers), `webui` (one-command WebUI launcher), `version`.
 
-- WebUI (phase 4, first slice): with `channels.websocket.enabled`, the
-  gateway serves a browser chat page (a small React app embedded in the
-  binary) and a WebSocket on its own
-  address (loopback by default; beyond it, on a LAN, browsers sign in
-  with a configured secret); each chat runs a full agent turn, and a reload shows
-  the chat's earlier messages again. The page lists, renames and deletes
-  its chats, streams the reply as it is written (OpenAI-compatible
-  providers such as DeepSeek), shows the tool being run while a turn is
-  in progress and can stop it, previews workspace images and offers
-  workspace files for download, attaches files to a message (saved to
-  the workspace's `uploads/`), and has a status panel (version, model,
-  provider, channels) that can also save a small whitelist of settings
-  (model, provider, tool switches, exec sandbox, channel on/off) for the
-  next gateway start. `nanobot webui` enables it, attaches or starts a
+- WebUI (phase 4): with `channels.websocket.enabled`, the gateway serves
+  a browser workbench (a small React app embedded in the binary) and a
+  WebSocket on its own address (loopback by default; beyond it, on a LAN,
+  browsers sign in with a configured secret). Chat lists/renames/deletes,
+  streams replies (and thinking), media upload/preview, status/settings,
+  plus **Cron**, **Channels** (with pairing approve/deny/revoke) and
+  **Skills** pages. `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
-triggers, the full WebUI (provider keys, MCP, apps, automations, ...). See
+triggers, the fuller WebUI (provider keys, MCP, apps, skill marketplace,
+automation create/edit UI, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -712,11 +706,15 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
   (`GET /ui/chats`, with `PATCH`/`DELETE /ui/chats/{chat_id}`), the
   status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`),
-  workspace files (`GET /ui/media/…`, `POST /ui/upload`)
-  and the WebSocket (`GET /ws`) are mounted on
+  cron (`GET /ui/cron`, `POST /ui/cron/{id}/run`, `DELETE /ui/cron/{id}`),
+  pairing (`GET /ui/pairing`, `POST …/approve|deny|revoke`),
+  skills (`GET /ui/skills`), workspace files (`GET /ui/media/…`,
+  `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
+  The header nav switches Chat / Cron / Channels / Skills (`#/`,
+  `#/cron`, `#/channels`, `#/skills`).
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
   keeps its chat id in the browser's `localStorage` and reconnects with
   it, so a reload continues the same session; **New chat** starts a new
@@ -761,6 +759,19 @@ and press Enter. Each reply is a full agent turn, tools included.
   to the newest 200 messages and 256 KiB of text. A message still being
   answered when the socket dropped appears once its turn is saved (on
   the next reload); its reply arrives as usual if the page is connected.
+- **Cron.** The **Cron** nav page lists every scheduled job (including
+  system ones such as Dream/heartbeat): schedule summary, next/last run,
+  last status. **Run** fires a job now through the live cron service
+  (`{"force":true}` when disabled); **Remove** deletes a non-system job
+  (system jobs answer 403). Create/edit still go through the agent's
+  `cron` tool or `nanobot cron`.
+- **Channels & pairing.** The **Channels** page shows configured channel
+  status from `GET /ui/status`, pending pairing codes with Approve/Deny,
+  and approved senders with Revoke — the same store as
+  `nanobot pairing`. No channel tokens or secrets appear in the JSON.
+- **Skills.** The **Skills** page lists `skills/<name>/SKILL.md` under
+  the workspace (name/description from YAML frontmatter when present).
+  No marketplace, enable/disable or delete in this slice.
 - **Status.** The header shows Connecting… / Connected / Disconnected
   (with the retry delay); sending is enabled once the history has
   arrived.
