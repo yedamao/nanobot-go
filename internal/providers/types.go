@@ -91,8 +91,8 @@ type ChatRequest struct {
 	// OnDelta, when set, asks for a streamed response: it is called with
 	// each piece of assistant text as it arrives, in order and on the
 	// goroutine that called Chat, before Chat returns the assembled
-	// response. Providers that cannot stream (Anthropic, for now) ignore
-	// it and never call it.
+	// response. The Anthropic and OpenAI-compatible providers both
+	// stream; a provider that cannot ignores it and never calls it.
 	OnDelta func(delta string)
 }
 

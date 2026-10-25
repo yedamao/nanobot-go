@@ -55,17 +55,23 @@ func NewAnthropic(cfg AnthropicConfig) *Anthropic {
 // Name implements Provider.
 func (a *Anthropic) Name() string { return "anthropic" }
 
-// Chat implements Provider. It does not stream yet: req.OnDelta is ignored
-// and the whole reply arrives with the response.
+// Chat implements Provider. With req.OnDelta set the response is streamed
+// as server-sent events (see chatStream).
 func (a *Anthropic) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	body, err := json.Marshal(a.buildRequest(req))
+	wire := a.buildRequest(req)
+	wire.Stream = req.OnDelta != nil
+	body, err := json.Marshal(wire)
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: encode request: %w", err)
 	}
 	h := http.Header{}
 	h.Set("x-api-key", a.cfg.APIKey)
 	h.Set("anthropic-version", a.cfg.Version)
-	out, err := a.ep.post(ctx, a.cfg.BaseURL+"/v1/messages", h, body)
+	url := a.cfg.BaseURL + "/v1/messages"
+	if req.OnDelta != nil {
+		return a.chatStream(ctx, url, h, body, req.OnDelta)
+	}
+	out, err := a.ep.post(ctx, url, h, body)
 	if err != nil {
 		return nil, err
 	}
@@ -84,6 +90,7 @@ type anthropicRequest struct {
 	Tools       []anthropicTool    `json:"tools,omitempty"`
 	ToolChoice  *anthropicChoice   `json:"tool_choice,omitempty"`
 	Temperature *float64           `json:"temperature,omitempty"`
+	Stream      bool               `json:"stream,omitempty"`
 }
 
 type anthropicChoice struct {
