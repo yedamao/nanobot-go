@@ -243,8 +243,16 @@ Phase 2 is complete; phase 3 is in progress.
     `chat_id`, `updated_at`, a title (first user message) and a preview
     (last text); the page shows them in a sidebar, highlights the
     current chat and switches by reconnecting with `?chat_id=`.
+  - Done: a read-only status panel. `GET /ui/status` (the channel's,
+    loopback-gated, mounted only when `websocket.Options.Status` is set)
+    returns version, Go version, start time and uptime, model, resolved
+    provider name, workspace base name, configured channels (enabled,
+    running), and API/exec/web_fetch flags; the gateway fills it from
+    its config and `Manager.Running()`. The page shows it in a dialog.
   - Not ported: the React/Vite app and its build, settings/models/
-    channels/skills/apps/automations/cron/pairing pages, topics list,
+    channels/skills/apps/automations/cron/pairing pages (settings
+    writes, model picker, provider key forms, MCP servers and OAuth,
+    restart button), topics list,
     chat rename/delete/archive, pins, search and generated titles,
     listing other channels' sessions,
     temporary chats, conversation groups,
@@ -930,6 +938,17 @@ Phase 2 is complete; phase 3 is in progress.
   type. It lists only `websocket:*` sessions (at most 50), loads each
   for its title and preview rather than storing them, and leaves out
   chats with no user or assistant text yet.
+- **Status, not settings.** nanobot's WebUI settings read and write the
+  config (models, providers and their keys, channels, MCP, OAuth) and
+  can restart the gateway. nanobot-go serves only a read-only overview
+  at `GET /ui/status`, with the intent of `nanobot status`: names and
+  flags, never key material, tokens, allow lists, environment values or
+  absolute paths (the workspace is its base name). The handler lives on
+  the websocket channel next to `/ui/chats`, so it shares the loopback
+  gate and exists only while the WebUI is mounted; the channel gets a
+  small `Status` DTO callback from the gateway rather than importing
+  the config package. The config part is a snapshot taken at startup;
+  uptime and running channels are read per request.
 - **History is pushed, not fetched.** nanobot's WebUI reads a chat's
   messages from the saved session. nanobot-go pushes them as one
   `history` frame after every `hello` and the page replaces its list, so

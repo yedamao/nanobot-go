@@ -60,7 +60,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   gateway serves a plain browser chat page and a WebSocket on its own
   loopback address; each chat runs a full agent turn, and a reload shows
   the chat's earlier messages again. The page shows the tool being run
-  while a turn is in progress and can stop it.
+  while a turn is in progress and can stop it, and a read-only status
+  panel (version, model, provider, channels).
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), heartbeat
 (`HEARTBEAT.md`), the full WebUI (settings, apps, automations, ...). See
@@ -596,7 +597,7 @@ Open `http://127.0.0.1:18790/` (it redirects to `/ui/`), type a message
 and press Enter. Each reply is a full agent turn, tools included.
 
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
-  (`GET /ui/chats`) and the WebSocket (`GET /ws`) are mounted on the gateway's HTTP server next to
+  (`GET /ui/chats`), the status (`GET /ui/status`) and the WebSocket (`GET /ws`) are mounted on the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
@@ -628,6 +629,16 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **Status.** The header shows Connecting… / Connected / Disconnected
   (with the retry delay); sending is enabled once the history has
   arrived.
+- **Status panel.** The header's **Status** button opens a read-only
+  overview of the gateway, fetched from `GET /ui/status` (loopback only)
+  when it opens and on **Refresh**:
+  `{"version":"0.1.0-dev","go":"go1.26.0","started_at":"2026-10-25T09:00:00Z","uptime_seconds":3600,"model":"claude-opus-4-5","provider":"anthropic","workspace":"workspace","channels":[{"name":"websocket","enabled":true,"running":true}],"api_enabled":false,"tools":{"exec":true,"web_fetch":true}}`.
+  `provider` is the resolved preset's name, `workspace` the directory's
+  base name, and `channels` every configured channel with its `enabled`
+  flag and whether it is running. Like `nanobot status` it never holds
+  API keys, tokens, `allowFrom` lists, environment values or full paths.
+  Nothing can be changed from the page: edit `config.json` and restart
+  the gateway.
 - **Progress.** While a reply is due the page shows a muted "nanobot is
   thinking…" bubble. As each tool call starts the server sends a
   `progress` frame with a short hint (`read …/notes/todo.md`,
