@@ -127,6 +127,8 @@ type Frame struct {
 	ChatID  string `json:"chat_id,omitempty"`
 	Role    string `json:"role,omitempty"`
 	Content string `json:"content,omitempty"`
+	// Media lists the files attached to a message frame (see MediaRef).
+	Media []MediaRef `json:"media,omitempty"`
 	// Messages is set on history frames only, where it is always present
 	// (an empty list for a new chat).
 	Messages []HistoryMessage `json:"messages,omitzero"`
@@ -201,6 +203,11 @@ type Options struct {
 	// Settings reads and saves the settings GET and PATCH /ui/settings
 	// edit. Nil leaves the path unmounted (404).
 	Settings SettingsStore
+	// Workspace is the agent's workspace, whose files GET /ui/media/ serves
+	// and POST /ui/upload saves to. Replies' markdown images that name a
+	// workspace file are pointed at the media route. Nil leaves both
+	// unmounted and replies as written.
+	Workspace *security.Workspace
 }
 
 // Status is the body of GET /ui/status: a read-only overview for the
@@ -275,6 +282,8 @@ type Channel struct {
 	status   func() Status
 	settings SettingsStore
 	auth     *auth
+	// workspace is Options.Workspace.
+	workspace *security.Workspace
 
 	mu      sync.Mutex
 	started bool
@@ -307,7 +316,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, workspace: opts.Workspace, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -318,7 +327,8 @@ func (c *Channel) Name() string { return Name }
 // /ui/chats/{chat_id} (when Options.Sessions is set) rename and delete
 // one, GET /ui/status (when Options.Status is set) reports the overview,
 // GET and PATCH /ui/settings (when Options.Settings is set) read and
-// change the editable settings, GET /ui/auth, POST /ui/login and POST
+// change the editable settings, GET /ui/media/ (when Options.Workspace is
+// set) serves workspace files, GET /ui/auth, POST /ui/login and POST
 // /ui/logout handle sign-in and GET / and /ui/ serve the chat page.
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
@@ -339,6 +349,9 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	if c.settings != nil {
 		mux.Handle("GET "+SettingsPath, a.protect(http.HandlerFunc(c.serveSettings)))
 		mux.Handle("PATCH "+SettingsPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.updateSettings))))
+	}
+	if c.workspace != nil {
+		mux.Handle("GET "+MediaPath+"{path...}", a.protect(http.HandlerFunc(c.serveMedia)))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))
@@ -401,17 +414,20 @@ func (c *Channel) Stop(ctx context.Context) error {
 // Send writes msg as a "message" frame to every connection of its chat,
 // as a "progress" frame when it is a progress update (bus.IsProgress), or
 // as a "delta" frame when it is a streamed piece of a reply
-// (bus.IsDelta). A chat with no open connection (the tab was closed) is a
+// (bus.IsDelta). A message frame's markdown images and media that name
+// workspace files point at the media route. A chat with no open connection (the tab was closed) is a
 // Permanent error for a reply: it is dropped with a log line instead of
 // being retried, which would hold up the other chats' replies. A progress
 // update or delta for such a chat is dropped silently.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
-	frame := Frame{Type: TypeMessage, Role: "assistant", Content: msg.Content}
+	var frame Frame
 	switch {
 	case bus.IsProgress(msg):
 		frame = Frame{Type: TypeProgress, Content: msg.Content}
 	case bus.IsDelta(msg):
 		frame = Frame{Type: TypeDelta, Content: msg.Content}
+	default:
+		frame = Frame{Type: TypeMessage, Role: "assistant", Content: c.rewriteMarkdownImages(msg.Content), Media: c.mediaRefs(msg.Media)}
 	}
 	conns := c.connsFor(msg.ChatID)
 	if len(conns) == 0 {
@@ -531,7 +547,8 @@ func (c *Channel) serveWS(w http.ResponseWriter, r *http.Request) {
 // whole transcript, including messages consolidation has summarized for
 // the model, since the user saw them; tool calls, tool results and system
 // messages are left out. A missing session or a failed load (which is
-// logged) yields an empty, non-nil list.
+// logged) yields an empty, non-nil list. Markdown images naming workspace
+// files point at the media route.
 func (c *Channel) history(chatID string) []HistoryMessage {
 	out := []HistoryMessage{}
 	if c.sessions == nil {
@@ -545,7 +562,11 @@ func (c *Channel) history(chatID string) []HistoryMessage {
 		}
 		return out
 	}
-	return transcript(sess.Messages, MaxHistoryMessages, MaxHistoryBytes)
+	msgs := transcript(sess.Messages, MaxHistoryMessages, MaxHistoryBytes)
+	for i := range msgs {
+		msgs[i].Content = c.rewriteMarkdownImages(msgs[i].Content)
+	}
+	return msgs
 }
 
 // transcript keeps the user and assistant messages of msgs with non-empty

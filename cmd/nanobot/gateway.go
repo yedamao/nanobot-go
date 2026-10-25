@@ -115,7 +115,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 		return mgr.Running()
 	})
 	settings := newWebSettings(rt.configPath, rt.cfg, a.getenv)
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.sessions, status, settings)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings)
 	if err != nil {
 		return err
 	}
@@ -321,12 +321,13 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // replace a built-in of the same name. Pairing approvals live next to the
 // config file, and so does the WeChat login (state/weixin). host is the
 // gateway's listen address, which the websocket channel requires to be
-// loopback unless it has a token or tokenIssueSecret; sessions is the agent loop's session manager, which it loads
+// loopback unless it has a token or tokenIssueSecret; ws is the agent's
+// workspace, whose files the WebUI previews (GET /ui/media/); sessions is the agent loop's session manager, which it loads
 // chats from (fresh copies, not the cached ones) and renames and deletes
 // them through, keeping the agent's cache in step; status is the source
 // of its GET /ui/status (see webStatus) and settings is the store of its
 // /ui/settings (see webSettings).
-func (a *app) channelRegistry(configPath, host string, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -340,7 +341,7 @@ func (a *app) channelRegistry(configPath, host string, sessions *session.Manager
 			DefaultStateDir: weixin.DefaultStateDir(configPath),
 			Version:         version,
 		}),
-		websocket.Name: websocket.Factory(websocket.Options{Host: host, Sessions: sessions, Status: status, Settings: settings}),
+		websocket.Name: websocket.Factory(websocket.Options{Host: host, Sessions: sessions, Status: status, Settings: settings, Workspace: ws}),
 	}
 	for name, f := range builtins {
 		if _, override := a.channelFactories[name]; override {
