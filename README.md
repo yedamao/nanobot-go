@@ -64,7 +64,9 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   the chat's earlier messages again. The page lists, renames and deletes
   its chats, streams the reply as it is written (OpenAI-compatible
   providers such as DeepSeek), shows the tool being run while a turn is
-  in progress and can stop it, and has a status panel (version, model,
+  in progress and can stop it, previews workspace images and offers
+  workspace files for download, attaches files to a message (saved to
+  the workspace's `uploads/`), and has a status panel (version, model,
   provider, channels) that can also save a small whitelist of settings
   (model, provider, tool switches, exec sandbox, channel on/off) for the
   next gateway start. `nanobot webui` enables it, starts (or attaches
@@ -655,7 +657,8 @@ and press Enter. Each reply is a full agent turn, tools included.
 
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
   (`GET /ui/chats`, with `PATCH`/`DELETE /ui/chats/{chat_id}`), the
-  status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`)
+  status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`),
+  workspace files (`GET /ui/media/…`, `POST /ui/upload`)
   and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
@@ -776,9 +779,49 @@ and press Enter. Each reply is a full agent turn, tools included.
   `diff`, …) is highlighted and has a **Copy** button; an unfinished
   fence shows as code while it streams. Raw HTML in a reply is dropped,
   links keep only `http`, `https`, `mailto` and relative URLs (opening in
-  a new tab), and images show as links, since the CSP blocks remote
-  images. Your own messages, errors and progress stay plain text. Math
-  (KaTeX) and Mermaid diagrams are not rendered.
+  a new tab). Images of workspace files are shown (see **Media** below);
+  every other image shows as a link, since the CSP blocks remote images
+  and loading them would let a reply ping arbitrary hosts. Your own
+  messages, errors and progress stay plain text. Math (KaTeX) and
+  Mermaid diagrams are not rendered.
+- **Media.** The gateway serves the agent's workspace files at
+  `GET /ui/media/<path relative to the workspace>`, same origin and
+  behind the same sign-in as `/ui/status` (the browser's session cookie
+  goes with `<img>` requests). A reply's markdown image whose target is a
+  workspace file, `![chart](out/chart.png)` or an absolute path inside
+  the workspace, is rewritten to `/ui/media/out/chart.png` in the
+  `message` frame and in `history`, and the page shows it inline, linked
+  to the full-size file; targets outside the workspace, missing files
+  and URLs are left as written (so they stay links). An outbound
+  message's `Media` paths inside the workspace come as the `message`
+  frame's `media` list and show under the bubble as thumbnails (images)
+  or download chips (other files). Your own messages show the workspace
+  images their markdown names under the text.
+  - **Confinement.** Files are opened through an `os.Root` on the
+    workspace, whatever `tools.restrictToWorkspace` says: `..`, absolute
+    paths, backslashes, symlinks that leave the workspace (and
+    absolute-target symlinks), directories and hidden segments
+    (`.git`, `.env`, …) are refused (400/403); a missing file is 404.
+    Files over 25 MiB are 413. Range requests work.
+  - **Types.** `.png`, `.jpg`/`.jpeg`, `.gif`, `.webp` and `.svg` are
+    served inline with their image type; every other file is
+    `application/octet-stream` with `Content-Disposition: attachment`, so
+    it downloads instead of rendering. Every media response carries
+    `X-Content-Type-Options: nosniff` and `Content-Security-Policy:
+    default-src 'none'; style-src 'unsafe-inline'; sandbox`, so an SVG
+    opened directly runs no script (inside `<img>` it never does). The
+    page's own CSP adds `img-src 'self'`: images load only from this
+    origin. Video and audio are not previewed.
+- **Attach.** The 📎 button uploads files (`POST /ui/upload`,
+  multipart field `file`; local or signed in, same-origin only; at most
+  10 MiB each) to the workspace's `uploads/` directory as
+  `uploads/<random>-<sanitized name>` and answers
+  `{"path":"uploads/ab12cd34-chart.png","url":"/ui/media/uploads/ab12cd34-chart.png","name":"chart.png","kind":"image"}`.
+  The sent message names each file by its workspace path as markdown
+  (`![chart.png](uploads/ab12cd34-chart.png)`, or `[report.pdf](…)` for
+  other files), which the agent can open with its file tools; the agent
+  loop takes no media input yet, so the file is not given to the model
+  as an image part.
 - **Stop.** While a reply is due a **Stop** button sends a `stop` frame
   (typing `/stop` does the same): the turn in flight is canceled and
   answered "Stopped.", and it is not saved to the session. Messages sent
@@ -810,7 +853,7 @@ Wire protocol (JSON text frames; any other frame type gets an `error`):
 | client → server | `{"type":"stop"}` (same as sending `/stop`) |
 | server → client, while a turn runs | `{"type":"progress","content":"..."}` (transient status; the next `message` supersedes it) |
 | server → client, while a reply streams | `{"type":"delta","content":"..."}` (the next piece of text, to append; never stored) |
-| server → client | `{"type":"message","role":"assistant","content":"..."}` (the whole reply; replaces any streamed text) |
+| server → client | `{"type":"message","role":"assistant","content":"..."}` (the whole reply; replaces any streamed text), with `"media":[{"url":"/ui/media/...","name":"...","kind":"image"}]` when the reply has workspace files (`kind` is `image` or `file`) |
 | server → client | `{"type":"error","content":"..."}` (bad frame) |
 
 `ws://127.0.0.1:18790/ws?chat_id=<id>` joins an existing chat (1-64
@@ -851,8 +894,8 @@ Without either, the gateway refuses a non-loopback `gateway.host`.
   everyone out. **Sign out** (`POST /ui/logout`) ends the session. Ten
   failed sign-ins from one address within 5 minutes are answered 429
   until the window passes.
-- **What is protected.** `/ws`, `/ui/chats`, `/ui/status` and
-  `/ui/settings` answer 401 (`WWW-Authenticate: Bearer`) to a remote
+- **What is protected.** `/ws`, `/ui/chats`, `/ui/status`,
+  `/ui/settings`, `/ui/media/…` and `/ui/upload` answer 401 (`WWW-Authenticate: Bearer`) to a remote
   request without a valid session cookie or the secret as
   `Authorization: Bearer <secret>` or `X-Nanobot-Auth: <secret>`; `/ws`
   also takes `?token=<secret>` for scripts. The page, its assets,
@@ -879,14 +922,14 @@ need no Node. After changing `webui/`, regenerate and commit it:
 ```sh
 cd webui
 npm install
-npm test        # reducer, settings and markdown tests (Node's built-in runner)
+npm test        # reducer, settings, markdown and media tests (Node's built-in runner)
 npm run build   # type-checks, then rewrites internal/webui/static/
 ```
 
 The build has no inline scripts or styles, so the page keeps its strict
-CSP (`default-src 'self'`). `npm run dev` serves the app with hot reload
+CSP (`default-src 'self'; img-src 'self'`). `npm run dev` serves the app with hot reload
 on `http://localhost:5173/ui/` and proxies `/ws` and
-`/ui/{chats,status,settings,auth,login,logout}` to a gateway already
+`/ui/{chats,status,settings,media,upload,auth,login,logout}` to a gateway already
 running on `127.0.0.1:18790`, or on `$NANOBOT_GO_GATEWAY_URL` if set
 (`nanobot webui --dev` sets it and starts the gateway if needed); the
 gateway itself never serves the dev server. The dev server listens on
@@ -1055,6 +1098,9 @@ behalf. Treat it like giving someone a shell.
   before the gateway listens beyond loopback. That traffic is plain
   HTTP, so keep a LAN-exposed WebUI on a network you trust. The secrets
   are never shown by `/ui/settings` or printed by `nanobot webui`.
+  Whoever may use the WebUI can also download any non-hidden workspace
+  file through `/ui/media/` and add files under `uploads/`; nothing
+  outside the workspace is served.
 
 - `restrictToWorkspace` (default `true`) confines file tools to the
   workspace, including through symlinks and `..`, and makes the shell guard

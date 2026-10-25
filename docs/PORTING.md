@@ -198,7 +198,8 @@ Phase 2 is complete; phase 3 is in progress.
     after the shell guard; bind roots pass the guard's path check while a
     sandbox is active; a sandbox forces `restrictToWorkspace` for the file
     tools; a `status` row.
-  - Not ported: the media directory bind (no media yet), the
+  - Not ported: the media directory bind (WebUI uploads go to the
+    workspace's `uploads/`, already inside the sandbox), the
     `NANOBOT_WORKSPACE_SANDBOX_ENFORCED` marker and the
     `my(action="check", key="workspace_sandbox")` report, `pathPrepend`/
     `pathAppend`, the model-only access-restriction context (the exec tool
@@ -294,14 +295,42 @@ Phase 2 is complete; phase 3 is in progress.
     streaming one, re-rendered per delta and memoized) go through
     `react-markdown` + `remark-gfm` + `remark-breaks`, where nanobot uses
     Streamdown. No `rehype-raw`: raw HTML is skipped; `urlTransform`
-    keeps only http(s), mailto and relative URLs; images become links.
+    keeps only http(s), mailto and relative URLs; images become links
+    unless they are workspace media URLs (next item).
     Fences naming a language are highlighted by a small rehype plugin on
     `lowlight` with ~20 highlight.js grammars (not nanobot's
     react-syntax-highlighter), with a copy button; token colors come
     from the page's theme variables. User, error and progress bubbles
     stay plain. Not ported: KaTeX math, Mermaid, nanobot's remend-style
     repair of half-streamed markdown (an unclosed fence is already a code
-    block under CommonMark), file chips and previews.
+    block under CommonMark).
+  - Done (simplified): media previews and workspace file serving
+    (`internal/channels/websocket/media.go`, `upload.go`; `webui/src/
+    media.ts`, `Attachments.tsx`). `GET /ui/media/{path...}` (auth-gated
+    like `/ui/status`, mounted when `websocket.Options.Workspace` is set)
+    serves a workspace file through an `os.Root` on the workspace
+    (always confined, whatever `restrictToWorkspace` says; `..`,
+    absolute paths, backslashes, hidden segments, escaping symlinks and
+    non-regular files refused; 25 MiB cap; `http.ServeContent`, so
+    ranges work). nanobot's inline image allowlist (png, jpeg, gif,
+    webp, svg) is served inline with a sandboxing response CSP like
+    nanobot's SVG one; everything else is an `octet-stream` attachment.
+    The page CSP sets `img-src 'self'`. Like nanobot's
+    `rewrite_local_markdown_images`, assistant `message` frames and
+    `history` (user messages too) point markdown images naming workspace
+    files at the route; `OutboundMessage.Media` inside the workspace
+    becomes the frame's `media` list (`url`, `name`, `kind`), shown as
+    thumbnails and download chips. `POST /ui/upload` (auth-gated,
+    same-origin, 10 MiB like nanobot's per-file limit) saves to
+    `uploads/<random>-<safe name>`; the composer names uploads by
+    workspace path in the message text, since the agent loop has no
+    media input. Not ported: HMAC-signed `/api/media/<sig>/<payload>`
+    URLs (the route relies on the sign-in cookie instead), staging
+    copies into a media directory, video/audio previews and byte-range
+    video playback in the page, uploads passed to the model as image
+    parts or reference attachments (PDF/Office extraction), storing
+    media in the session (assistant `media` lists are not in `history`),
+    Discord-style outbound media pipelines, the sandbox media bind.
   - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
     webuicmd.go`). It enables `channels.websocket` in the config
     (confirming on a terminal, or `--yes`; a missing config is created
@@ -350,8 +379,9 @@ Phase 2 is complete; phase 3 is in progress.
     `bootstrapSecret` URL fragment, `localStorage` secret storage, TLS
     (`sslCertfile`/`sslKeyfile`), persisting sessions across restarts.
   - Next WebUI slices: i18n, a richer
-    layout and components (nanobot's Radix/Tailwind UI), file previews,
-    the skills, models and channel pages listed below.
+    layout and components (nanobot's Radix/Tailwind UI), media input
+    for the agent loop (uploads as image parts), the skills, models and
+    channel pages listed below.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18n, KaTeX/Mermaid), settings/models/
     channels/skills/apps/automations/cron/pairing pages (settings beyond
@@ -364,8 +394,8 @@ Phase 2 is complete; phase 3 is in progress.
     temporary chats, conversation groups,
     Anthropic `thinking_delta`, `StreamEndEvent` and the rest of the
     stream event taxonomy, `<think>` scrubbing of streamed text,
-    structured tool events, reasoning, media and
-    uploads, file previews, restart control, the
+    structured tool events, reasoning, signed media URLs and media
+    staging, video previews, restart control, the
     on-demand gateway, `trusted_proxy_auth` and issued tokens (see LAN
     access above), TLS (`sslCertfile`), the separate port 8765, Vite
     HMR.
@@ -1129,6 +1159,15 @@ Phase 2 is complete; phase 3 is in progress.
   (`GetOrCreate`). Tool calls, progress
   and media are not replayed; a reconnect during a turn shows its
   progress again from the next tool call.
+- **Media from the workspace, not a signed media store.** nanobot copies
+  files into a media directory and hands the page HMAC-signed
+  `/api/media/<sig>/<payload>` URLs, so a URL alone grants access.
+  nanobot-go serves workspace-relative paths at `/ui/media/` behind the
+  same sign-in as the rest of the WebUI (the cookie rides along with
+  `<img>`), with no copies and no signatures; any signed-in browser can
+  fetch any non-hidden workspace file. Uploads land in the workspace
+  (`uploads/`), not a media directory, and reach the agent as paths in
+  the message text rather than as `InboundMessage.Media`.
 - **Undeliverable replies are dropped.** A reply for a chat with no open
   socket is a `channels.Permanent` error, so the manager logs it instead
   of retrying (a retrying reply would hold up every other chat's replies
@@ -1144,7 +1183,7 @@ Phase 2 is complete; phase 3 is in progress.
   `internal/webui/static/` and committed, so `go build`/`go test` need
   no npm; run `cd webui && npm install && npm run build` after changing
   it. The build has no inline scripts or styles and is served with the
-  same strict CSP (`default-src 'self'`). The gateway never proxies a
+  same strict CSP (`default-src 'self'`, plus `img-src 'self'`). The gateway never proxies a
   Vite dev server (`npm run dev` proxies to the gateway instead, at
   `$NANOBOT_GO_GATEWAY_URL` or 127.0.0.1:18790). `nanobot webui` is a
   thin launcher over `nanobot gateway`, owning the gateway child it
