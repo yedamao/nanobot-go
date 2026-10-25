@@ -13,6 +13,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/providers"
 )
 
 const (
@@ -143,18 +144,9 @@ func (s *webModels) autoModels() websocket.ProviderModels {
 func (s *webModels) fetch(ctx context.Context, base, key string) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, modelsFetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(base, "/")+"/models", nil)
+	resp, err := s.get(ctx, strings.TrimRight(base, "/")+"/models", http.Header{"Authorization": {"Bearer " + key}})
 	if err != nil {
-		return nil, fmt.Errorf("bad apiBase")
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Accept", "application/json")
-	resp, err := s.client.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return nil, fmt.Errorf("timed out")
-		}
-		return nil, fmt.Errorf("request failed")
+		return nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -185,4 +177,106 @@ func (s *webModels) fetch(ctx context.Context, base, key string) ([]string, erro
 	return ids, nil
 }
 
-var _ websocket.ModelCatalog = (*webModels)(nil)
+// get sends GET url with h (the credential) and returns the response
+// whatever its status. ctx should bound it. Its errors never hold the
+// key or URL.
+func (s *webModels) get(ctx context.Context, url string, h http.Header) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("bad apiBase")
+	}
+	for k, v := range h {
+		req.Header[k] = v
+	}
+	req.Header.Set("Accept", "application/json")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("timed out")
+		}
+		return nil, fmt.Errorf("request failed")
+	}
+	return resp, nil
+}
+
+// TestProvider implements websocket.ProviderTester: it lists name's
+// models (no completion tokens spent) with the draft key/base if given,
+// else the saved ones with the environment applied, as the gateway
+// would run. Drafts are checked as PATCH /ui/providers checks them and
+// never saved. 401/403 means the provider rejected the credential.
+func (s *webModels) TestProvider(ctx context.Context, name string, t websocket.ProviderTest) (websocket.ProviderTestResult, error) {
+	preset, ok := config.LookupPreset(name)
+	if !ok {
+		return websocket.ProviderTestResult{}, websocket.ErrProviderNotFound
+	}
+	var draftKey, draftBase *string
+	if t.APIKey != nil {
+		k, err := checkAPIKey(*t.APIKey)
+		if err != nil {
+			return websocket.ProviderTestResult{}, fmt.Errorf("%w: %v", websocket.ErrInvalidProvider, err)
+		}
+		draftKey = &k
+	}
+	if t.APIBase != nil {
+		b, err := checkAPIBase(*t.APIBase)
+		if err != nil {
+			return websocket.ProviderTestResult{}, fmt.Errorf("%w: %v", websocket.ErrInvalidProvider, err)
+		}
+		draftBase = &b
+	}
+
+	s.settings.mu.Lock()
+	cfg, err := config.Load(s.settings.path)
+	s.settings.mu.Unlock()
+	if err != nil {
+		return websocket.ProviderTestResult{}, err
+	}
+	cfg.ApplyEnv(s.getenv)
+	pc := *cfg.Providers.Get(name)
+	if draftKey != nil {
+		pc.APIKey = *draftKey
+	}
+	if draftBase != nil {
+		pc.APIBase = *draftBase
+	}
+	if pc.APIKey == "" {
+		return websocket.ProviderTestResult{Status: websocket.ProviderTestNotConfigured,
+			Message: "No API key for " + name + " to test: type one or save one first."}, nil
+	}
+
+	var url string
+	h := http.Header{}
+	if preset.Kind == config.KindAnthropic {
+		url = strings.TrimRight(cmp.Or(pc.APIBase, providers.DefaultAnthropicBaseURL), "/") + "/v1/models"
+		h.Set("x-api-key", pc.APIKey)
+		h.Set("anthropic-version", providers.DefaultAnthropicVersion)
+	} else {
+		url = strings.TrimRight(cmp.Or(pc.APIBase, preset.DefaultAPIBase, openAIAPIBase), "/") + "/models"
+		h.Set("Authorization", "Bearer "+pc.APIKey)
+	}
+	ctx, cancel := context.WithTimeout(ctx, modelsFetchTimeout)
+	defer cancel()
+	resp, err := s.get(ctx, url, h)
+	if err != nil {
+		return websocket.ProviderTestResult{Status: websocket.ProviderTestError,
+			Message: "Cannot reach " + name + ": " + err.Error() + "."}, nil
+	}
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxModelsBody))
+	resp.Body.Close()
+	switch code := resp.StatusCode; {
+	case code >= 200 && code < 300:
+		return websocket.ProviderTestResult{OK: true, Status: websocket.ProviderTestOK,
+			Message: name + " accepted the credential."}, nil
+	case code == http.StatusUnauthorized || code == http.StatusForbidden:
+		return websocket.ProviderTestResult{Status: websocket.ProviderTestRejected,
+			Message: fmt.Sprintf("%s rejected the credential (HTTP %d).", name, code)}, nil
+	default:
+		return websocket.ProviderTestResult{Status: websocket.ProviderTestError,
+			Message: fmt.Sprintf("%s answered HTTP %d.", name, code)}, nil
+	}
+}
+
+var (
+	_ websocket.ModelCatalog   = (*webModels)(nil)
+	_ websocket.ProviderTester = (*webModels)(nil)
+)

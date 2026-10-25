@@ -1,4 +1,4 @@
-import type { Provider, ProviderPatch } from "./api.ts";
+import type { Provider, ProviderPatch, ProviderTest, ProviderTestResult } from "./api.ts";
 
 /** One provider's form. apiKey is a new key typed in, never the saved
  * one (the page is never sent it); "" keeps the saved key. */
@@ -60,4 +60,29 @@ export function keyStatus(p: Provider): string {
   const env = p.env_overrides.includes("apiKey") ? " (overridden by the environment)" : "";
   if (!p.hasApiKey) return "Not set" + env;
   return "Set" + (p.apiKeyHint ? ": " + p.apiKeyHint : "") + env;
+}
+
+/** canTest reports whether there is a key to test: one typed in, or a
+ * saved (or environment) one while the form does not clear it. */
+export function canTest(p: Provider, d: ProviderDraft): boolean {
+  if (d.clearKey) return false;
+  return d.apiKey.trim() !== "" || p.hasApiKey || p.env_overrides.includes("apiKey");
+}
+
+/** testBody is the POST /ui/providers/{name}/test body: the typed key if
+ * any, else the saved one; the API base field only when it differs from
+ * the saved one ("" then means the default endpoint). */
+export function testBody(saved: Provider, d: ProviderDraft): ProviderTest {
+  const body: ProviderTest = {};
+  const key = d.apiKey.trim();
+  if (key && !d.clearKey) body.apiKey = key;
+  const base = d.apiBase.trim();
+  if (base !== saved.apiBase) body.apiBase = base;
+  return body;
+}
+
+/** testNote is the card's note for a probe's result. */
+export function testNote(r: ProviderTestResult): { kind: "ok" | "error"; text: string } {
+  const text = r.message || (r.ok ? "The credential works." : "The test failed.");
+  return { kind: r.ok ? "ok" : "error", text: (r.ok ? "Test passed: " : "Test failed: ") + text };
 }

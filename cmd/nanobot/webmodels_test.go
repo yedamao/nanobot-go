@@ -150,3 +150,97 @@ func TestWebModelsAutoAndUnknown(t *testing.T) {
 		t.Errorf("unknown = %v", err)
 	}
 }
+
+func TestWebModelsTestProvider(t *testing.T) {
+	const draft = "sk-draft-fixture-key-0123"
+	var got *http.Request
+	code := http.StatusOK
+	s := testModels(t, writeSettingsConfig(t), nil, func(r *http.Request) (*http.Response, error) {
+		got = r
+		return jsonResponse(code, `{"data":[{"id":"m"}],"error":"`+fileSecret+`"}`), nil
+	})
+	ctx := context.Background()
+
+	// The saved openai key, at its saved apiBase.
+	res, err := s.TestProvider(ctx, "openai", websocket.ProviderTest{})
+	if err != nil || !res.OK || res.Status != websocket.ProviderTestOK {
+		t.Fatalf("openai = %+v, %v", res, err)
+	}
+	if got.URL.String() != "https://example.test/v1/models" || got.Header.Get("Authorization") != "Bearer "+fileSecret+"-openai" {
+		t.Errorf("request = %s %v", got.URL, got.Header)
+	}
+	assertNoKey(t, res, fileSecret)
+
+	// Anthropic lists models with x-api-key at its default base.
+	if res, err = s.TestProvider(ctx, "anthropic", websocket.ProviderTest{}); err != nil || !res.OK {
+		t.Fatalf("anthropic = %+v, %v", res, err)
+	}
+	if got.URL.String() != "https://api.anthropic.com/v1/models" || got.Header.Get("x-api-key") != fileSecret+"-anthropic" ||
+		got.Header.Get("anthropic-version") == "" || got.Header.Get("Authorization") != "" {
+		t.Errorf("anthropic request = %s %v", got.URL, got.Header)
+	}
+
+	// A draft key and base are used, not saved; "" is the default base.
+	code = http.StatusUnauthorized
+	res, err = s.TestProvider(ctx, "deepseek", websocket.ProviderTest{APIKey: ptr(" " + draft + " "), APIBase: ptr("")})
+	if err != nil || res.OK || res.Status != websocket.ProviderTestRejected || !strings.Contains(res.Message, "401") {
+		t.Fatalf("deepseek draft = %+v, %v", res, err)
+	}
+	if got.URL.String() != "https://api.deepseek.com/models" || got.Header.Get("Authorization") != "Bearer "+draft {
+		t.Errorf("draft request = %s %v", got.URL, got.Header)
+	}
+	assertNoKey(t, res, draft, fileSecret)
+	if cfg, _ := config.Load(s.settings.path); cfg.Providers.DeepSeek.APIKey != "" {
+		t.Error("the draft key was saved")
+	}
+
+	code = http.StatusForbidden
+	if res, _ = s.TestProvider(ctx, "openai", websocket.ProviderTest{APIBase: ptr("http://localhost:9/v1")}); res.Status != websocket.ProviderTestRejected ||
+		got.URL.String() != "http://localhost:9/v1/models" {
+		t.Errorf("403 = %+v at %s", res, got.URL)
+	}
+	code = http.StatusInternalServerError
+	if res, _ = s.TestProvider(ctx, "openai", websocket.ProviderTest{}); res.Status != websocket.ProviderTestError || res.Message != "openai answered HTTP 500." {
+		t.Errorf("500 = %+v", res)
+	}
+}
+
+func TestWebModelsTestProviderFailures(t *testing.T) {
+	const draft = "sk-draft-fixture-key-0123"
+	s := testModels(t, writeSettingsConfig(t), nil, func(r *http.Request) (*http.Response, error) {
+		return nil, fmt.Errorf("dial %s with %s: refused", r.URL, r.Header.Get("Authorization"))
+	})
+	ctx := context.Background()
+	res, err := s.TestProvider(ctx, "openai", websocket.ProviderTest{APIKey: ptr(draft)})
+	if err != nil || res.Status != websocket.ProviderTestError || res.Message != "Cannot reach openai: request failed." {
+		t.Errorf("network = %+v, %v", res, err)
+	}
+	assertNoKey(t, res, draft, "example.test")
+
+	if res, err = s.TestProvider(ctx, "deepseek", websocket.ProviderTest{}); err != nil || res.OK || res.Status != websocket.ProviderTestNotConfigured {
+		t.Errorf("no key = %+v, %v", res, err)
+	}
+	if _, err = s.TestProvider(ctx, "custom", websocket.ProviderTest{}); !errors.Is(err, websocket.ErrProviderNotFound) {
+		t.Errorf("unknown = %v", err)
+	}
+	for _, bad := range []websocket.ProviderTest{
+		{APIKey: ptr("***")}, {APIKey: ptr("sk-a••••xyz1")}, {APIKey: ptr(" ")}, {APIKey: ptr("a b")},
+		{APIBase: ptr("ftp://x")}, {APIBase: ptr("https://user:" + draft + "@x.test")},
+	} {
+		_, err := s.TestProvider(ctx, "openai", bad)
+		if !errors.Is(err, websocket.ErrInvalidProvider) || strings.Contains(err.Error(), draft) {
+			t.Errorf("TestProvider(%+v) = %v", bad, err)
+		}
+	}
+
+	// The environment's key is tested, as the gateway would run.
+	env := map[string]string{"NANOBOT_GO_DEEPSEEK_API_KEY": envSecret}
+	var auth string
+	s = testModels(t, writeSettingsConfig(t), env, func(r *http.Request) (*http.Response, error) {
+		auth = r.Header.Get("Authorization")
+		return jsonResponse(http.StatusOK, `{}`), nil
+	})
+	if res, _ = s.TestProvider(ctx, "deepseek", websocket.ProviderTest{}); !res.OK || auth != "Bearer "+envSecret {
+		t.Errorf("env key = %+v, auth set %v", res, auth != "")
+	}
+}

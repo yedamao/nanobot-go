@@ -148,7 +148,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, gatewayCtl)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl)
 	if err != nil {
 		return err
 	}
@@ -379,10 +379,12 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // /ui/skills, mcpStore backs /ui/mcp (see webMCP; nil leaves it
 // unmounted), providersStore backs /ui/providers (see webProviders; nil
 // leaves it unmounted), modelCatalog backs /ui/providers/{name}/models
-// (see webModels; nil leaves it unmounted), gatewayCtl backs /ui/gateway (see webGateway; nil
+// (see webModels; nil leaves it unmounted), providerTester backs
+// /ui/providers/{name}/test (see webModels.TestProvider; nil leaves it
+// unmounted), gatewayCtl backs /ui/gateway (see webGateway; nil
 // leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, gatewayCtl websocket.GatewayControl) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -399,7 +401,8 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,
 			Workspace: ws, Cron: cronSvc, Pairing: store, Skills: skillsMgr,
-			MCP: mcpStore, Providers: providersStore, Models: modelCatalog, Gateway: gatewayCtl,
+			MCP: mcpStore, Providers: providersStore, Models: modelCatalog, ProviderTester: providerTester,
+			Gateway: gatewayCtl,
 		}),
 	}
 	for name, f := range builtins {

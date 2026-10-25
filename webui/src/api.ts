@@ -431,6 +431,32 @@ export async function saveProvider(name: string, patch: ProviderPatch): Promise<
   return resp.json();
 }
 
+// POST /ui/providers/{name}/test probes a credential with the provider's
+// models list (no completion tokens). A missing apiKey/apiBase tests the
+// saved one (environment applied); drafts are used once, never saved.
+// A finished probe answers 200 whatever its outcome; the message never
+// holds the key.
+export interface ProviderTest {
+  apiKey?: string;
+  apiBase?: string;
+}
+
+export interface ProviderTestResult {
+  ok: boolean;
+  status: "ok" | "not_configured" | "rejected" | "error";
+  message: string;
+}
+
+export async function testProvider(name: string, body: ProviderTest): Promise<ProviderTestResult> {
+  const resp = await fetch("providers/" + encodeURIComponent(name) + "/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
 // GET /ui/providers/{name}/models is an advisory model list for the
 // Models page's picker ({name} is a provider or "auto"): the built-in
 // list, or the provider's own /models when it is OpenAI-compatible and

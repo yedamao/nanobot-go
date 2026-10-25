@@ -238,6 +238,9 @@ type Options struct {
 	// Models lists provider models for GET /ui/providers/{name}/models.
 	// Nil leaves that path unmounted (404).
 	Models ModelCatalog
+	// ProviderTester probes credentials for POST
+	// /ui/providers/{name}/test. Nil leaves that path unmounted (404).
+	ProviderTester ProviderTester
 	// Gateway reports on and restarts the gateway for /ui/gateway. Nil
 	// leaves those paths unmounted (404).
 	Gateway GatewayControl
@@ -323,6 +326,7 @@ type Channel struct {
 	mcp       MCPStore
 	providers ProvidersStore
 	models    ModelCatalog
+	tester    ProviderTester
 	gateway   GatewayControl
 
 	mu      sync.Mutex
@@ -356,7 +360,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, gateway: opts.Gateway, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, tester: opts.ProviderTester, gateway: opts.Gateway, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -428,6 +432,9 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	}
 	if c.models != nil {
 		mux.Handle("GET "+ProviderModelsPath, a.protect(http.HandlerFunc(c.serveProviderModels)))
+	}
+	if c.tester != nil {
+		mux.Handle("POST "+ProviderTestPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.testProvider))))
 	}
 	if c.gateway != nil {
 		mux.Handle("GET "+GatewayPath, a.protect(http.HandlerFunc(c.serveGateway)))

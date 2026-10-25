@@ -313,8 +313,16 @@ Phase 2 is complete; phase 3 is in progress.
     never returned. `PATCH /ui/providers/{name}` sets (`apiKey`), clears
     (`clearApiKey`) or edits `apiBase`, refusing `***`/hint placeholders,
     and saves under the settings' lock (`cmd/nanobot/webproviders.go`).
-    Gaps vs nanobot: no OAuth/login providers, no custom providers, no
-    key test call.
+    Each card's **Test** posts `POST /ui/providers/{name}/test`
+    (`{apiKey?, apiBase?}` drafts, used once and never saved; else the
+    saved key with the environment applied): it lists the provider's
+    models (OpenAI-compatible `GET {apiBase}/models` with Bearer,
+    Anthropic `GET {base}/v1/models` with `x-api-key`), so no tokens are
+    spent, and answers `{ok, status, message}` with `status`
+    `ok`/`not_configured`/`rejected` (401/403, as nanobot's "rejected
+    the configured credential")/`error`; messages never hold the key or
+    URL (`webModels.TestProvider`). Gaps vs nanobot: no OAuth/login
+    providers, no custom providers.
   - Done (different): restart from the WebUI. nanobot's page sends a
     silent `/restart` command; nanobot-go has `GET /ui/gateway`
     (`launch_mode`, `lifetime`, `restart_available`/reason) and an

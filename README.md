@@ -168,6 +168,14 @@ placeholder such as `***` or a hint is refused with 400),
 it). Provider clients are built when the gateway starts, so a change
 shows **restart required** until it restarts; `env_overrides` names the
 fields `NANOBOT_GO_<NAME>_API_KEY` / `_API_BASE` override.
+**Test** on a card calls `POST /ui/providers/{name}/test` (local or
+signed in, same-origin) with the typed key and the API base field if
+edited (`{"apiKey"?,"apiBase"?}`, never saved; `{}` tests the saved key,
+environment applied). It lists the provider's models (no tokens spent;
+10 s timeout) and answers 200 `{"ok","status","message"}`, `status`
+being `ok`, `not_configured` (no key), `rejected` (HTTP 401/403) or
+`error` (network, timeout, another status). The message never holds the
+key or URL.
 
 With `"provider": "auto"` the provider is chosen from the model name: a
 `<provider>/` prefix (`deepseek/deepseek-chat`), then a known model family
@@ -754,7 +762,8 @@ and press Enter. Each reply is a full agent turn, tools included.
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
   `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
   `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), provider credentials
-  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), model suggestions
+  (`GET /ui/providers`, `PATCH /ui/providers/{name}`,
+  `POST /ui/providers/{name}/test`), model suggestions
   (`GET /ui/providers/{name}/models`), gateway restart
   (`GET /ui/gateway`, `POST /ui/gateway/restart`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on

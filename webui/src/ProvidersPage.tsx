@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { listProviders, saveProvider, type Provider } from "./api";
-import { checkProvider, diffProvider, keyStatus, providerDraft, type ProviderDraft } from "./providers";
+import { listProviders, saveProvider, testProvider, type Provider } from "./api";
+import { canTest, checkProvider, diffProvider, keyStatus, providerDraft, testBody, testNote, type ProviderDraft } from "./providers";
 import { RestartGateway } from "./RestartGateway";
 
 // ProvidersPage sets or clears each known provider's apiKey and edits its
 // apiBase through GET and PATCH /ui/providers. Saved keys are never sent
-// to the page: it shows whether one is set and a short hint.
+// to the page: it shows whether one is set and a short hint. Test probes
+// the typed key (else the saved one) and the API base field if edited
+// (else the saved one) through POST /ui/providers/{name}/test, saving
+// neither.
 export function ProvidersPage() {
   const [providers, setProviders] = useState<Provider[] | null>(null);
   const [error, setError] = useState("");
@@ -57,6 +60,7 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
   const [draft, setDraft] = useState<ProviderDraft>(() => providerDraft(p));
   const [note, setNote] = useState<{ kind: "" | "ok" | "error"; text: string }>({ kind: "", text: "" });
   const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
   useEffect(() => setDraft(providerDraft(p)), [p]);
 
@@ -82,6 +86,25 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
       setNote({ kind: "error", text: "Not saved: " + (err as Error).message });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const test = async () => {
+    if (testing || saving) return;
+    const body = testBody(p, draft);
+    const bad = checkProvider({ apiKey: body.apiKey ?? "", clearKey: false, apiBase: body.apiBase ?? "" });
+    if (bad) {
+      setNote({ kind: "error", text: "Not tested: " + bad + "." });
+      return;
+    }
+    setTesting(true);
+    setNote({ kind: "", text: "Testing…" });
+    try {
+      setNote(testNote(await testProvider(p.name, body)));
+    } catch (err) {
+      setNote({ kind: "error", text: "Not tested: " + (err as Error).message });
+    } finally {
+      setTesting(false);
     }
   };
 
@@ -132,6 +155,9 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
           onClick={() => setDraft((d) => ({ ...d, apiKey: "", clearKey: !d.clearKey }))}
         >
           {draft.clearKey ? "Keep key" : "Clear key"}
+        </button>
+        <button type="button" disabled={saving || testing || !canTest(p, draft)} onClick={() => void test()}>
+          {testing ? "Testing…" : "Test"}
         </button>
         <button type="button" disabled={saving || !dirty} onClick={() => setDraft(providerDraft(p))}>
           Reset
