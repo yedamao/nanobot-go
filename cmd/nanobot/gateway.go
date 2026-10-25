@@ -54,13 +54,30 @@ const (
 // delivers their replies, and stops the channels, the health endpoint,
 // the MCP servers and the session store, in that order. A second signal
 // exits at once with status 1.
+//
+// With --background it instead starts that gateway detached from the
+// terminal (see gatewayBackground); the subcommands status, stop,
+// restart and logs manage it (see gatewayUsage). A foreground gateway
+// records itself in the same state file, so a second gateway for the
+// config is refused and `gateway status` and `nanobot webui` see it.
 func (a *app) gateway(ctx context.Context, args []string) (err error) {
-	fs := a.newFlagSet("gateway", "gateway [--config path] [--workspace dir] [--host addr] [--port n] [--verbose]")
+	if ok, err := a.gatewaySubcommand(ctx, args); ok {
+		return err
+	}
+	fs := a.newFlagSet("gateway", "")
 	flags := addCommonFlags(fs)
 	host := fs.String("host", "", "health endpoint host (overrides gateway.host)")
 	port := fs.Int("port", -1, "health endpoint port (overrides gateway.port; 0 picks a free port)")
+	background := fs.Bool("background", false, "start the gateway detached from the terminal (stop it with 'nanobot gateway stop')")
+	fs.Usage = func() {
+		fmt.Fprintf(a.stderr, "%s\nFlags:\n", gatewayUsage)
+		fs.PrintDefaults()
+	}
 	if err := parse(fs, args); err != nil {
 		return err
+	}
+	if *background {
+		return a.gatewayBackground(ctx, flags, *host, *port)
 	}
 
 	// runCtx ends on the first signal: stop accepting work. turnCtx ends
@@ -147,6 +164,12 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return fmt.Errorf("health endpoint: %w", err)
 	}
+	release, err := a.claimGateway(rt.configPath, flags.workspace, g.Host, ln.Addr())
+	if err != nil {
+		ln.Close()
+		return err
+	}
+	defer release()
 	srv, webUI := newGatewayServer(chans, log)
 	healthErr := make(chan error, 1)
 	go func() { healthErr <- srv.Serve(ln) }()

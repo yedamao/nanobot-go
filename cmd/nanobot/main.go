@@ -37,7 +37,8 @@ Commands:
   agent     chat with the agent (interactive, or one-shot with -m)
   gateway   run the agent behind the configured chat channels until
             SIGINT/SIGTERM, with a health endpoint (and the API when
-            api.enabled is set)
+            api.enabled is set); --background detaches it, and
+            'gateway status|stop|restart|logs' manage it
   serve     run the OpenAI-compatible API (/v1/chat/completions) until
             SIGINT/SIGTERM
   cron      list, remove or run the scheduled jobs (the gateway runs them)
