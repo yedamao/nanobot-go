@@ -63,15 +63,16 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   browsers sign in with a configured secret). Chat lists/renames/deletes,
   streams replies (and thinking), media upload/preview, status/settings,
   plus **Cron** (list/run/create/edit/enable/remove; system jobs protected),
-  **Channels** (with pairing approve/deny/revoke) and **Skills**
-  (enable/disable, install bundled, delete) pages.
+  **Channels** (with pairing approve/deny/revoke), **Skills**
+  (enable/disable, install bundled, delete) and **MCP** (list with live
+  state, add stdio/HTTP, enable/disable, remove; restart to apply) pages.
   `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
   `gateway --background` makes that gateway persistent.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
-triggers, the fuller WebUI (provider keys, MCP/apps settings, a skill
-marketplace, ...). See
+triggers, the fuller WebUI (provider keys, MCP presets/OAuth/apps, a
+skill marketplace, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -386,6 +387,20 @@ each server's state and tool count or error, and disconnects.
 
 MCP resources and prompts are not exposed yet, nor is OAuth; use a header
 with a token instead.
+
+The WebUI's **MCP** page (`#/mcp`) edits `tools.mcpServers`: it lists
+each server with its transport, command or URL, the running gateway's
+state, error and tools, adds stdio (`command`, args, env) or HTTP (`url`,
+type, headers) servers, toggles `enabled` and removes servers. Env and
+header values are saved but never sent back to the browser (only their
+names), nor are URL credentials or query strings or secret-looking args
+(`--token X`, `KEY=…`, `sk-…`); prefer `${VAR}` references. Servers
+connect when the gateway starts, so changes show **restart required**
+until it is restarted. The API: `GET /ui/mcp`; `PUT /ui/mcp/{name}`
+creates (201) or replaces (200) a server, keeping the saved env/headers
+when the body omits them; `PATCH /ui/mcp/{name}` `{"enabled":bool}`;
+`DELETE /ui/mcp/{name}` (204). Mutations are same-origin only and need
+the same sign-in as the rest of `/ui/`.
 
 HTTP and SSE servers are subject to the same private-address block as
 `web_fetch` (see below): a server on `localhost`, your LAN or a tailnet
@@ -712,13 +727,14 @@ and press Enter. Each reply is a full agent turn, tools included.
   cron (`GET /ui/cron`, `POST /ui/cron/{id}/run`, `DELETE /ui/cron/{id}`),
   pairing (`GET /ui/pairing`, `POST …/approve|deny|revoke`),
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
-  `POST /ui/skills/install`), workspace files (`GET /ui/media/…`,
+  `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
+  `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the
   default) those paths are 404 and the server is health-only, as before.
-  The header nav switches Chat / Cron / Channels / Skills (`#/`,
-  `#/cron`, `#/channels`, `#/skills`).
+  The header nav switches Chat / Cron / Channels / Skills / MCP (`#/`,
+  `#/cron`, `#/channels`, `#/skills`, `#/mcp`).
 - **Sessions.** Each chat is the session `websocket:<chat id>`. The page
   keeps its chat id in the browser's `localStorage` and reconnects with
   it, so a reload continues the same session; **New chat** starts a new

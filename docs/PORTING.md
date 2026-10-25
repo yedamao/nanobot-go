@@ -425,8 +425,22 @@ Phase 2 is complete; phase 3 is in progress.
     installed (nanobot lists them in place), no `$skill` invocation,
     no channel configure/validate or token forms, no session-bound
     automations filter.
+  - Done (simplified): MCP servers page (`#/mcp`). `GET /ui/mcp` lists
+    `tools.mcpServers` from the saved config merged with the running
+    `mcp.Manager`'s state, error (secrets scrubbed) and tools; env/header
+    values, URL credentials/query and secret-looking args are redacted
+    (names only). `PUT /ui/mcp/{name}` creates/replaces (validated by
+    `Config.Validate`, saved env/headers kept when omitted), `PATCH`
+    `{"enabled":bool}` and `DELETE` edit the config under the settings'
+    lock (`cmd/nanobot/webmcp.go`). `restart_required` lists servers whose
+    saved config differs from the running one: changes apply on gateway
+    restart. Gaps vs nanobot: no hot reload/reconnect, no connection test,
+    no OAuth, no preset catalog/marketplace or Cursor/Claude config
+    import, no in-place edit form (PUT supports it), no per-tool toggles
+    beyond `enabledTools`.
   - Next WebUI slices: i18n, a richer layout and components (nanobot's
-    Radix/Tailwind UI), models page, MCP/apps, marketplace skills.
+    Radix/Tailwind UI), models page (models/fallbackModels), MCP
+    presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
