@@ -205,6 +205,33 @@ button:disabled { opacity: 0.5; cursor: default; }
 .hljs-deletion { color: var(--error); }
 .hljs-emphasis { font-style: italic; }
 .hljs-strong { font-weight: 600; }
+/* Workspace images and files (/ui/media/). */
+.media-link { display: inline-block; max-width: 100%; }
+.media-img {
+  display: block;
+  max-width: 100%;
+  max-height: 320px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--code-bg);
+}
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; white-space: normal; }
+.attachments .media-img { max-width: 220px; max-height: 160px; }
+.file-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 0.9em;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.file-chip:hover { border-color: var(--link); }
 .msg.error { align-self: flex-start; color: var(--error); border: 1px solid var(--error); }
 .msg.pending { align-self: flex-start; color: var(--muted); font-style: italic; }
 .msg.pending code { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; font-style: normal; }

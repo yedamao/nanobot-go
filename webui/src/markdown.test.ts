@@ -48,6 +48,31 @@ test("safe links open in a new tab; images become links", () => {
   );
 });
 
+test("workspace media images are shown; others stay links", () => {
+  assert.equal(
+    render("![chart](/ui/media/out/chart.png)"),
+    '<p><a href="/ui/media/out/chart.png" target="_blank" rel="noopener noreferrer" class="media-link">' +
+      '<img src="/ui/media/out/chart.png" alt="chart" loading="lazy" class="media-img"/></a></p>',
+  );
+  assert.match(render("![x](/ui/media/a%20b.webp)"), /<img src="\/ui\/media\/a%20b.webp"/);
+  for (const src of [
+    "![c](https://example.com/c.png)",
+    "![c](//evil.example/c.png)",
+    "![c](/ui/media/../chats.png)",
+    "![c](/ui/media/%2e%2e/x.png)",
+    "![c](/ui/media/.git/x.png)",
+    "![c](/ui/media/report.pdf)",
+    "![c](/ui/media/x.png?track=1)",
+    "![c](/ui/chats/x.png)",
+    "![c](out/chart.png)",
+  ]) {
+    assert.doesNotMatch(render(src), /<img/, src);
+  }
+  for (const src of ["![c](javascript:alert(1))", "![c](data:image/png;base64,AAAA)"]) {
+    assert.doesNotMatch(render(src), /<img|href=/, src);
+  }
+});
+
 test("safeUrl", () => {
   assert.equal(safeUrl("https://a.b"), "https://a.b");
   assert.equal(safeUrl("./x:y"), "./x:y");

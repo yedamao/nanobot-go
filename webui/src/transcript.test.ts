@@ -25,6 +25,16 @@ test("history keeps user and assistant texts only", () => {
   assert.equal(t.waiting, 0);
 });
 
+test("a message's media is kept on its bubble", () => {
+  const media = [{ url: "/ui/media/c.png", name: "c.png", kind: "image" as const }];
+  let t = run({ type: "sent", content: "q" }, { type: "message", content: "a", media });
+  assert.deepEqual(t.messages[1].media, media);
+  t = run({ type: "delta", content: "p" }, { type: "message", content: "a", media });
+  assert.deepEqual(t.messages[0].media, media);
+  t = run({ type: "message", content: "a", media: [] });
+  assert.equal(t.messages[0].media, undefined);
+});
+
 test("deltas stream into one bubble that the message replaces", () => {
   let t = run({ type: "sent", content: "q" }, { type: "progress", content: "exec" });
   assert.equal(t.waiting, 1);

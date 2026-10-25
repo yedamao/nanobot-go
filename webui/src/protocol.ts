@@ -5,7 +5,8 @@
 //                  {"type":"history","messages":[{"role":"user"|"assistant","content":"..."}]},
 //                  {"type":"progress","content":"..."},  (transient status)
 //                  {"type":"delta","content":"..."},  (next piece of the streamed reply)
-//                  {"type":"message","role":"assistant","content":"..."},  (the whole reply)
+//                  {"type":"message","role":"assistant","content":"...",
+//                   "media":[{"url":"/ui/media/...","name":"...","kind":"image"|"file"}]},  (the whole reply)
 //                  {"type":"error","content":"..."}
 // Unknown frame types are ignored.
 
@@ -21,7 +22,7 @@ export type ServerFrame =
   | { type: "history"; messages?: HistoryMessage[] | null }
   | { type: "progress"; content?: string }
   | { type: "delta"; content?: string }
-  | { type: "message"; role?: string; content?: string }
+  | { type: "message"; role?: string; content?: string; media?: unknown }
   | { type: "error"; content?: string };
 
 export type ClientFrame = { type: "chat"; content: string } | { type: "stop" };

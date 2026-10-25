@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { checkSignedIn } from "./auth";
+import { mediaRefs } from "./media";
 import { parseFrame, socketURL, storeChatId, storedChatId, type ClientFrame } from "./protocol";
 import { emptyTranscript, reduce } from "./transcript";
 
@@ -59,7 +60,7 @@ export function useChat(onSaved: () => void) {
             dispatch({ type: "delta", content: frame.content ?? "" });
             break;
           case "message":
-            dispatch({ type: "message", content: frame.content ?? "" });
+            dispatch({ type: "message", content: frame.content ?? "", media: mediaRefs(frame.media) });
             savedRef.current(); // the turn is saved before its reply is sent
             break;
           case "error":

@@ -6,6 +6,7 @@ import type { Components, Options } from "react-markdown";
 import remarkBreaks from "remark-breaks";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "./highlight.ts";
+import { isMediaImage } from "./media.ts";
 
 const allowedSchemes = new Set(["http:", "https:", "mailto:"]);
 
@@ -34,11 +35,19 @@ function Link({ href, children }: ComponentProps<"a">) {
   );
 }
 
-// Images are shown as links: the CSP blocks remote images, and loading
-// them would let a reply ping arbitrary hosts.
+// Workspace images the gateway serves (/ui/media/…) are shown, linked to
+// the full-size file. Any other image is shown as a link: the CSP blocks
+// remote images, and loading them would let a reply ping arbitrary hosts.
 function Image({ src, alt }: ComponentProps<"img">) {
-  const label = alt || (typeof src === "string" ? src : "image");
-  return Link({ href: typeof src === "string" ? src : undefined, children: label });
+  const url = typeof src === "string" ? src : undefined;
+  if (url && isMediaImage(url)) {
+    return createElement(
+      "a",
+      { href: url, target: "_blank", rel: "noopener noreferrer", className: "media-link" },
+      createElement("img", { src: url, alt: alt ?? "", loading: "lazy", className: "media-img" }),
+    );
+  }
+  return Link({ href: url, children: alt || url || "image" });
 }
 
 export const components: Components = { a: Link, img: Image };

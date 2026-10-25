@@ -1,9 +1,19 @@
 import { useLayoutEffect, useRef } from "react";
+import { Attachments } from "./Attachments";
 import { Markdown } from "./Markdown";
-import type { Transcript } from "./transcript";
+import { imagesInText, type MediaRef } from "./media";
+import type { Message, Transcript } from "./transcript";
 import type { ConnState } from "./useChat";
 
 const THINKING = "nanobot is thinking…";
+
+// attachments are a message's files; a user message's plain text also
+// shows the workspace images its markdown names.
+function attachments(m: Message): MediaRef[] {
+  const media = m.media ?? [];
+  if (m.kind !== "user") return media;
+  return [...media, ...imagesInText(m.content).filter((i) => !media.some((r) => r.url === i.url))];
+}
 
 // MessageList shows the chat's messages, the live streaming bubble and,
 // while a reply is due, the thinking bubble with the turn's progress.
@@ -28,6 +38,7 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
       {messages.map((m) => (
         <div key={m.id} className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
           {m.kind === "assistant" ? <Markdown text={m.content} /> : m.content}
+          <Attachments media={attachments(m)} />
         </div>
       ))}
       {waiting > 0 && !pendingHidden && (

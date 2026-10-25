@@ -1,3 +1,4 @@
+import type { MediaRef } from "./media";
 import type { HistoryMessage } from "./protocol";
 
 export interface Message {
@@ -5,6 +6,7 @@ export interface Message {
   kind: "user" | "assistant" | "error";
   content: string;
   streaming?: boolean; // the live bubble deltas append to
+  media?: MediaRef[]; // files shown under the bubble
 }
 
 // Transcript is what the page shows of the current chat.
@@ -22,7 +24,7 @@ export type Action =
   | { type: "sent"; content: string }
   | { type: "progress"; content: string }
   | { type: "delta"; content: string }
-  | { type: "message"; content: string }
+  | { type: "message"; content: string; media?: MediaRef[] }
   | { type: "error"; content: string }
   | { type: "disconnected" };
 
@@ -75,12 +77,15 @@ export function reduce(t: Transcript, a: Action): Transcript {
     case "message": {
       // The whole reply supersedes the streamed text (a stopped turn's
       // partial text becomes "Stopped.").
+      const media = a.media?.length ? a.media : undefined;
       const next =
         t.live === null
-          ? push(t, { kind: "assistant", content: a.content })
+          ? push(t, { kind: "assistant", content: a.content, media })
           : {
               ...t,
-              messages: t.messages.map((m) => (m.id === t.live ? { ...m, content: a.content, streaming: false } : m)),
+              messages: t.messages.map((m) =>
+                m.id === t.live ? { ...m, content: a.content, streaming: false, media } : m,
+              ),
             };
       return { ...next, live: null, waiting: Math.max(0, t.waiting - 1), progress: null, pendingHidden: false };
     }

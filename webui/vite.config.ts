@@ -27,6 +27,7 @@ export default defineConfig({
       "/ui/chats": gateway,
       "/ui/status": gateway,
       "/ui/settings": gateway,
+      "/ui/media": gateway,
       "/ui/auth": gateway,
       "/ui/login": gateway,
       "/ui/logout": gateway,
