@@ -234,7 +234,7 @@ func TestEnsureLocalWebUI(t *testing.T) {
 	if changes, _ := ensureLocalWebUI(cfg, 18888); len(changes) != 1 || string(cfg.Channels[wschan.Name]) != `{"enabled":true}` {
 		t.Errorf("disabled section: changes %v, section %s", changes, cfg.Channels[wschan.Name])
 	}
-	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": true, "token": "x"}`)
+	cfg.Channels[wschan.Name] = json.RawMessage(`{"enabled": true, "tokn": "x"}`)
 	if _, err := ensureLocalWebUI(cfg, 0); err == nil || !strings.Contains(err.Error(), "channels.websocket") {
 		t.Errorf("unknown key error = %v", err)
 	}

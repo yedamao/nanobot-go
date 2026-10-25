@@ -15,11 +15,12 @@
 // (nanobot/channels/websocket): a bus bridge keyed by chat id. The wire
 // protocol is nanobot-go's own and much smaller; see README.md.
 //
-// There is no browser authentication in this slice, so the channel
-// refuses to run unless the gateway listens on loopback, and it answers
-// only requests whose Host header names a loopback address (which stops
-// DNS rebinding) and whose Origin, if any, is the same host (which stops
-// other web pages from opening the socket).
+// Requests from this device (a loopback Host header and a loopback peer)
+// need no sign-in. Others must sign in with channels.websocket's token or
+// tokenIssueSecret (see auth.go); without one set the channel refuses to
+// run unless the gateway listens on loopback and answers only local
+// requests, which stops DNS rebinding. An Origin, if any, must be the
+// same host, which stops other web pages from opening the socket.
 package websocket
 
 import (
@@ -30,7 +31,6 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
-	"net"
 	"net/http"
 	"regexp"
 	"slices"
@@ -141,6 +141,18 @@ type HistoryMessage struct {
 // Config is the channels.websocket section.
 type Config struct {
 	Enabled bool `json:"enabled"`
+	// Token and TokenIssueSecret are shared secrets a browser beyond this
+	// device signs in with (either one works). Setting one is what allows
+	// gateway.host beyond loopback. They are never shown by the WebUI.
+	Token            string `json:"token,omitempty"`
+	TokenIssueSecret string `json:"tokenIssueSecret,omitempty"`
+	// TokenIssueSecretAlt is nanobot's snake_case spelling of
+	// tokenIssueSecret; ParseConfig folds it into TokenIssueSecret.
+	TokenIssueSecretAlt string `json:"token_issue_secret,omitempty"`
+	// WebsocketRequiresToken, when true, makes requests from this device
+	// sign in too. Unset or false, local requests need no sign-in and all
+	// others always do.
+	WebsocketRequiresToken *bool `json:"websocketRequiresToken,omitempty"`
 }
 
 // ParseConfig decodes a channels.websocket section strictly.
@@ -149,13 +161,30 @@ func ParseConfig(raw json.RawMessage) (Config, error) {
 	if err := channels.DecodeConfig(raw, &cfg); err != nil {
 		return Config{}, err
 	}
+	cfg.Token = strings.TrimSpace(cfg.Token)
+	cfg.TokenIssueSecret = strings.TrimSpace(cfg.TokenIssueSecret)
+	alt := strings.TrimSpace(cfg.TokenIssueSecretAlt)
+	switch {
+	case alt == "":
+	case cfg.TokenIssueSecret == "":
+		cfg.TokenIssueSecret = alt
+	case alt != cfg.TokenIssueSecret:
+		return Config{}, errors.New("tokenIssueSecret and token_issue_secret differ; set only one")
+	}
+	cfg.TokenIssueSecretAlt = ""
 	return cfg, nil
+}
+
+// HasSecret reports whether a ParseConfig result sets a token or
+// tokenIssueSecret, which browsers beyond this device sign in with.
+func (c Config) HasSecret() bool {
+	return c.Token != "" || c.TokenIssueSecret != ""
 }
 
 // Options are the channel's dependencies besides its config section.
 type Options struct {
 	// Host is the address the gateway's HTTP server listens on. It must
-	// be loopback: the channel has no browser authentication yet.
+	// be loopback unless the config sets a token or tokenIssueSecret.
 	Host string
 	// Sessions loads a chat's stored session for the history frame sent
 	// on connect and the chat list, and saves or deletes it when the page
@@ -245,6 +274,7 @@ type Channel struct {
 	sessions SessionStore
 	status   func() Status
 	settings SettingsStore
+	auth     *auth
 
 	mu      sync.Mutex
 	started bool
@@ -258,19 +288,26 @@ type Channel struct {
 	wg sync.WaitGroup
 }
 
-// New returns a channel. It fails unless opts.Host is a loopback address.
-func New(_ Config, deps channels.Deps, opts Options) (*Channel, error) {
+// New returns a channel. It fails when opts.Host is beyond loopback and
+// cfg sets neither token nor tokenIssueSecret.
+func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if deps.Bus == nil {
 		return nil, errors.New("websocket: bus is required")
 	}
-	if !security.IsLoopbackHost(opts.Host) {
-		return nil, fmt.Errorf("websocket: refusing to serve the WebUI on %q: it has no authentication yet, so gateway.host must be a loopback address such as 127.0.0.1", opts.Host)
+	a := newAuth(cfg)
+	if !security.IsLoopbackHost(opts.Host) && !a.enabled() {
+		return nil, fmt.Errorf("websocket: refusing to serve the WebUI on %q without authentication: "+
+			"set channels.websocket.tokenIssueSecret (or token) so browsers sign in, "+
+			"or set gateway.host to a loopback address such as 127.0.0.1", opts.Host)
+	}
+	if a.requireLocal && !a.enabled() {
+		return nil, errors.New("websocket: websocketRequiresToken is true but neither token nor tokenIssueSecret is set")
 	}
 	log := deps.Logger
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -281,26 +318,32 @@ func (c *Channel) Name() string { return Name }
 // /ui/chats/{chat_id} (when Options.Sessions is set) rename and delete
 // one, GET /ui/status (when Options.Status is set) reports the overview,
 // GET and PATCH /ui/settings (when Options.Settings is set) read and
-// change the editable settings and GET / and /ui/ serve the chat page.
-// Requests whose Host is not a loopback name are refused, and so are
-// cross-origin renames, deletes and settings changes. Until Start and
-// after Stop, /ws answers 503.
+// change the editable settings, GET /ui/auth, POST /ui/login and POST
+// /ui/logout handle sign-in and GET / and /ui/ serve the chat page.
+// Everything but the page, its assets and sign-in needs a local request
+// or a signed-in one (see auth); with no secret configured only local
+// requests are served. Cross-origin renames, deletes, settings changes
+// and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
-	mux.Handle("GET "+Path, loopbackOnly(http.HandlerFunc(c.serveWS)))
-	mux.Handle("GET "+ChatsPath, loopbackOnly(http.HandlerFunc(c.serveChats)))
+	a := c.auth
+	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
+	mux.Handle("GET "+ChatsPath, a.protect(http.HandlerFunc(c.serveChats)))
 	sameOrigin := http.NewCrossOriginProtection()
 	if c.sessions != nil {
-		mux.Handle("PATCH "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.renameChat))))
-		mux.Handle("DELETE "+ChatsPath+"/{chat_id}", loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.deleteChat))))
+		mux.Handle("PATCH "+ChatsPath+"/{chat_id}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.renameChat))))
+		mux.Handle("DELETE "+ChatsPath+"/{chat_id}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.deleteChat))))
 	}
 	if c.status != nil {
-		mux.Handle("GET "+StatusPath, loopbackOnly(http.HandlerFunc(c.serveStatus)))
+		mux.Handle("GET "+StatusPath, a.protect(http.HandlerFunc(c.serveStatus)))
 	}
 	if c.settings != nil {
-		mux.Handle("GET "+SettingsPath, loopbackOnly(http.HandlerFunc(c.serveSettings)))
-		mux.Handle("PATCH "+SettingsPath, loopbackOnly(sameOrigin.Handler(http.HandlerFunc(c.updateSettings))))
+		mux.Handle("GET "+SettingsPath, a.protect(http.HandlerFunc(c.serveSettings)))
+		mux.Handle("PATCH "+SettingsPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.updateSettings))))
 	}
-	ui := loopbackOnly(webui.Handler())
+	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
+	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))
+	mux.Handle("POST "+LogoutPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.logout))))
+	ui := a.public(webui.Handler())
 	mux.Handle("GET /{$}", ui)
 	mux.Handle("GET "+webui.Prefix, ui)
 }
@@ -818,20 +861,4 @@ func keepAlive(ctx context.Context, conn *websocket.Conn) {
 			}
 		}
 	}
-}
-
-// loopbackOnly answers 403 to requests whose Host header is not a
-// loopback name, so a DNS-rebound domain cannot reach the UI.
-func loopbackOnly(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		host := r.Host
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-		if !security.IsLoopbackHost(host) {
-			http.Error(w, "the WebUI answers only on loopback addresses", http.StatusForbidden)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
 }

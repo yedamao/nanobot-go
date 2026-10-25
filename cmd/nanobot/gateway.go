@@ -321,7 +321,7 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // replace a built-in of the same name. Pairing approvals live next to the
 // config file, and so does the WeChat login (state/weixin). host is the
 // gateway's listen address, which the websocket channel requires to be
-// loopback; sessions is the agent loop's session manager, which it loads
+// loopback unless it has a token or tokenIssueSecret; sessions is the agent loop's session manager, which it loads
 // chats from (fresh copies, not the cached ones) and renames and deletes
 // them through, keeping the agent's cache in step; status is the source
 // of its GET /ui/status (see webStatus) and settings is the store of its

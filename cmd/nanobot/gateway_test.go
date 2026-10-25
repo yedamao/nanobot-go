@@ -419,7 +419,7 @@ func TestGatewayStartupErrors(t *testing.T) {
 		{"webui beyond loopback", func(c *config.Config) {
 			c.Channels["websocket"] = json.RawMessage(`{"enabled": true}`)
 			c.Gateway.Host = "0.0.0.0"
-		}, nil, 1, "gateway.host must be a loopback address"},
+		}, nil, 1, "set channels.websocket.tokenIssueSecret"},
 		{"webui host flag beyond loopback", func(c *config.Config) {
 			c.Channels["websocket"] = json.RawMessage(`{"enabled": true}`)
 		}, []string{"--host", "0.0.0.0"}, 1, "refusing to serve the WebUI"},
