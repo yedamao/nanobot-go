@@ -272,8 +272,8 @@ Phase 2 is complete; phase 3 is in progress.
     lists `restart_required` (saved differs from running) and
     `env_overrides`. The Status dialog has a form for them.
   - Done: token streaming. `ChatRequest.OnDelta` makes the
-    OpenAI-compatible provider (and so DeepSeek) send `"stream": true`
-    and parse the SSE chunks; `RunSpec.Stream` passes each delta to
+    OpenAI-compatible provider (and so DeepSeek) and the Anthropic
+    provider send `"stream": true` and parse the SSE events; `RunSpec.Stream` passes each delta to
     `Hooks.OnDelta`, and for bus-driven turns `progressHooks` publishes
     it as an `OutboundMessage` marked `Metadata["_delta"]`
     (`bus.IsDelta`) holding only the new text. The channel sends it as a
@@ -288,7 +288,7 @@ Phase 2 is complete; phase 3 is in progress.
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
     temporary chats, conversation groups,
-    Anthropic token streaming, `StreamEndEvent` and the rest of the
+    Anthropic `thinking_delta`, `StreamEndEvent` and the rest of the
     stream event taxonomy, `<think>` scrubbing of streamed text,
     structured tool events, reasoning, media and
     uploads, file previews, restart control, the
@@ -411,14 +411,20 @@ Phase 2 is complete; phase 3 is in progress.
   sessions in the workspace, so it imports only the flat files in its
   sessions directory. As in nanobot, one unreadable or duplicate file
   aborts the whole import and leaves the sources unchanged.
-- **Streaming is a request option, OpenAI-compatible only.** nanobot's
+- **Streaming is a request option.** nanobot's
   providers have a streaming chat method and its progress hook emits
   `StreamDeltaEvent`/`StreamEndEvent`. nanobot-go adds
   `ChatRequest.OnDelta`: the OpenAI-compatible provider then streams
   (`stream_options.include_usage` for the usage; keep-alives, a missing
   `[DONE]`, tool calls without `index` and servers that ignore `stream`
   are tolerated) and still returns the whole `ChatResponse`. Anthropic
-  ignores it and answers in one piece, so its turns show no deltas.
+  streams too, parsing the Messages SSE events over raw HTTP rather than
+  through an SDK's `get_final_message`: `text_delta` pieces are the
+  deltas, `tool_use` blocks are rebuilt from `input_json_delta` (never
+  sent as deltas), `message_delta` gives `stop_reason` and usage, and
+  the end of the reply is `message_stop` (an `error` event is an
+  `APIError`). `thinking_delta` is dropped, as there is no thinking
+  channel yet, and nanobot's idle timeout is left to ctx cancel.
   Only failures before the reply starts are retried; a stream cut off
   mid-reply is a connection error. `FallbackProvider` fails over a
   streamed request only while no delta has been passed on, since another
