@@ -24,6 +24,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/agent"
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
 	"github.com/yedamao/nanobot-go/internal/security"
 )
 
@@ -43,18 +44,16 @@ const (
 
 // webui prepares the local WebUI (enabling the websocket channel in the
 // config, with confirmation), then attaches to a gateway already serving
-// it on gateway.host:gateway.port or starts one as a child process, and
-// opens the browser. It blocks until Ctrl-C or SIGTERM, then stops what
-// it started (never a gateway it attached to). With --dev it also runs
-// Vite from the source checkout's webui/ with live reload, proxying to
-// the gateway.
+// it on gateway.host:gateway.port or starts one on demand through a
+// shared client lease, and opens the browser. It blocks until Ctrl-C or
+// SIGTERM, then releases the lease (an on-demand gateway stops when the
+// last client exits; a persistent `gateway --background` one does not).
+// An unmanaged gateway (no state file) is left alone. With --dev it also
+// runs Vite from the source checkout's webui/ with live reload.
 //
-// It mirrors nanobot's `nanobot webui` launcher, simplified: the WebUI
-// lives on the gateway's own port, and there is no background gateway
-// manager, so the gateway this command starts lives only as long as the
-// command. A gateway.host beyond loopback needs a sign-in secret; when
-// there is none, setup generates channels.websocket.tokenIssueSecret
-// (with confirmation) and never prints it.
+// A gateway.host beyond loopback needs a sign-in secret; when there is
+// none, setup generates channels.websocket.tokenIssueSecret (with
+// confirmation) and never prints it.
 func (a *app) webui(ctx context.Context, args []string) error {
 	fs := a.newFlagSet("webui", "webui [--config path] [--workspace dir] [--host addr] [--port n] [--dev] [--no-open] [--yes]")
 	flags := addCommonFlags(fs)
@@ -138,24 +137,44 @@ func (a *app) webui(ctx context.Context, args []string) error {
 	base := localURL(g.Host, g.Port, "")
 	pageURL := base + "/ui/"
 	client := &http.Client{Timeout: time.Second}
-	var gw *childProc
+	gwrt, err := a.gatewayRuntime(path, flags.workspace)
+	if err != nil {
+		return err
+	}
+	st, err := gwrt.Status()
+	if err != nil {
+		return err
+	}
+	healthyUI := gatewayHealthy(ctx, client, base) && pageReachable(ctx, client, pageURL)
+	managed := st.Running
+	var started bool
 	switch {
-	case gatewayHealthy(ctx, client, base) && pageReachable(ctx, client, pageURL):
-		// Attach: someone else owns this gateway.
+	case healthyUI && !managed:
+		// Attach: an unmanaged gateway (older nanobot-go, or another
+		// config on this port) that this command never stops.
 	case gatewayHealthy(ctx, client, base):
-		msg := fmt.Sprintf("a nanobot-go gateway is already running on %s without the WebUI (channels.websocket is not enabled in it)", base)
-		if len(changes) > 0 {
-			msg += "; the config now enables it"
-		}
-		return errors.New(msg + ". Stop that gateway from the terminal where you started it and re-run `nanobot webui`")
-	case tcpBusy(net.JoinHostPort(browserHost(g.Host), strconv.Itoa(g.Port))):
+		return errGatewayWithoutWebUI(base, len(changes) > 0)
+	case !healthyUI && tcpBusy(net.JoinHostPort(browserHost(g.Host), strconv.Itoa(g.Port))):
 		return portConflict(pageURL, base, g.Port)
 	default:
-		fmt.Fprintln(a.stdout, "Starting the gateway...")
-		if gw, err = a.startGateway(ctx, client, path, flags, g.Port, base, pageURL); err != nil {
+		// Share a managed gateway through a client lease (start one on
+		// demand when nothing is serving yet).
+		lease := gwrt.NewClientLease("webui")
+		if err := lease.Acquire(); err != nil {
 			return err
 		}
-		defer a.stopChild(gw, g.ShutdownWait()+gatewayStopTimeout+5*time.Second)
+		defer a.releaseWebUILease(lease, stopWait(path, 0))
+		opts := gatewayruntime.StartOptions{Port: g.Port, Verbose: flags.verbose}
+		need := !healthyUI || (managed && len(changes) > 0)
+		if need {
+			if !healthyUI {
+				fmt.Fprintln(a.stdout, "Starting the gateway...")
+			}
+			started, err = a.ensureWebUIGateway(ctx, gwrt, lease, opts, client, base, pageURL, path, len(changes) > 0)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	openURL := pageURL
@@ -172,7 +191,7 @@ func (a *app) webui(ctx context.Context, args []string) error {
 		defer a.stopChild(vite, 5*time.Second)
 	}
 
-	a.printWebUIReady(openURL, base, path, *dev, gw != nil)
+	a.printWebUIReady(openURL, base, path, *dev, started)
 	if !*noOpen {
 		open := a.openBrowser
 		if open == nil {
@@ -182,17 +201,76 @@ func (a *app) webui(ctx context.Context, args []string) error {
 			fmt.Fprintln(a.stderr, "Could not open a browser automatically. Open the link above.")
 		}
 	}
-	return a.waitWebUI(ctx, client, base, gw, vite)
+	// Managed gateways are not childProcs of this command; poll health
+	// like an attach (lease Release stops an on-demand one on exit).
+	return a.waitWebUI(ctx, client, base, nil, vite)
+}
+
+// errGatewayWithoutWebUI explains a healthy gateway that does not serve /ui/.
+func errGatewayWithoutWebUI(base string, configUpdated bool) error {
+	msg := fmt.Sprintf("a nanobot-go gateway is already running on %s without the WebUI (channels.websocket is not enabled in it)", base)
+	if configUpdated {
+		msg += "; the config now enables it"
+	}
+	return errors.New(msg + ". Stop it with 'nanobot gateway stop' (or from the terminal where you started it) and re-run `nanobot webui`")
+}
+
+// ensureWebUIGateway starts or restarts the shared gateway for a webui
+// lease and waits until /healthz and /ui/ answer. started is true when
+// this call launched a new process (not only attached/restarted).
+func (a *app) ensureWebUIGateway(ctx context.Context, rt *gatewayruntime.Runtime, lease *gatewayruntime.ClientLease, opts gatewayruntime.StartOptions, client *http.Client, base, pageURL, path string, changed bool) (started bool, err error) {
+	res, err := lease.EnsureOnDemand(opts)
+	if err != nil {
+		return false, err
+	}
+	restarted := false
+	if !res.OK && res.Message == gatewayruntime.MsgAlreadyRunning && changed {
+		fmt.Fprintln(a.stdout, "WebUI config changed; restarting the background gateway.")
+		res, err = rt.Restart(opts, stopWait(path, 0))
+		restarted = true
+		if err != nil {
+			return false, err
+		}
+	}
+	if !res.OK && (restarted || res.Message != gatewayruntime.MsgAlreadyRunning) {
+		a.printGatewayLogTail(rt)
+		action := "started"
+		if restarted {
+			action = "restarted"
+		}
+		return false, fmt.Errorf("gateway was not %s: %s (logs: %s)", action, res.Message, rt.Paths().LogPath)
+	}
+	pid := res.Status.PID
+	if err := a.waitGatewayHealthy(ctx, rt, pid, client, base); err != nil {
+		return false, err
+	}
+	if !pageReachable(ctx, client, pageURL) {
+		return false, fmt.Errorf("WebUI did not become ready on %s; see %s", pageURL, rt.Paths().LogPath)
+	}
+	return res.OK && !restarted, nil
+}
+
+// releaseWebUILease drops the lease, stopping an on-demand gateway when
+// this was the last client.
+func (a *app) releaseWebUILease(lease *gatewayruntime.ClientLease, timeout time.Duration) {
+	stopped, err := lease.Release(true, timeout)
+	if err != nil {
+		fmt.Fprintf(a.stderr, "release gateway lease: %v\n", err)
+		return
+	}
+	if stopped {
+		fmt.Fprintln(a.stderr, "Stopped the on-demand gateway.")
+	}
 }
 
 // backgroundDeprecated explains what replaced `webui --background`.
 func backgroundDeprecated(path, workspace string) error {
-	gw := []string{"nanobot", "gateway", "--config", path}
+	gw := []string{"nanobot", "gateway", "--background", "--config", path}
 	if workspace != "" {
 		gw = append(gw, "--workspace", workspace)
 	}
 	return fmt.Errorf("`nanobot webui --background` no longer owns gateway lifecycle.\n"+
-		"Start the persistent gateway explicitly (in another terminal, or under nohup, launchd or systemd), then open the WebUI:\n"+
+		"Start a persistent gateway, then open the WebUI:\n"+
 		"  %s\n  %s",
 		shellJoin(gw), shellJoin([]string{"nanobot", "webui", "--config", path}))
 }
@@ -410,45 +488,6 @@ func waitReady(ctx context.Context, c *childProc, timeout time.Duration, ready f
 	}
 }
 
-// startGateway runs `nanobot gateway` as a child process and waits until
-// it serves the WebUI. Its stdout (the banner) is dropped and its
-// INFO/DEBUG log lines too, unless --verbose.
-func (a *app) startGateway(ctx context.Context, client *http.Client, path string, flags *commonFlags, port int, base, pageURL string) (*childProc, error) {
-	exe := os.Executable
-	if a.executable != nil {
-		exe = a.executable
-	}
-	bin, err := exe()
-	if err != nil {
-		return nil, fmt.Errorf("find the nanobot binary: %w", err)
-	}
-	args := []string{"gateway", "--config", path}
-	if flags.workspace != "" {
-		args = append(args, "--workspace", flags.workspace)
-	}
-	args = append(args, "--port", strconv.Itoa(port))
-	if flags.verbose {
-		args = append(args, "--verbose")
-	}
-	cmd := a.command(bin, args...)
-	cmd.Stdout = io.Discard
-	cmd.Stderr = &logFilter{w: a.stderr, all: flags.verbose}
-	if flags.verbose {
-		cmd.Stdout = a.stderr
-	}
-	gw, err := startChild("gateway", cmd, false)
-	if err != nil {
-		return nil, err
-	}
-	if err := waitReady(ctx, gw, webuiReadyTimeout, func() bool {
-		return gatewayHealthy(ctx, client, base) && pageReachable(ctx, client, pageURL)
-	}); err != nil {
-		a.stopChild(gw, 5*time.Second)
-		return nil, err
-	}
-	return gw, nil
-}
-
 // startVite runs `npm run dev` in webui/ with the proxy pointed at base
 // and waits until it serves openURL.
 func (a *app) startVite(ctx context.Context, client *http.Client, viteAddr, base, openURL string) (*childProc, error) {
@@ -524,7 +563,7 @@ func (a *app) webuiSourceDir() (string, error) {
 	return "", fmt.Errorf("--dev needs the nanobot-go source checkout: run it inside the repository or set %s to its webui/ directory", envWebUIDir)
 }
 
-func (a *app) printWebUIReady(openURL, base, path string, dev, managed bool) {
+func (a *app) printWebUIReady(openURL, base, path string, dev, started bool) {
 	w := a.stdout
 	fmt.Fprintln(w)
 	if dev {
@@ -542,14 +581,14 @@ func (a *app) printWebUIReady(openURL, base, path string, dev, managed bool) {
 		fmt.Fprintf(w, "That address is beyond loopback: sign in with channels.%s.tokenIssueSecret (or token) from the config.\n\n", websocket.Name)
 	}
 	switch {
-	case managed:
-		fmt.Fprintln(w, "This command started the gateway; keep this terminal open while using WebUI.")
-		fmt.Fprintln(w, "Press Ctrl-C to stop it.")
+	case started:
+		fmt.Fprintln(w, "This command started an on-demand gateway; keep this terminal open while using WebUI.")
+		fmt.Fprintln(w, "Press Ctrl-C to stop it (unless another local client still holds a lease).")
 	case dev:
 		fmt.Fprintln(w, "Attached to a gateway that was already running; this command will not stop it.")
 		fmt.Fprintln(w, "Press Ctrl-C to stop development mode.")
 	default:
-		fmt.Fprintln(w, "Attached to a gateway that was already running; to stop it, use the terminal where it was started.")
+		fmt.Fprintln(w, "Attached to a gateway that was already running; to stop a managed one use 'nanobot gateway stop'.")
 		fmt.Fprintln(w, "Press Ctrl-C to exit.")
 	}
 	fmt.Fprintln(w)

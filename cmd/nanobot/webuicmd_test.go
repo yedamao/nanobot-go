@@ -174,7 +174,7 @@ func TestWebUIBackgroundDeprecated(t *testing.T) {
 		t.Fatalf("exit = %d, want 1", code)
 	}
 	out := e.stderr.String()
-	for _, want := range []string{"no longer owns gateway lifecycle", "nanobot gateway --config " + e.configPath + " --workspace '/my ws'", "nanobot webui --config " + e.configPath} {
+	for _, want := range []string{"no longer owns gateway lifecycle", "nanobot gateway --background --config " + e.configPath + " --workspace '/my ws'", "nanobot webui --config " + e.configPath} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stderr missing %q:\n%s", want, out)
 		}
@@ -457,8 +457,8 @@ func TestWebUIPortConflicts(t *testing.T) {
 	}
 }
 
-// TestWebUIStartsGateway starts a (fake) gateway child, waits for it,
-// and stops it on Ctrl-C.
+// TestWebUIStartsGateway starts a (fake) on-demand gateway via a client
+// lease, waits for it, and stops it when the lease is released on Ctrl-C.
 func TestWebUIStartsGateway(t *testing.T) {
 	e := newTestEnv(t)
 	port := freePort(t)
@@ -483,7 +483,7 @@ func TestWebUIStartsGateway(t *testing.T) {
 	if want := "gateway --config " + e.configPath + " --workspace " + e.workspace + " --port " + strconv.Itoa(port); string(got) != want {
 		t.Errorf("gateway args %q, want %q", got, want)
 	}
-	if !strings.Contains(e.stdout.String(), "This command started the gateway") {
+	if !strings.Contains(e.stdout.String(), "This command started an on-demand gateway") {
 		t.Errorf("stdout: %s", e.stdout)
 	}
 }

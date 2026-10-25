@@ -48,8 +48,8 @@ Commands:
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
   webui     open the browser WebUI: enable it in the config, attach to
-            the gateway serving it or start one, and open the browser
-            (--dev adds Vite live reload)
+            a gateway or start one on demand (shared lease), and open
+            the browser (--dev adds Vite live reload)
   status    show the configuration (API keys are never printed);
             --mcp also connects to the MCP servers
   version   print the version
