@@ -846,8 +846,14 @@ and press Enter. Each reply is a full agent turn, tools included.
   /ui/channels/config/telegram/test`, `{"token"?}` never saved) asks
   Telegram's `getMe` and reports `ok` with the bot's username,
   `rejected`, `not_configured` or `error`. WeChat still logs in with
-  `nanobot channels login weixin` (its Test answers `unsupported`), and
-  the WebUI channel's own secrets (`token`, `tokenIssueSecret`) are not
+  `nanobot channels login weixin` (its Test answers `unsupported`): there
+  is no in-browser QR login. The WeChat card shows the saved login's
+  state (`login` in the GET: `loggedIn`, `botId`, `userId`, the
+  assigned `baseUrl`, `statePath`, never the token, cursor or context
+  tokens), a **Copy**-able `cliCommand` (with `--config` when the
+  gateway's config file is not the default; add `--force` to log in
+  again) and **Refresh status**, which re-reads it. The
+  WebUI channel's own secrets (`token`, `tokenIssueSecret`) are not
   editable from the page.
 - **Skills.** The **Skills** page lists the workspace skills
   (`skills/<name>/SKILL.md`; the name is the directory, the description

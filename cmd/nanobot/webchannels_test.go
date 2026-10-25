@@ -180,6 +180,58 @@ func TestWebChannelsCreateWeixin(t *testing.T) {
 	}
 }
 
+func TestWebChannelsWeixinLogin(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningChannels(t, path, nil)
+	dir := filepath.Join(filepath.Dir(path), "state", "weixin")
+	statePath := filepath.Join(dir, weixin.StateFileName)
+	login := func() *websocket.WeixinLoginView {
+		t.Helper()
+		list, err := s.ChannelConfigs()
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertNoToken(t, list, "wx-fixture-secret", "cursor-secret", "ctx-secret")
+		wx := channelByName(t, list, "weixin")
+		if wx.Login == nil || wx.HasLoginState == nil || *wx.HasLoginState != wx.Login.LoggedIn {
+			t.Fatalf("weixin = %+v", wx)
+		}
+		return wx.Login
+	}
+
+	// Not logged in; the command names the non-default config file.
+	l := login()
+	if l.LoggedIn || l.Error != "" || l.StatePath != statePath || l.LoginHint == "" ||
+		l.CLICommand != "nanobot channels login weixin --config "+shellJoin([]string{path}) {
+		t.Errorf("login = %+v", l)
+	}
+
+	os.MkdirAll(dir, 0o700)
+	os.WriteFile(statePath, []byte(`{"token":"wx-fixture-secret","get_updates_buf":"cursor-secret","context_tokens":{"u":"ctx-secret"},
+"base_url":"https://assigned.example.test","ilink_bot_id":"bot@im.bot","ilink_user_id":"user@im.wechat"}`), 0o600)
+	if l := login(); !l.LoggedIn || l.BotID != "bot@im.bot" || l.UserID != "user@im.wechat" || l.BaseURL != "https://assigned.example.test" || l.Error != "" {
+		t.Errorf("logged in = %+v", l)
+	}
+
+	os.WriteFile(statePath, []byte(`{"token":"wx-fixture-secret`), 0o600)
+	if l := login(); l.LoggedIn || l.Error == "" || l.BotID != "" {
+		t.Errorf("corrupt = %+v", l)
+	}
+}
+
+func TestWeixinLoginCommand(t *testing.T) {
+	def, err := config.DefaultPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := weixinLoginCommand(def); got != "nanobot channels login weixin" {
+		t.Errorf("default = %q", got)
+	}
+	if got := weixinLoginCommand("/tmp/my dir/config.json"); got != "nanobot channels login weixin --config '/tmp/my dir/config.json'" {
+		t.Errorf("custom = %q", got)
+	}
+}
+
 func TestWebChannelsTelegramToken(t *testing.T) {
 	path := writeSettingsConfig(t)
 	s := runningChannels(t, path, nil)

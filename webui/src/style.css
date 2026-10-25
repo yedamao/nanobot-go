@@ -467,3 +467,28 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cron-dialog::backdrop { background: rgb(0 0 0 / 0.4); }
 .cron-dialog .cron-form { margin: 0; border: 0; }
 .models-catalog-note { display: block; color: var(--muted); font-size: 12px; font-weight: normal; }
+
+/* WeChat login status on the Channels page */
+.weixin-login {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+.weixin-login > p { margin: 6px 0; }
+.weixin-login label { display: grid; gap: 4px; color: var(--muted); font-size: 13px; }
+.weixin-login input[type="text"] {
+  font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 4px 8px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.weixin-login-details { margin: 6px 0; display: grid; gap: 2px; font-size: 13px; }
+.weixin-login-details div { display: grid; grid-template-columns: 140px 1fr; gap: 8px; }
+.weixin-login-details dt { color: var(--muted); }
+.weixin-login-details dd { margin: 0; overflow-wrap: anywhere; }

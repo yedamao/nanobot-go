@@ -331,8 +331,11 @@ Phase 2 is complete; phase 3 is in progress.
     `allowFrom`, the channel's own fields, `env_overrides`,
     `restart_required` (the saved section with the environment applied
     parses differently from the one the gateway started with), `running`
-    and, for weixin, `hasLoginState`; tokens and the proxy are never
-    returned. `PATCH /ui/channels/config/{name}` creates the section if
+    and, for weixin, `hasLoginState` plus `login` (`weixin.LoginStatus`:
+    `loggedIn`, `botId`, `userId`, assigned `baseUrl`, `statePath`, a
+    fixed `error` for a corrupt file, `cliCommand` with `--config` for a
+    non-default config, `loginHint`); tokens, the getupdates cursor,
+    context tokens and the proxy are never returned. `PATCH /ui/channels/config/{name}` creates the section if
     missing and sets only whitelisted keys (`enabled`, `token` /
     `clearToken`, `allowFrom`, `pollTimeout`; telegram `apiBase`,
     `groupPolicy`, `replyToMessage`; weixin `baseUrl`, `routeTag`),
@@ -344,7 +347,8 @@ Phase 2 is complete; phase 3 is in progress.
     saved) with `getMe` (`telegram.CheckToken`): `ok` with the bot's
     username, `rejected`, `not_configured` or `error`; weixin answers
     `unsupported`. Gaps vs nanobot: WeChat still logs in with `nanobot
-    channels login weixin` (no QR login in the page, no probe); the
+    channels login weixin` (no QR login in the page, no probe; the card shows the
+    login state, a copyable CLI command and Refresh status); the
     websocket channel's `token`/`tokenIssueSecret` are not editable;
     `proxy` and `stateDir` are kept but not editable; only telegram and
     weixin exist.

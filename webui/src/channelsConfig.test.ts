@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ChannelConfig } from "./api.ts";
+import type { ChannelConfig, WeixinLogin } from "./api.ts";
 import {
   canTest,
   channelDraft,
@@ -8,9 +8,13 @@ import {
   checkChannel,
   checkToken,
   diffChannel,
+  forceLoginCommand,
+  loginDetails,
+  loginStatus,
   parseAllowFrom,
   testNote,
   tokenStatus,
+  weixinLogin,
 } from "./channelsConfig.ts";
 
 const telegram: ChannelConfig = {
@@ -128,4 +132,33 @@ test("canTest and testNote", () => {
   });
   assert.deepEqual(testNote({ ok: false, status: "rejected", message: "" }), { kind: "error", text: "Test failed: The test failed." });
   assert.deepEqual(testNote({ ok: false, status: "unsupported", message: "Use the CLI." }), { kind: "", text: "Use the CLI." });
+});
+
+const loggedOut: WeixinLogin = {
+  loggedIn: false,
+  statePath: "/tmp/nb/state/weixin/account.json",
+  cliCommand: "nanobot channels login weixin --config /tmp/nb/config.json",
+  loginHint: "Not logged in.",
+};
+
+test("loginStatus and loginDetails describe the saved WeChat login", () => {
+  assert.deepEqual(loginStatus(loggedOut), { kind: "", text: "Not logged in" });
+  assert.deepEqual(loginDetails(loggedOut), []);
+  const on: WeixinLogin = { ...loggedOut, loggedIn: true, botId: "bot@im.bot", userId: "u@im.wechat", baseUrl: "https://a.example" };
+  assert.deepEqual(loginStatus(on), { kind: "ok", text: "Login saved" });
+  assert.deepEqual(loginDetails(on), [
+    ["Bot ID", "bot@im.bot"],
+    ["User ID", "u@im.wechat"],
+    ["Assigned base URL", "https://a.example"],
+  ]);
+  assert.deepEqual(loginDetails({ ...on, botId: "", baseUrl: undefined }), [["User ID", "u@im.wechat"]]);
+  const bad = loginStatus({ ...loggedOut, error: "account.json is corrupt" });
+  assert.equal(bad.kind, "error");
+  assert.match(bad.text, /corrupt/);
+});
+
+test("forceLoginCommand and weixinLogin", () => {
+  assert.equal(forceLoginCommand(loggedOut.cliCommand), "nanobot channels login weixin --config /tmp/nb/config.json --force");
+  assert.equal(weixinLogin([telegram]), undefined);
+  assert.equal(weixinLogin([telegram, { ...telegram, name: "weixin", login: loggedOut }]), loggedOut);
 });

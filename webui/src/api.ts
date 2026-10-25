@@ -537,12 +537,29 @@ export interface ChannelConfig {
   routeTag?: string;
   /** A token saved by `nanobot channels login weixin`. */
   hasLoginState?: boolean;
+  /** WeChat: the saved login, without its secrets. */
+  login?: WeixinLogin;
   defaultBase: string;
   /** "token" when NANOBOT_GO_<CHANNEL>_TOKEN wins over the file. */
   env_overrides: string[];
   restart_required: boolean;
   running: boolean;
   testSupported: boolean;
+}
+
+/** The login saved by `nanobot channels login weixin`: never its token. */
+export interface WeixinLogin {
+  loggedIn: boolean;
+  botId?: string;
+  userId?: string;
+  /** The API host the login assigned. */
+  baseUrl?: string;
+  statePath: string;
+  /** Why the saved login cannot be read (never its contents). */
+  error?: string;
+  /** The shell command that logs in, with --config when not the default. */
+  cliCommand: string;
+  loginHint: string;
 }
 
 /** The body of PATCH /ui/channels/config/{name}. */

@@ -85,6 +85,8 @@ type ChannelConfigView struct {
 	// HasLoginState reports a token saved by `nanobot channels login
 	// weixin`, which is used when the section has none.
 	HasLoginState *bool `json:"hasLoginState,omitempty"`
+	// Login describes the saved WeChat login without its secrets.
+	Login *WeixinLoginView `json:"login,omitempty"`
 
 	// DefaultBase is the API endpoint used when apiBase/baseUrl is empty.
 	DefaultBase string `json:"defaultBase"`
@@ -99,6 +101,25 @@ type ChannelConfigView struct {
 	Running bool `json:"running"`
 	// TestSupported reports that POST .../test can probe the token.
 	TestSupported bool `json:"testSupported"`
+}
+
+// WeixinLoginView is the non-secret part of the login saved by `nanobot
+// channels login weixin`: never the token, cursor or context tokens.
+type WeixinLoginView struct {
+	LoggedIn bool   `json:"loggedIn"`
+	BotID    string `json:"botId,omitempty"`
+	UserID   string `json:"userId,omitempty"`
+	// BaseURL is the API host the login assigned, if any.
+	BaseURL string `json:"baseUrl,omitempty"`
+	// StatePath is where the login is saved.
+	StatePath string `json:"statePath"`
+	// Error describes a state file that cannot be read, without its
+	// contents.
+	Error string `json:"error,omitempty"`
+	// CLICommand is the shell command that logs in (QR code in the
+	// terminal); LoginHint says when to run it.
+	CLICommand string `json:"cliCommand"`
+	LoginHint  string `json:"loginHint"`
 }
 
 // ChannelConfigPatch is the body of PATCH /ui/channels/config/{name}. A

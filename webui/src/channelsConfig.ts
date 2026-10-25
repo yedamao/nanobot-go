@@ -1,4 +1,4 @@
-import type { ChannelConfig, ChannelConfigPatch, ChannelTestResult } from "./api.ts";
+import type { ChannelConfig, ChannelConfigPatch, ChannelTestResult, WeixinLogin } from "./api.ts";
 
 /** One channel's form. token is a new token typed in, never the saved one
  * (the page is never sent it); "" keeps the saved token. allowFrom is
@@ -156,4 +156,31 @@ export function testNote(r: ChannelTestResult): { kind: "ok" | "error" | ""; tex
   if (r.status === "unsupported") return { kind: "", text: r.message };
   const text = r.message || (r.ok ? "The token works." : "The test failed.");
   return { kind: r.ok ? "ok" : "error", text: (r.ok ? "Test passed: " : "Test failed: ") + text };
+}
+
+/** loginStatus is the WeChat card's one-line login state. */
+export function loginStatus(l: WeixinLogin): { kind: "ok" | "error" | ""; text: string } {
+  if (l.error) return { kind: "error", text: "Login unreadable: " + l.error };
+  if (l.loggedIn) return { kind: "ok", text: "Login saved" };
+  return { kind: "", text: "Not logged in" };
+}
+
+/** loginDetails are the saved login's non-secret fields to show. */
+export function loginDetails(l: WeixinLogin): [string, string][] {
+  if (!l.loggedIn) return [];
+  const out: [string, string][] = [];
+  if (l.botId) out.push(["Bot ID", l.botId]);
+  if (l.userId) out.push(["User ID", l.userId]);
+  if (l.baseUrl) out.push(["Assigned base URL", l.baseUrl]);
+  return out;
+}
+
+/** forceLoginCommand is cmd logging in again over a saved login. */
+export function forceLoginCommand(cmd: string): string {
+  return cmd + " --force";
+}
+
+/** weixinLogin picks WeChat's login out of a channel config list. */
+export function weixinLogin(list: ChannelConfig[]): WeixinLogin | undefined {
+  return list.find((c) => c.name === "weixin")?.login;
 }

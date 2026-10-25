@@ -10,6 +10,7 @@ import {
   testChannelConfig,
   type ChannelConfig,
   type PairingView,
+  type WeixinLogin,
   type Status,
 } from "./api";
 import {
@@ -19,8 +20,12 @@ import {
   checkChannel,
   checkToken,
   diffChannel,
+  forceLoginCommand,
+  loginDetails,
+  loginStatus,
   testNote,
   tokenStatus,
+  weixinLogin,
   type ChannelDraft,
 } from "./channelsConfig";
 import { RestartGateway } from "./RestartGateway";
@@ -382,7 +387,8 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
           />
         </label>
       </fieldset>
-      {c.name === "weixin" && (
+      {c.name === "weixin" && c.login && <WeixinLoginStatus login={c.login} />}
+      {c.name === "weixin" && !c.login && (
         <p className="page-empty">
           WeChat logs in by QR code: run <code>nanobot channels login weixin</code> in a terminal. The login is saved
           next to config.json and used when no token is set here.
@@ -416,5 +422,89 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
         </p>
       )}
     </form>
+  );
+}
+
+// WeixinLoginStatus shows the saved WeChat login (never its token) and
+// the CLI command that logs in: the QR code is shown only in a terminal.
+// Refresh re-reads the login without resetting the card's form.
+function WeixinLoginStatus({ login: initial }: { login: WeixinLogin }) {
+  const [login, setLogin] = useState(initial);
+  const [note, setNote] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+
+  useEffect(() => setLogin(initial), [initial]);
+
+  const refresh = async () => {
+    setRefreshing(true);
+    setNote("");
+    try {
+      const l = weixinLogin(await listChannelConfigs());
+      if (l) setLogin(l);
+      setNote("Status refreshed.");
+    } catch (err) {
+      setNote("Cannot refresh: " + (err as Error).message);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const copy = (cmd: string) => {
+    if (!navigator.clipboard) {
+      setNote("Copy is unavailable here; select the command instead.");
+      return;
+    }
+    navigator.clipboard.writeText(cmd).then(
+      () => setNote("Copied."),
+      () => setNote("Copy failed; select the command instead."),
+    );
+  };
+
+  const status = loginStatus(login);
+  const details = loginDetails(login);
+  return (
+    <div className="weixin-login" aria-label="WeChat login">
+      <p className={status.kind === "error" ? "page-error" : "page-note"}>
+        <strong>Login status:</strong>{" "}
+        <span className="badge" data-state={status.kind === "ok" ? "connected" : status.kind === "error" ? "failed" : undefined}>
+          {status.text}
+        </span>
+      </p>
+      {details.length > 0 && (
+        <dl className="weixin-login-details">
+          {details.map(([k, v]) => (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd>
+                <code>{v}</code>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      <p className="page-empty">{login.loginHint}</p>
+      <label htmlFor="weixin-login-cmd">
+        Log in from a terminal
+        <input id="weixin-login-cmd" type="text" readOnly spellCheck={false} value={login.cliCommand} onFocus={(e) => e.target.select()} />
+      </label>
+      <div className="cron-form-actions">
+        <button type="button" onClick={() => copy(login.cliCommand)}>
+          Copy command
+        </button>
+        <button type="button" disabled={refreshing} onClick={() => void refresh()}>
+          {refreshing ? "Refreshing…" : "Refresh status"}
+        </button>
+      </div>
+      <p className="page-empty">
+        The QR code is shown only in the terminal; scan it with WeChat. Add <code>--force</code> to log in again over a
+        saved login (<code>{forceLoginCommand(login.cliCommand)}</code>). The login is saved at{" "}
+        <code>{login.statePath}</code> and used when no token is set here; restart the gateway after logging in.
+      </p>
+      {note && (
+        <p className="page-note" role="status">
+          {note}
+        </p>
+      )}
+    </div>
   );
 }

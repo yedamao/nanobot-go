@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -445,12 +446,41 @@ func (s *webChannels) view(name string, raw json.RawMessage, present bool) webso
 		if cfg, err := weixin.ParseConfig(raw, nil); err == nil {
 			path = cfg.StatePath(s.weixinStateDir)
 		}
-		loggedIn := weixin.LoggedIn(path)
-		v.HasLoginState = &loggedIn
+		v.Login = s.weixinLogin(path)
+		v.HasLoginState = &v.Login.LoggedIn
 	}
 	run, ok := s.running[name]
 	v.RestartRequired = s.differs(name, raw, present, run, ok)
 	return v
+}
+
+// weixinLogin describes the WeChat login saved at statePath and the
+// command that logs in for this gateway's config file.
+func (s *webChannels) weixinLogin(statePath string) *websocket.WeixinLoginView {
+	info := weixin.LoginStatus(statePath)
+	l := &websocket.WeixinLoginView{
+		LoggedIn: info.LoggedIn, BotID: info.BotID, UserID: info.UserID, BaseURL: info.BaseURL,
+		StatePath: statePath, Error: info.Error, CLICommand: weixinLoginCommand(s.settings.path),
+	}
+	switch {
+	case info.Error != "":
+		l.LoginHint = "The saved login cannot be used. Run the command below with --force in a terminal to log in again."
+	case info.LoggedIn:
+		l.LoginHint = "A login is saved. To switch accounts, run the command below with --force in a terminal, then restart the gateway."
+	default:
+		l.LoginHint = "Not logged in. Run the command below in a terminal and scan the QR code with WeChat, then restart the gateway."
+	}
+	return l
+}
+
+// weixinLoginCommand is the shell command that logs in to WeChat for the
+// config file at path; --config is left out for the default file.
+func weixinLoginCommand(path string) string {
+	args := []string{"nanobot", "channels", "login", weixin.Name}
+	if def, err := config.DefaultPath(); err != nil || filepath.Clean(path) != filepath.Clean(def) {
+		args = append(args, "--config", path)
+	}
+	return shellJoin(args)
 }
 
 // differs reports whether the gateway would run channel name
