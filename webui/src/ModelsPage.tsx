@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { getSettings, saveSettings, type FallbackModel, type Settings, type SettingsView } from "./api";
 import { checkModels, diffModels, maxFallbacks, modelsDraft, moveItem, type ModelsDraft } from "./models";
 import { pendingText, withCurrent } from "./settings";
+import { RestartGateway } from "./RestartGateway";
 
 // ModelsPage edits agents.defaults.model, .provider and the ordered
 // .fallbackModels through GET and PATCH /ui/settings, the same store the
@@ -83,6 +84,7 @@ export function ModelsPage() {
       {error && <p className="page-error">Cannot load the settings ({error}).</p>}
       {!error && !draft && <p className="page-empty">Loading…</p>}
       {pending && <p className="page-note">{pending} The provider chain is built when the gateway starts.</p>}
+      {(view?.restart_required ?? []).length > 0 && <RestartGateway />}
       {draft && (
         <form className="cron-form" autoComplete="off" onSubmit={(e) => void submit(e)}>
           <h3>Primary</h3>

@@ -363,6 +363,8 @@ button:disabled { opacity: 0.5; cursor: default; }
 .page-table th { color: var(--muted); font-weight: 600; }
 .page-table tr[data-disabled] { opacity: 0.65; }
 .page-actions { white-space: nowrap; }
+.restart-gateway { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.restart-gateway button { padding: 4px 10px; font-size: 12px; }
 .page-actions button { margin-right: 4px; padding: 4px 10px; font-size: 12px; }
 .badge {
   display: inline-block;

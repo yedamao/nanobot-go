@@ -203,7 +203,7 @@ func (a *app) webui(ctx context.Context, args []string) error {
 	}
 	// Managed gateways are not childProcs of this command; poll health
 	// like an attach (lease Release stops an on-demand one on exit).
-	return a.waitWebUI(ctx, client, base, nil, vite)
+	return a.waitWebUI(ctx, client, base, gwrt, nil, vite)
 }
 
 // errGatewayWithoutWebUI explains a healthy gateway that does not serve /ui/.
@@ -595,9 +595,12 @@ func (a *app) printWebUIReady(openURL, base, path string, dev, started bool) {
 }
 
 // waitWebUI blocks until Ctrl-C, SIGTERM, a child exiting or (when
-// attached) the gateway going away. The deferred stopChild calls then
-// stop the children.
-func (a *app) waitWebUI(ctx context.Context, client *http.Client, base string, gw, vite *childProc) error {
+// attached) the gateway going away. A managed gateway that stops
+// answering is not gone while rt still records one running once any
+// restart in progress (`nanobot gateway restart`, or one the WebUI
+// started) has finished. The deferred stopChild calls then stop the
+// children.
+func (a *app) waitWebUI(ctx context.Context, client *http.Client, base string, rt *gatewayruntime.Runtime, gw, vite *childProc) error {
 	var gwDone, viteDone <-chan struct{}
 	var poll <-chan time.Time
 	if gw != nil {
@@ -622,12 +625,22 @@ func (a *app) waitWebUI(ctx context.Context, client *http.Client, base string, g
 		case <-viteDone:
 			return fmt.Errorf("the Vite dev server stopped (%v); see its output above", vite.err)
 		case <-poll:
-			if !gatewayHealthy(ctx, client, base) {
+			if !gatewayHealthy(ctx, client, base) && !gatewayRecorded(rt) {
 				fmt.Fprintln(a.stderr, "Gateway stopped.")
 				return nil
 			}
 		}
 	}
+}
+
+// gatewayRecorded reports whether rt records a running gateway once
+// any lifecycle operation in progress has finished.
+func gatewayRecorded(rt *gatewayruntime.Runtime) bool {
+	if rt == nil {
+		return false
+	}
+	st, err := rt.Settled()
+	return err == nil && st.Running
 }
 
 // childProc is a process this command started and must stop.

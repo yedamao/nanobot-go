@@ -235,6 +235,9 @@ type Options struct {
 	// Providers reads and changes providers.<name> credentials for
 	// /ui/providers. Nil leaves those paths unmounted (404).
 	Providers ProvidersStore
+	// Gateway reports on and restarts the gateway for /ui/gateway. Nil
+	// leaves those paths unmounted (404).
+	Gateway GatewayControl
 }
 
 // Status is the body of GET /ui/status: a read-only overview for the
@@ -316,6 +319,7 @@ type Channel struct {
 	pairing   *pairing.Store
 	mcp       MCPStore
 	providers ProvidersStore
+	gateway   GatewayControl
 
 	mu      sync.Mutex
 	started bool
@@ -348,7 +352,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, gateway: opts.Gateway, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -366,7 +370,7 @@ func (c *Channel) Name() string { return Name }
 // Everything but the page, its assets and sign-in needs a local request
 // or a signed-in one (see auth); with no secret configured only local
 // requests are served. Cross-origin renames, deletes, settings changes,
-// uploads, cron/pairing/skill/MCP/provider mutations and sign-ins are refused. Until Start and after Stop, /ws answers 503.
+// uploads, cron/pairing/skill/MCP/provider mutations, gateway restarts and sign-ins are refused. Until Start and after Stop, /ws answers 503.
 func (c *Channel) Mount(mux *http.ServeMux) {
 	a := c.auth
 	mux.Handle("GET "+Path, a.protectWS(http.HandlerFunc(c.serveWS)))
@@ -417,6 +421,10 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	if c.providers != nil {
 		mux.Handle("GET "+ProvidersPath, a.protect(http.HandlerFunc(c.serveProviders)))
 		mux.Handle("PATCH "+ProvidersPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchProvider))))
+	}
+	if c.gateway != nil {
+		mux.Handle("GET "+GatewayPath, a.protect(http.HandlerFunc(c.serveGateway)))
+		mux.Handle("POST "+GatewayRestartPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.restartGateway))))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))

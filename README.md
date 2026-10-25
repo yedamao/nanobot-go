@@ -694,6 +694,18 @@ confirmation.
   `stop`, `restart` and `logs --tail N` manage it. Paths are
   `<config-dir>/run/gateway.json` and `<config-dir>/logs/gateway.log`
   (a suffix is added for non-default configs/workspaces).
+- **Restart from the page.** When a saved change shows **restart
+  required** (Models, Providers, MCP, the Status dialog), a **Restart
+  gateway** button appears if the gateway is background-managed
+  (`nanobot gateway --background`, or the on-demand one `nanobot webui`
+  starts). `GET /ui/gateway` reports `launch_mode`, `lifetime` and
+  `restart_available` (with `restart_unavailable_reason` otherwise);
+  `POST /ui/gateway/restart` (same-origin) answers 202 and hands the
+  restart to a detached `nanobot gateway restart` with the same config,
+  workspace, `--host` and port, which keeps the lifetime; the page
+  reloads once the new gateway answers. A foreground `nanobot gateway`
+  gets 409: restart it in its terminal, or stop it and run
+  `nanobot gateway --background`.
 - **Errors, not guesses.** If something other than a nanobot-go gateway
   holds the port, or a gateway runs there without the WebUI, it says so
   and exits.
@@ -742,7 +754,8 @@ and press Enter. Each reply is a full agent turn, tools included.
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
   `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
   `PUT`/`PATCH`/`DELETE /ui/mcp/{name}`), provider credentials
-  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), workspace files (`GET /ui/media/…`,
+  (`GET /ui/providers`, `PATCH /ui/providers/{name}`), gateway restart
+  (`GET /ui/gateway`, `POST /ui/gateway/restart`), workspace files (`GET /ui/media/…`,
   `POST /ui/upload`) and the WebSocket (`GET /ws`) are mounted on
   the gateway's HTTP server next to
   `/healthz`; there is no second port. With the channel disabled (the

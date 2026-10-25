@@ -307,6 +307,20 @@ Phase 2 is complete; phase 3 is in progress.
     and saves under the settings' lock (`cmd/nanobot/webproviders.go`).
     Gaps vs nanobot: no OAuth/login providers, no custom providers, no
     model catalog, no key test call.
+  - Done (different): restart from the WebUI. nanobot's page sends a
+    silent `/restart` command; nanobot-go has `GET /ui/gateway`
+    (`launch_mode`, `lifetime`, `restart_available`/reason) and an
+    auth-gated, same-origin `POST /ui/gateway/restart`. Only a
+    background gateway recorded as the serving process can restart: the
+    handler spawns a detached `nanobot gateway restart` (own session, so
+    the old gateway's process group stop does not take it down) and
+    answers 202 before that stops it; the new gateway keeps the port and
+    lifetime (`cmd/nanobot/webgateway.go`). A foreground gateway gets
+    409 (it would come back detached). `nanobot webui` waits out a
+    restart in progress (`Runtime.Settled`) instead of releasing its
+    lease and stopping the new on-demand gateway. The page shows a
+    **Restart gateway** button under restart-required notes and reloads
+    when a new PID answers.
   - Done: token streaming. `ChatRequest.OnDelta` makes the
     OpenAI-compatible provider (and so DeepSeek) and the Anthropic
     provider send `"stream": true` and parse the SSE events; `RunSpec.Stream` passes each delta to
@@ -464,7 +478,7 @@ Phase 2 is complete; phase 3 is in progress.
     Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
     provider OAuth/custom-provider forms, channel tokens and allow lists, SSRF whitelist,
-    MCP servers and OAuth, a restart button, hot-applying saved
+    MCP servers and OAuth, hot-applying saved
     settings), topics list,
     chat archive, pins, search, bulk delete, generated titles,
     cleanup on delete (automations, cron jobs, memory tied to the chat),
@@ -473,7 +487,7 @@ Phase 2 is complete; phase 3 is in progress.
     `StreamEndEvent` and the rest of the stream event taxonomy (thinking
     is streamed; see "Thinking (simplified)" below), `<think>` scrubbing of streamed text,
     structured tool events, persisted reasoning, signed media URLs and media
-    staging, video previews, restart control, the
+    staging, video previews, the
     on-demand gateway, `trusted_proxy_auth` and issued tokens (see LAN
     access above), TLS (`sslCertfile`), the separate port 8765, Vite
     HMR.
@@ -1264,7 +1278,8 @@ Phase 2 is complete; phase 3 is in progress.
   `json.RawMessage` and only their `enabled` key is replaced, so tokens
   and allow lists survive. Nothing is hot-applied: tools, provider and
   channels are built once at startup, so a saved change waits for a
-  restart, and the page never restarts the gateway. Enabling a channel
+  restart, which the page can trigger only for a background gateway
+  (see "restart from the WebUI" above). Enabling a channel
   whose section is not in the file is refused, since it would lack its
   token, and so is another OS's sandbox, either of which would stop the
   gateway from starting.

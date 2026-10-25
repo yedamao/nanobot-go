@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { deleteMCPServer, listMCP, putMCPServer, setMCPServerEnabled, type MCPList, type MCPServer } from "./api";
 import { buildMCPInput, emptyMCPForm, mcpBadges, mcpTarget, type MCPForm } from "./mcp";
+import { RestartGateway } from "./RestartGateway";
 
 export function MCPPage() {
   const [list, setList] = useState<MCPList | null>(null);
@@ -80,6 +81,7 @@ export function MCPPage() {
           gateway starts.
         </p>
       )}
+      {list && list.restart_required.length > 0 && <RestartGateway />}
       {!error && list === null && <p className="page-empty">Loading…</p>}
       {list &&
         (list.servers.length === 0 ? (

@@ -140,7 +140,14 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	rt.skills.SetPersist(settings.saveDisabledSkills)
 	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv)
 	providersStore := newWebProviders(settings, rt.cfg.Providers, a.getenv)
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore)
+	// The restart keeps the port the health endpoint listens on, set
+	// before it starts serving.
+	listenPort := 0
+	gatewayCtl, err := a.newWebGateway(rt.configPath, flags.workspace, *host, flags.verbose, func() int { return listenPort })
+	if err != nil {
+		return err
+	}
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, gatewayCtl)
 	if err != nil {
 		return err
 	}
@@ -167,6 +174,9 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	ln, err := net.Listen("tcp", g.Addr())
 	if err != nil {
 		return fmt.Errorf("health endpoint: %w", err)
+	}
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		listenPort = tcp.Port
 	}
 	release, err := a.claimGateway(rt.configPath, flags.workspace, g.Host, ln.Addr())
 	if err != nil {
@@ -367,9 +377,10 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // /ui/settings (see webSettings), cronSvc backs /ui/cron, skillsMgr backs
 // /ui/skills, mcpStore backs /ui/mcp (see webMCP; nil leaves it
 // unmounted), providersStore backs /ui/providers (see webProviders; nil
+// leaves it unmounted), gatewayCtl backs /ui/gateway (see webGateway; nil
 // leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, gatewayCtl websocket.GatewayControl) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -386,7 +397,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,
 			Workspace: ws, Cron: cronSvc, Pairing: store, Skills: skillsMgr,
-			MCP: mcpStore, Providers: providersStore,
+			MCP: mcpStore, Providers: providersStore, Gateway: gatewayCtl,
 		}),
 	}
 	for name, f := range builtins {

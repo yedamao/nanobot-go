@@ -266,6 +266,15 @@ func (r *Runtime) Status() (Status, error) {
 	})
 }
 
+// Settled is Status once a lifecycle operation in progress (a restart
+// run by another process, say) has finished.
+func (r *Runtime) Settled() (Status, error) {
+	p := r.Paths()
+	return locked([]string{p.transitionLock(), p.stateLock()}, func() (Status, error) {
+		return r.statusLocked(""), nil
+	})
+}
+
 // statusLocked is Status with the state lock held. reason, when set,
 // replaces the not-running reasons.
 func (r *Runtime) statusLocked(reason string) Status {

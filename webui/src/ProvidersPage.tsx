@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { listProviders, saveProvider, type Provider } from "./api";
 import { checkProvider, diffProvider, keyStatus, providerDraft, type ProviderDraft } from "./providers";
+import { RestartGateway } from "./RestartGateway";
 
 // ProvidersPage sets or clears each known provider's apiKey and edits its
 // apiBase through GET and PATCH /ui/providers. Saved keys are never sent
@@ -42,6 +43,7 @@ export function ProvidersPage() {
           gateway starts.
         </p>
       )}
+      {pending.length > 0 && <RestartGateway />}
       {providers?.map((p) => <ProviderForm key={p.name} provider={p} onSaved={saved} />)}
       <p className="page-empty">
         Saved to <code>providers.&lt;name&gt;</code> in config.json. <code>NANOBOT_GO_&lt;NAME&gt;_API_KEY</code> and{" "}

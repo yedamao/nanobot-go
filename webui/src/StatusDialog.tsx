@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getSettings, getStatus, saveSettings, type Settings, type Status } from "./api";
+import { RestartGateway } from "./RestartGateway";
 import { diffSettings, duration, pendingText, withCurrent } from "./settings";
 
 type Note = { kind: "" | "ok" | "error"; text: string };
@@ -51,6 +52,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
   });
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<Note>({ kind: "", text: "" });
+  const [restartPending, setRestartPending] = useState(false);
 
   const load = useCallback(async () => {
     setStatus(null);
@@ -63,6 +65,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
       setDraft(view.settings);
       setChoices(view.choices);
       setNote({ kind: "", text: pendingText(view) });
+      setRestartPending((view.restart_required ?? []).length > 0);
     } catch (err) {
       setSaved(null);
       setDraft(null);
@@ -103,6 +106,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
       setDraft(view.settings);
       setChoices(view.choices);
       setNote({ kind: "ok", text: "Saved — restart the gateway to apply. " + pendingText(view) });
+      setRestartPending((view.restart_required ?? []).length > 0);
     } catch (err) {
       setNote({ kind: "error", text: "Not saved: " + (err as Error).message });
     } finally {
@@ -182,6 +186,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
         <p id="settings-message" className="status-note" role="status" data-kind={note.kind || undefined}>
           {note.text}
         </p>
+        {restartPending && <RestartGateway />}
         <div className="status-actions">
           <button type="submit" disabled={disabled}>
             Save

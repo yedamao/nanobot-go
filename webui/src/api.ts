@@ -430,3 +430,34 @@ export async function saveProvider(name: string, patch: ProviderPatch): Promise<
   if (!resp.ok) throw await requestError(resp);
   return resp.json();
 }
+
+// GET /ui/gateway says how the gateway serving this page was launched
+// and whether the page can restart it: only a background gateway
+// (`nanobot gateway --background`, or the on-demand one `nanobot webui`
+// starts) can; a foreground one must be restarted in its terminal.
+// POST /ui/gateway/restart answers 202 and the gateway restarts shortly
+// after (409 with the reason when it cannot).
+export interface GatewayInfo {
+  pid: number;
+  started_at?: string;
+  launch_mode: string;
+  lifetime: string;
+  restart_available: boolean;
+  restart_unavailable_reason?: string;
+  restarting: boolean;
+}
+
+export async function getGateway(): Promise<GatewayInfo> {
+  const resp = await fetch("gateway", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export async function restartGateway(): Promise<void> {
+  const resp = await fetch("gateway/restart", { method: "POST" });
+  if (resp.status === 409) {
+    const body = (await resp.json().catch(() => ({}))) as { error?: string };
+    throw new Error(body.error || "The gateway cannot be restarted from here.");
+  }
+  if (!resp.ok) throw await requestError(resp);
+}
