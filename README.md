@@ -71,7 +71,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   edit endpoints) pages.
   `nanobot webui` enables it, attaches or starts a
   shared on-demand gateway (lease), and opens the browser;
-  `gateway --background` makes that gateway persistent.
+  `gateway --background` makes that gateway persistent, and
+  `gateway service install` a LaunchAgent or systemd user service.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
 triggers, the fuller WebUI (provider OAuth logins, custom providers, a
@@ -526,14 +527,66 @@ enabled (never their settings, which hold tokens; for Telegram it says
 whether the token is set and where from, for WeChat whether it is logged
 in).
 
-A systemd unit, for example:
+#### Running as an OS service
 
-```ini
-[Service]
-ExecStart=/usr/local/bin/nanobot gateway
-Restart=on-failure
-TimeoutStopSec=45
+`nanobot gateway --background` detaches a gateway from the terminal, but
+it ends at logout or reboot. To keep one running, install it as a macOS
+LaunchAgent or a systemd user service:
+
+```sh
+nanobot gateway service install --dry-run   # print the plist/unit and commands
+nanobot gateway service install             # write, load, enable and start it
+nanobot gateway service status
+nanobot gateway service stop                # until the next login, or:
+nanobot gateway service start
+nanobot gateway service uninstall
 ```
+
+(`gateway install-service` and `gateway uninstall-service` are aliases,
+nanobot's names.) Install from a built binary (`go build` or
+`go install`), not `go run`: the service runs the binary it was installed
+from, by absolute path.
+
+- **What it runs.** A **foreground** `nanobot gateway --config <abs path>
+  [--workspace <dir>] [--host <addr>] --port <n> [--verbose]`, never
+  `--background`: the service manager supervises it. The port must be
+  fixed (`gateway.port` or `--port`; 0 is refused). The working directory
+  is the workspace, or your home.
+- **macOS.** `~/Library/LaunchAgents/ai.nanobot-go.gateway.plist` in the
+  `gui/<uid>` domain, with `RunAtLoad` (from `--enable`, the default) and
+  `KeepAlive {SuccessfulExit: false}`: launchd restarts the gateway when
+  it crashes or exits with an error, not after a clean shutdown. Output
+  goes to `logs/nanobot-go-gateway.launchd.log` and `.launchd.err.log`
+  next to the config file.
+- **Linux.** `~/.config/systemd/user/nanobot-go-gateway.service`
+  (`Type=simple`, `Restart=always`, `RestartSec=10`), enabled with
+  `systemctl --user enable` and started with `restart`. Run
+  `loginctl enable-linger $USER` for it to start at boot without a login.
+- **Names.** `--name` (default `nanobot-go-gateway`) gives the label
+  `ai.nanobot-go.<name without nanobot-go->` and the unit
+  `<name>.service`, apart from nanobot's (Python) `ai.nanobot.gateway`
+  and `nanobot-gateway.service`, so both can be installed. Use another
+  `--name` (and `--config`/`--port`) for a second gateway.
+- **Flags.** `install` takes `--config`, `--workspace`, `--host`,
+  `--port`, `--verbose`, `--name`, `--manager auto|launchd|systemd`,
+  `--no-enable`, `--no-start` and `--dry-run`. `start` and `status` read
+  the config, workspace and port from the installed plist or unit.
+- **Existing gateways.** `install` (unless `--no-start`) and `start`
+  refuse while a gateway for the config already runs (foreground or
+  `--background`) or anything listens on the port; they never stop it.
+  Stop it first (`nanobot gateway status`, `nanobot gateway stop`).
+  Reinstalling over the service's own gateway restarts it.
+- **With the other commands.** The service gateway records itself as a
+  foreground gateway, so `gateway status` shows it and `nanobot webui`
+  attaches to it. `gateway restart` refuses it (foreground); use
+  `gateway service stop` and `start`, or reinstall. `gateway stop` ends it
+  with a clean exit: launchd leaves it stopped (until the next login or
+  `service start`), but systemd restarts it after 10 seconds, so prefer
+  `gateway service stop`.
+- **Environment.** The service does not read your shell profile: only
+  `PATH` is copied in at install time (for MCP servers and tools). Keep
+  API keys and tokens in the config file rather than in
+  `NANOBOT_GO_*` variables, or the service gateway will not find them.
 
 ### Telegram
 

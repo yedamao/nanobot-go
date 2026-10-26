@@ -19,12 +19,15 @@ const gatewayUsage = `Usage:
   nanobot gateway stop [--config path] [--workspace dir] [--timeout d]
   nanobot gateway restart [--config path] [--workspace dir] [--host addr] [--port n] [--verbose] [--timeout d]
   nanobot gateway logs [--config path] [--workspace dir] [--tail n]
+  nanobot gateway service install|uninstall|start|stop|status [flags]
 
 Without a subcommand the gateway runs in the foreground until Ctrl-C.
 --background starts it detached from the terminal instead (output goes to
 the log file) and returns once it is healthy; it keeps running until
 'nanobot gateway stop'. status, stop, restart and logs manage that
 gateway; state lives in run/ and logs/ next to the config file.
+'gateway service' installs the gateway as a macOS LaunchAgent or systemd
+user service that survives logout and reboot ('gateway service help').
 `
 
 // gatewayReadyTimeout bounds waiting for a background gateway to answer
@@ -46,6 +49,12 @@ func (a *app) gatewaySubcommand(ctx context.Context, args []string) (ok bool, er
 		return true, a.gatewayRestart(ctx, args[1:])
 	case "logs":
 		return true, a.gatewayLogs(args[1:])
+	case "service":
+		return true, a.gatewayService(ctx, args[1:])
+	case "install-service":
+		return true, a.gatewayServiceInstall(ctx, args[1:])
+	case "uninstall-service":
+		return true, a.gatewayServiceUninstall(args[1:])
 	case "help":
 		fmt.Fprint(a.stdout, gatewayUsage)
 		return true, nil
@@ -185,7 +194,7 @@ func gatewayStartConfig(path, host string, port int, verbose bool) (*config.Conf
 		return nil, gatewayruntime.StartOptions{}, err
 	}
 	if cfg.Gateway.Port == 0 {
-		return nil, gatewayruntime.StartOptions{}, errors.New("a background gateway needs a fixed port: gateway.port is 0 (a random port); pass --port")
+		return nil, gatewayruntime.StartOptions{}, errors.New("a background or service gateway needs a fixed port: gateway.port is 0 (a random port); pass --port")
 	}
 	return cfg, gatewayruntime.StartOptions{Host: host, Port: cfg.Gateway.Port, Verbose: verbose}, nil
 }

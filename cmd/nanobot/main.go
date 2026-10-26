@@ -20,6 +20,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/gatewayservice"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/providers"
 )
@@ -38,7 +39,8 @@ Commands:
   gateway   run the agent behind the configured chat channels until
             SIGINT/SIGTERM, with a health endpoint (and the API when
             api.enabled is set); --background detaches it, and
-            'gateway status|stop|restart|logs' manage it
+            'gateway status|stop|restart|logs' manage it; 'gateway
+            service install' makes it a LaunchAgent/systemd service
   serve     run the OpenAI-compatible API (/v1/chat/completions) until
             SIGINT/SIGTERM
   cron      list, remove or run the scheduled jobs (the gateway runs them)
@@ -142,6 +144,10 @@ type app struct {
 	lookPath    func(file string) (string, error)
 	newCommand  func(name string, args ...string) *exec.Cmd
 	viteAddr    string
+	// newServiceInstaller returns the OS service installer of `gateway
+	// service` (tests fake launchctl and systemctl); nil uses the real
+	// one.
+	newServiceInstaller func() (*gatewayservice.Installer, error)
 }
 
 // run dispatches a subcommand and returns the exit code.

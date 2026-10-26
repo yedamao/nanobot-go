@@ -109,7 +109,26 @@ Phase 2 is complete; phase 3 is in progress.
     `status`/`stop`/`restart`/`logs`; webui on-demand lease). See phase 4.
   - Not ported: local triggers (`nanobot/triggers`), the readiness payload
     (`process`/`ready`/`websocket`), restart notices, config hot reload,
-    `install-service`, logs `--follow`.
+    logs `--follow`.
+  - Done: OS service (`internal/gatewayservice`, nanobot's
+    `nanobot/gateway/service.py`): `gateway service
+    install|uninstall|start|stop|status`, with nanobot's
+    `gateway install-service`/`uninstall-service` as aliases. A
+    LaunchAgent (`gui/<uid>`, `RunAtLoad` = `--enable`,
+    `KeepAlive {SuccessfulExit: false}`, logs `<name>.launchd[.err].log`
+    in the config's `logs/`) or a systemd user unit (`Type=simple`,
+    `Restart=always`, `RestartSec=10`) running a foreground
+    `gateway --config … --port n`, with nanobot's commands
+    (bootstrap/enable/kickstart -k; daemon-reload/enable/restart).
+    Differences: names `nanobot-go-gateway` / `ai.nanobot-go.*` (nanobot's
+    `nanobot-gateway` is refused) so both coexist; a fixed port is
+    required; `go run` binaries are refused; `PATH` is copied into the
+    service; the unit escapes `%`/`$`; install/start refuse while a
+    gateway for the config runs or the port is taken, and wait for
+    `/healthz`. Added `start` (bootstrap if unloaded, then kickstart;
+    `systemctl start`), `stop` (bootout; `systemctl stop`) and `status`
+    (`launchctl print` / `systemctl show`, plus the runtime state of the
+    config the service runs, read back from the plist or unit).
 - `internal/channels`: Telegram, Slack, and others, each self-contained.
   - Done: the `Channel` interface, `Registry` (factories keyed by name,
     built from config `channels.<name>` when `enabled`), `Manager`
