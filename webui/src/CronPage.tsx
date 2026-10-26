@@ -2,12 +2,15 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   createCronJob,
   listCronJobs,
+  listCronRuns,
   patchCronJob,
   removeCronJob,
   runCronJob,
   type CronJob,
+  type CronRun,
   type CronWrite,
 } from "./api";
+import { formatDuration, runStatusState } from "./cronRuns";
 
 function fmt(iso?: string): string {
   if (!iso) return "—";
@@ -117,6 +120,7 @@ export function CronPage() {
   const [create, setCreate] = useState<FormState>(emptyForm);
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
+  const [history, setHistory] = useState<{ job: CronJob; runs: CronRun[] | null; error: string } | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -132,6 +136,16 @@ export function CronPage() {
     void load();
   }, [load]);
 
+  const loadHistory = async (job: CronJob) => {
+    setHistory({ job, runs: null, error: "" });
+    try {
+      const { runs } = await listCronRuns(job.id);
+      setHistory((h) => (h && h.job.id === job.id ? { job, runs, error: "" } : h));
+    } catch (err) {
+      setHistory((h) => (h && h.job.id === job.id ? { job, runs: null, error: (err as Error).message } : h));
+    }
+  };
+
   const run = async (job: CronJob) => {
     setBusy(job.id);
     setNote("");
@@ -139,6 +153,7 @@ export function CronPage() {
       await runCronJob(job.id, !job.enabled);
       setNote("Ran " + job.name);
       await load();
+      if (history?.job.id === job.id) await loadHistory(job);
     } catch (err) {
       setNote("Run failed: " + (err as Error).message);
     } finally {
@@ -283,6 +298,9 @@ export function CronPage() {
                   <button type="button" disabled={busy === j.id} onClick={() => void run(j)}>
                     Run
                   </button>
+                  <button type="button" onClick={() => void loadHistory(j)}>
+                    History
+                  </button>
                   <button type="button" disabled={j.system || busy === j.id} onClick={() => openEdit(j)}>
                     Edit
                   </button>
@@ -297,6 +315,51 @@ export function CronPage() {
             ))}
           </tbody>
         </table>
+      )}
+
+      {history && (
+        <dialog className="cron-dialog cron-history" open onCancel={() => setHistory(null)}>
+          <div className="cron-form">
+            <h3>History: {history.job.name}</h3>
+            {history.error && <p className="page-error">Cannot load runs ({history.error}).</p>}
+            {!history.error && history.runs === null && <p className="page-empty">Loading…</p>}
+            {history.runs && history.runs.length === 0 && <p className="page-empty">No runs yet.</p>}
+            {history.runs && history.runs.length > 0 && (
+              <table className="page-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Status</th>
+                    <th>Duration</th>
+                    <th>Error</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.runs.map((r, i) => (
+                    <tr key={r.runAt + ":" + i}>
+                      <td>{fmt(r.runAt)}</td>
+                      <td>
+                        <span className="badge" data-state={runStatusState(r.status)}>
+                          {r.status}
+                        </span>
+                      </td>
+                      <td>{formatDuration(r.durationMs)}</td>
+                      <td className="cron-run-error">{r.error || ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            <div className="cron-form-actions">
+              <button type="button" onClick={() => void loadHistory(history.job)}>
+                Refresh
+              </button>
+              <button type="button" onClick={() => setHistory(null)}>
+                Close
+              </button>
+            </div>
+          </div>
+        </dialog>
       )}
 
       {editing && (

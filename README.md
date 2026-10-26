@@ -280,7 +280,9 @@ reply to the same chat, thread included. Jobs are stored in
 minutes, so jobs added by another process are picked up too. Jobs that
 came due while the gateway was down are skipped, except one-time (`at`)
 jobs, which run once at startup. If a run fails, the error is recorded
-on the job and nothing is sent.
+on the job and nothing is sent. Each job keeps its last 20 runs (time,
+status, duration, truncated error) in `jobs.json`; the WebUI Cron page
+shows them under **History**.
 
 `nanobot agent` offers the tool as well, but only the gateway runs jobs.
 A job created from the CLI runs in the `cli:direct` session; there is no
@@ -757,7 +759,8 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **One address.** The page (`GET /`, `GET /ui/`), the chat list
   (`GET /ui/chats`, with `PATCH`/`DELETE /ui/chats/{chat_id}`), the
   status (`GET /ui/status`), the settings (`GET`/`PATCH /ui/settings`),
-  cron (`GET /ui/cron`, `POST /ui/cron/{id}/run`, `DELETE /ui/cron/{id}`),
+  cron (`GET /ui/cron`, `POST /ui/cron/{id}/run`, `GET /ui/cron/{id}/runs`,
+  `DELETE /ui/cron/{id}`),
   pairing (`GET /ui/pairing`, `POST …/approve|deny|revoke`),
   skills (`GET /ui/skills`, `PATCH`/`DELETE /ui/skills/{name}`,
   `POST /ui/skills/install`), MCP servers (`GET /ui/mcp`,
@@ -823,7 +826,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   system ones such as Dream/heartbeat): schedule summary, next/last run,
   last status. Create a job from the form (every / cron / one-time);
   **Edit** / **Enable** / **Disable** patch non-system jobs; **Run**
-  fires one now (`{"force":true}` when disabled); **Remove** deletes a
+  fires one now (`{"force":true}` when disabled); **History** shows the
+  job's last 20 runs, newest first (time, ok/error/skipped, duration,
+  truncated error; no replies or session details); **Remove** deletes a
   non-system job (system jobs answer 403 on edit/remove).
 - **Channels & pairing.** The **Channels** page shows configured channel
   status from `GET /ui/status`, pending pairing codes with Approve/Deny,

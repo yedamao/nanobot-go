@@ -15,7 +15,8 @@ import (
 
 const (
 	// CronPath lists scheduled jobs (GET), creates (POST), and hosts
-	// run/edit/remove under /ui/cron/{id}/run and /ui/cron/{id}.
+	// run/edit/remove under /ui/cron/{id}/run and /ui/cron/{id}; GET
+	// /ui/cron/{id}/runs is the job's recent run history.
 	CronPath = "/ui/cron"
 	// maxCronMessageRunes caps payload.message in list/run responses.
 	maxCronMessageRunes = 500
@@ -72,6 +73,23 @@ type CronStateView struct {
 	LastStatus string `json:"lastStatus,omitempty"`
 	LastError  string `json:"lastError,omitempty"`
 	RunCount   int    `json:"runCount,omitempty"`
+}
+
+// CronRunsView is the body of GET /ui/cron/{id}/runs.
+type CronRunsView struct {
+	JobID string `json:"jobId"`
+	Name  string `json:"name"`
+	// Runs is newest first.
+	Runs []CronRunView `json:"runs"`
+}
+
+// CronRunView is one recorded run: outcome and truncated error only,
+// never the session or the agent's reply.
+type CronRunView struct {
+	RunAt      string `json:"runAt"`
+	Status     string `json:"status"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // cronJobView maps a cron.Job into the WebUI shape.
@@ -156,6 +174,38 @@ func (c *Channel) serveCron(w http.ResponseWriter, _ *http.Request) {
 	out := CronList{Jobs: make([]CronJobView, 0, len(jobs))}
 	for _, j := range jobs {
 		out.Jobs = append(out.Jobs, cronJobView(j))
+	}
+	writeJSON(w, out)
+}
+
+// serveCronRuns answers GET /ui/cron/{id}/runs with the job's recent
+// runs, newest first.
+func (c *Channel) serveCronRuns(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimSpace(r.PathValue("id"))
+	if id == "" {
+		http.Error(w, "job id is required", http.StatusBadRequest)
+		return
+	}
+	job, ok, err := c.cron.Get(id)
+	if err != nil {
+		c.log.Warn("websocket: get cron job", "error", err)
+		http.Error(w, "cannot load the cron job", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
+		http.Error(w, "no such cron job", http.StatusNotFound)
+		return
+	}
+	hist := job.State.RunHistory
+	out := CronRunsView{JobID: job.ID, Name: job.Name, Runs: make([]CronRunView, 0, len(hist))}
+	for i := len(hist) - 1; i >= 0; i-- {
+		rec := hist[i]
+		out.Runs = append(out.Runs, CronRunView{
+			RunAt:      rec.RunAt.UTC().Format(timeRFC3339),
+			Status:     string(rec.Status),
+			DurationMs: rec.DurationMs,
+			Error:      rec.Error,
+		})
 	}
 	writeJSON(w, out)
 }

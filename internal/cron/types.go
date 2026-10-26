@@ -222,6 +222,21 @@ type State struct {
 	LastStatus Status    `json:"lastStatus,omitempty"`
 	LastError  string    `json:"lastError,omitempty"`
 	RunCount   int       `json:"runCount,omitempty"`
+	// RunHistory is the last MaxRunHistory recorded runs, oldest first,
+	// like nanobot's state.run_history.
+	RunHistory []RunRecord `json:"runHistory,omitempty"`
+}
+
+// MaxRunHistory caps State.RunHistory, like nanobot's _MAX_RUN_HISTORY.
+const MaxRunHistory = 20
+
+// RunRecord is one recorded run of a job, like nanobot's CronRunRecord.
+type RunRecord struct {
+	RunAt      time.Time `json:"runAt"`
+	Status     Status    `json:"status"`
+	DurationMs int64     `json:"durationMs,omitempty"`
+	// Error is the truncated run error or skip reason.
+	Error string `json:"error,omitempty"`
 }
 
 // Job is a scheduled task.

@@ -22,7 +22,11 @@ func sampleJobs() []Job {
 			Payload:  Payload{Kind: PayloadAgentTurn, Message: "remind me of the standup"},
 			Binding:  &Binding{Channel: "telegram", ChatID: "42", SessionKey: "telegram:42", Metadata: map[string]any{"thread_id": "7"}},
 			State: State{NextRun: created.Add(time.Hour), LastRun: created.Add(-time.Hour),
-				LastStatus: StatusError, LastError: "boom", RunCount: 3},
+				LastStatus: StatusError, LastError: "boom", RunCount: 3,
+				RunHistory: []RunRecord{
+					{RunAt: created.Add(-2 * time.Hour), Status: StatusOK, DurationMs: 1200},
+					{RunAt: created.Add(-time.Hour), Status: StatusError, DurationMs: 40, Error: "boom"},
+				}},
 			CreatedAt: created, UpdatedAt: created,
 		},
 		{
@@ -65,7 +69,7 @@ func TestStoreRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, frag := range []string{`"version": 1`, `"everyMs": 5400000`, `"tz": "Europe/Berlin"`, `"sessionKey": "telegram:42"`, `"kind": "system_event"`} {
+	for _, frag := range []string{`"version": 1`, `"everyMs": 5400000`, `"tz": "Europe/Berlin"`, `"sessionKey": "telegram:42"`, `"kind": "system_event"`, `"runHistory": [`, `"durationMs": 1200`} {
 		if !strings.Contains(string(data), frag) {
 			t.Errorf("jobs.json lacks %s:\n%s", frag, data)
 		}

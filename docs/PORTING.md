@@ -178,7 +178,11 @@ Phase 2 is complete; phase 3 is in progress.
     (the `evaluate_notification` tool, fail closed, override
     `prompts/evaluator.md`), delivery plus `Loop.Record` into the chat's
     session; the `HEARTBEAT.md` template.
-  - Not ported: local triggers, run records (`cron/runs/`), run history,
+  - Done: run history — `State.RunHistory` keeps the last 20 runs
+    (`MaxRunHistory`, like `_MAX_RUN_HISTORY`): start, status, duration
+    and the truncated error, in `jobs.json`; canceled runs are not
+    recorded. No `run_id`/`session_key` per run.
+  - Not ported: local triggers, run records (`cron/runs/`),
     WebUI `change_binding` UI (create/edit/enable via POST/PATCH `/ui/cron`
     are under WebUI; list/run/remove too);
     for the heartbeat,
@@ -502,7 +506,8 @@ Phase 2 is complete; phase 3 is in progress.
     a skills summary of the enabled workspace skills. The React header
     nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
     no automation create/edit UI, no enable/disable toggle, no run
-    history/result viewer, no skill marketplace (skills.sh/ClawHub),
+    result/reply viewer (`GET /ui/cron/{id}/runs` and the Cron page's
+    **History** show only status, duration and truncated error), no skill marketplace (skills.sh/ClawHub),
     skill detail/raw view, requirement checks (`requires.bins/env`) or
     brew/apt install options, builtins only reach the prompt once
     installed (nanobot lists them in place), no `$skill` invocation,

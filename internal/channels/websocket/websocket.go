@@ -415,6 +415,7 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	if c.cron != nil {
 		mux.Handle("GET "+CronPath, a.protect(http.HandlerFunc(c.serveCron)))
 		mux.Handle("POST "+CronPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.createCron))))
+		mux.Handle("GET "+CronPath+"/{id}/runs", a.protect(http.HandlerFunc(c.serveCronRuns)))
 		mux.Handle("POST "+CronPath+"/{id}/run", a.protect(sameOrigin.Handler(http.HandlerFunc(c.runCron))))
 		mux.Handle("PATCH "+CronPath+"/{id}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchCron))))
 		mux.Handle("DELETE "+CronPath+"/{id}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.removeCron))))

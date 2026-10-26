@@ -173,6 +173,27 @@ export async function runCronJob(id: string, force = false): Promise<CronJob> {
   return resp.json();
 }
 
+// GET /ui/cron/{id}/runs is a job's recent runs (the last 20), newest first.
+export interface CronRun {
+  runAt: string;
+  status: "ok" | "error" | "skipped" | string;
+  durationMs?: number;
+  error?: string;
+}
+
+export interface CronRuns {
+  jobId: string;
+  name: string;
+  runs: CronRun[];
+}
+
+export async function listCronRuns(id: string): Promise<CronRuns> {
+  const resp = await fetch("cron/" + encodeURIComponent(id) + "/runs", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  const body = (await resp.json()) as CronRuns;
+  return { ...body, runs: body.runs ?? [] };
+}
+
 export async function removeCronJob(id: string): Promise<void> {
   const resp = await fetch("cron/" + encodeURIComponent(id), { method: "DELETE" });
   if (!resp.ok) throw await requestError(resp);

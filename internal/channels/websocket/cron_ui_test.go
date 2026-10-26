@@ -3,12 +3,15 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/cron"
 )
 
@@ -246,5 +249,109 @@ func TestCronUICreateAndPatch(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("create missing message = %d", resp.StatusCode)
+	}
+}
+
+func TestCronUIRuns(t *testing.T) {
+	fail := false
+	svc, err := cron.NewService(cron.ServiceConfig{
+		Store: cron.NewStore(t.TempDir()),
+		Run: func(context.Context, cron.Job) error {
+			if fail {
+				return errors.New("provider down")
+			}
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.Add(cron.AddSpec{
+		Name:     "stretch",
+		Message:  "stretch now",
+		Schedule: cron.Schedule{Kind: cron.KindEvery, Every: time.Hour},
+		Binding:  &cron.Binding{Channel: "telegram", ChatID: "42", SessionKey: "telegram:42"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWith(t, true, Options{Host: "127.0.0.1", Cron: svc})
+	client := h.srv.Client()
+	getRuns := func(id string) (int, []byte) {
+		t.Helper()
+		resp, err := client.Get(h.srv.URL + CronPath + "/" + id + "/runs")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, body
+	}
+
+	code, body := getRuns(job.ID)
+	if code != http.StatusOK || !strings.Contains(string(body), `"runs":[]`) {
+		t.Fatalf("runs before any run = %d %s", code, body)
+	}
+	for _, f := range []bool{false, true} {
+		fail = f
+		resp, err := client.Post(h.srv.URL+CronPath+"/"+job.ID+"/run", "application/json", strings.NewReader(`{}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("run = %d", resp.StatusCode)
+		}
+	}
+	code, body = getRuns(job.ID)
+	if code != http.StatusOK {
+		t.Fatalf("runs = %d %s", code, body)
+	}
+	if strings.Contains(string(body), "sessionKey") || strings.Contains(string(body), "telegram:42") {
+		t.Errorf("runs leaked the session: %s", body)
+	}
+	var v CronRunsView
+	if err := json.Unmarshal(body, &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.JobID != job.ID || v.Name != "stretch" || len(v.Runs) != 2 {
+		t.Fatalf("runs = %+v", v)
+	}
+	// Newest first.
+	if v.Runs[0].Status != "error" || v.Runs[0].Error != "provider down" || v.Runs[1].Status != "ok" || v.Runs[1].Error != "" {
+		t.Errorf("runs = %+v", v.Runs)
+	}
+	if _, err := time.Parse(time.RFC3339, v.Runs[0].RunAt); err != nil {
+		t.Errorf("runAt %q: %v", v.Runs[0].RunAt, err)
+	}
+
+	if code, _ := getRuns("missing"); code != http.StatusNotFound {
+		t.Errorf("runs of a missing job = %d", code)
+	}
+}
+
+func TestCronUIRunsAuth(t *testing.T) {
+	svc, err := cron.NewService(cron.ServiceConfig{Store: cron.NewStore(t.TempDir())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.Add(cron.AddSpec{Message: "hi", Schedule: cron.Schedule{Kind: cron.KindEvery, Every: time.Hour}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := New(Config{Token: testToken}, channels.Deps{Bus: bus.NewMessageBus(8)}, Options{Host: "0.0.0.0", Cron: svc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	ch.Mount(mux)
+	target := CronPath + "/" + job.ID + "/runs"
+	if rec := do(mux, http.MethodGet, target, lanHost, "192.168.1.9:5555", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("LAN without sign-in: %d", rec.Code)
+	}
+	if rec := do(mux, http.MethodGet, target, lanHost, "192.168.1.9:5555", func(r *http.Request) {
+		r.Header.Set("Authorization", "Bearer "+testToken)
+	}); rec.Code != http.StatusOK {
+		t.Errorf("LAN with token: %d %s", rec.Code, rec.Body)
 	}
 }

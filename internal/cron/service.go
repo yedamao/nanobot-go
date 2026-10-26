@@ -586,6 +586,15 @@ func (s *Service) execute(ctx context.Context, job Job) (Job, error) {
 		j.State.LastStatus = status
 		j.State.LastError = truncate(msg, maxErrorChars)
 		j.State.RunCount++
+		j.State.RunHistory = append(j.State.RunHistory, RunRecord{
+			RunAt:      start,
+			Status:     status,
+			DurationMs: max(0, now.Sub(start).Milliseconds()),
+			Error:      j.State.LastError,
+		})
+		if n := len(j.State.RunHistory); n > MaxRunHistory {
+			j.State.RunHistory = slices.Clone(j.State.RunHistory[n-MaxRunHistory:])
+		}
 		j.UpdatedAt = now
 		if j.Schedule.Kind == KindAt {
 			if j.DeleteAfterRun {

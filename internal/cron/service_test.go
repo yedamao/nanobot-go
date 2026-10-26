@@ -317,6 +317,47 @@ func TestServiceRecordsFailuresAndSkips(t *testing.T) {
 	if s.State.LastStatus != StatusSkipped || !strings.Contains(s.State.LastError, "no chat") || s.State.RunCount != 1 {
 		t.Errorf("skipped job state = %+v", s.State)
 	}
+	if h := f.State.RunHistory; len(h) != 1 || h[0].Status != StatusError || h[0].Error != "provider down" || !h[0].RunAt.Equal(t0.Add(time.Minute)) {
+		t.Errorf("failed job history = %+v", h)
+	}
+	if h := s.State.RunHistory; len(h) != 1 || h[0].Status != StatusSkipped || !strings.Contains(h[0].Error, "no chat") {
+		t.Errorf("skipped job history = %+v", h)
+	}
+}
+
+// RunHistory keeps the last MaxRunHistory runs, oldest first, with each
+// run's start and duration.
+func TestServiceRunHistoryCapped(t *testing.T) {
+	h := newHarness(t)
+	job := h.add(t, AddSpec{Schedule: Schedule{Kind: KindEvery, Every: time.Hour}})
+	h.rec.err = func(Job) error {
+		h.clock.Advance(1500 * time.Millisecond)
+		return nil
+	}
+	var starts []time.Time
+	for i := range MaxRunHistory + 1 {
+		h.clock.Advance(time.Minute)
+		starts = append(starts, h.clock.Now())
+		if i == MaxRunHistory {
+			h.rec.err = func(Job) error { return errors.New(strings.Repeat("x", 2*maxErrorChars)) }
+		}
+		if _, ran, _ := h.svc.RunJob(context.Background(), job.ID, false); !ran {
+			t.Fatalf("run %d did not run", i)
+		}
+		h.rec.wait(t)
+	}
+	j, _ := h.get(t, job.ID)
+	hist := j.State.RunHistory
+	if len(hist) != MaxRunHistory || j.State.RunCount != MaxRunHistory+1 {
+		t.Fatalf("history len = %d, runCount = %d", len(hist), j.State.RunCount)
+	}
+	if !hist[0].RunAt.Equal(starts[1]) || hist[0].Status != StatusOK || hist[0].DurationMs != 1500 {
+		t.Errorf("oldest = %+v, want start %v", hist[0], starts[1])
+	}
+	last := hist[len(hist)-1]
+	if !last.RunAt.Equal(starts[MaxRunHistory]) || last.Status != StatusError || len(last.Error) != maxErrorChars || last.DurationMs != 0 {
+		t.Errorf("newest = %+v", last)
+	}
 }
 
 // A run canceled by shutdown is not recorded: the job stays due.
@@ -339,7 +380,7 @@ func TestServiceDoesNotRecordCanceledRuns(t *testing.T) {
 		t.Errorf("Serve = %v", err)
 	}
 	j, ok := h.get(t, job.ID)
-	if !ok || j.State.RunCount != 0 || !j.State.NextRun.Equal(t0.Add(time.Minute)) {
+	if !ok || j.State.RunCount != 0 || len(j.State.RunHistory) != 0 || !j.State.NextRun.Equal(t0.Add(time.Minute)) {
 		t.Errorf("job after a canceled run = %+v (found %v)", j, ok)
 	}
 }
