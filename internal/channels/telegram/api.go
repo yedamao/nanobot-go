@@ -255,10 +255,33 @@ type message struct {
 	CaptionEntities []entity `json:"caption_entities"`
 	// Photo lists the sizes Telegram made of a photo, smallest first.
 	Photo []photoSize `json:"photo"`
-	// Voice is a voice note; Audio is a music file.
-	Voice          *voice   `json:"voice"`
-	Audio          *audio   `json:"audio"`
-	ReplyToMessage *message `json:"reply_to_message"`
+	// Voice is a voice note; Audio is a music file; VideoNote is a round
+	// video message.
+	Voice          *voice     `json:"voice"`
+	Audio          *audio     `json:"audio"`
+	Video          *video     `json:"video"`
+	VideoNote      *videoNote `json:"video_note"`
+	ReplyToMessage *message   `json:"reply_to_message"`
+}
+
+type video struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	Duration     int    `json:"duration"`
+	FileName     string `json:"file_name"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// videoNote has no MIME type; Telegram records them as MPEG-4.
+type videoNote struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Length       int    `json:"length"` // width and height
+	Duration     int    `json:"duration"`
+	FileSize     int64  `json:"file_size"`
 }
 
 type voice struct {

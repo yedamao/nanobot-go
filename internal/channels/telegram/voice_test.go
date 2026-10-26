@@ -146,7 +146,7 @@ func TestVoiceTooLarge(t *testing.T) {
 	h.f.addFile("vox", oggFixture)
 	h.start(t)
 	u := voiceDM(1, "big")
-	u.Message.Voice.FileSize = maxAudioBytes + 1
+	u.Message.Voice.FileSize = maxClipBytes + 1
 	h.push(u)
 	if in := h.inbound(t); in.Content != "big" || len(in.Media) != 0 {
 		t.Errorf("got content %q media %v", in.Content, in.Media)

@@ -181,9 +181,17 @@ Phase 2 is complete; phase 3 is in progress.
     `whisper-1`), used when `providers.openai.apiKey` is set (its
     `apiBase` too, so an OpenAI-compatible Whisper endpoint works);
     failures fall back to the path form.
-  - Not ported (Telegram): webhook mode, other inbound media (video,
-    video notes, documents, stickers, animations, locations, media
-    groups), nanobot's transcription config (`transcription.*`, the
+    Inbound videos and video notes (`msg.video` / `msg.video_note`):
+    downloaded the same way, under the same 20 MB `getFile` cap (bots
+    cannot fetch larger files; nanobot has no cap of its own), to
+    `media/telegram/<file_unique_id>.<ext>` (`_get_extension`: by MIME
+    type, else `.mp4`) and attached as Media, with `[video: <path>]` /
+    `[video_note: <path>]` after the caption (nanobot tags both
+    `[video: …]`); not transcribed. A caption that is a command skips
+    the download; a failed one keeps the caption and drops a bare
+    video; a replied-to one is prepended like a replied-to voice note.
+  - Not ported (Telegram): webhook mode, other inbound media
+    (documents, stickers, animations, locations, media groups), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
     sendAudio (sent as documents), media groups (albums), Markdown to
@@ -977,7 +985,8 @@ Phase 2 is complete; phase 3 is in progress.
   and video (transcribing voice), forwards locations and merges media
   groups. nanobot-go handles text, captions, photos, voice notes and
   audio files (transcribed through OpenAI's Whisper only, when
-  `providers.openai` has a key, where nanobot defaults to Groq); other
+  `providers.openai` has a key, where nanobot defaults to Groq), videos
+  and video notes (saved and attached, not transcribed); other
   messages without text are skipped (a stranger's still gets a pairing
   code).
 - **Access check.** As in nanobot: `"*"`, then the sender ID
