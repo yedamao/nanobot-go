@@ -162,7 +162,16 @@ Phase 2 is complete; phase 3 is in progress.
     budget of 8 messages per token and held replies (3 per user) until
     the user writes again, typing tickets and `sendtyping`,
     `notifystart`/`notifystop`, message dedup, stale-token (-14)
-    handling, `account.json` state (nanobot's layout, 0600, file lock,
+    handling, outbound media (`OutboundMessage.Media`, e.g. from the
+    message tool: each file AES-128-ECB encrypted with a random key,
+    uploaded to the CDN through `getuploadurl` (`upload_full_url`, else
+    `upload_param` on `novac2c.cdn.weixin.qq.com`) and sent before the
+    text as an image, video, voice or file item; at most 10 files of 50
+    MB, a file that cannot be sent becomes a `[Failed to send: name]`
+    notice, each file counts against the context-token budget and is held
+    with the rest of the reply when the budget runs out, a retry reuses
+    the upload key and `client_id`),
+    `account.json` state (nanobot's layout, 0600, file lock,
     never overwriting a newer login), allowFrom + pairing; the QR login
     (`nanobot channels login weixin [--force]`: `get_bot_qrcode` with
     `local_token_list`, `get_qrcode_status` with redirect host,
@@ -170,8 +179,9 @@ Phase 2 is complete; phase 3 is in progress.
     `channels.weixin` (`token` or `NANOBOT_GO_WEIXIN_TOKEN`, `allowFrom`,
     `baseUrl`, `routeTag`, `stateDir`, `pollTimeout`) and a `status` login
     row.
-  - Not ported (WeChat): media in either direction (CDN download and
-    upload, AES-128-ECB, voice transcription), progress/tool-hint
+  - Not ported (WeChat): inbound media (CDN download and decryption;
+    images, files, video and voice still arrive as placeholders), voice
+    transcription, the `cdnBaseUrl` config option, progress/tool-hint
     messages and structured progress items, block streaming, the WebUI
     connect flow, typing tickets in `account.json`, terminal QR rendering.
     WeCom (`nanobot/channels/wecom`, the enterprise WebSocket SDK) is a

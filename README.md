@@ -51,8 +51,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   with a one-time code approved through `nanobot pairing approve`.
 - WeChat (phase 3, part 5): personal WeChat through Tencent's iLink bot
   API. `nanobot channels login weixin` logs in with a QR code; the
-  gateway long-polls for messages and replies as text, with the same
-  `allowFrom`/pairing access control as Telegram.
+  gateway long-polls for messages and replies with text and files, with
+  the same `allowFrom`/pairing access control as Telegram.
 - CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
   `cron` (`list`, `remove`, `run`), `pairing` (`list`, `approve`, `deny`,
   `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
@@ -674,8 +674,13 @@ replaced exactly that token.
 - **Messages.** Text is handled, with quoted messages prefixed as
   `[引用: ...]` like nanobot; voice messages pass WeChat's own transcript
   (`[voice] ...`). Images, files, video and voice without a transcript
-  arrive as placeholders (`[image]`, `[file: name]`, ...): media are not
-  downloaded or sent. Replies go out as text, with Markdown WeChat
+  arrive as placeholders (`[image]`, `[file: name]`, ...): inbound media
+  are not downloaded. Files a reply attaches (for example through the
+  message tool) are encrypted, uploaded to the WeChat CDN and sent before
+  the text, as images, videos, voice messages or files by extension; at
+  most 10 files of up to 50 MB each, and one that cannot be sent is
+  replaced by `[Failed to send: name]`. Each file counts as one message
+  against the reply quota below. Text goes out with Markdown WeChat
   renders badly (images, strikethrough, bare `<`) cleaned up, in messages
   of at most 1800 characters with code fences kept balanced. "typing…"
   shows while the agent works.

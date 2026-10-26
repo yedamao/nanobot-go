@@ -401,6 +401,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 			Pairing:         store,
 			DefaultStateDir: weixin.DefaultStateDir(configPath),
 			Version:         version,
+			Workspace:       ws.Root,
 		}),
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,

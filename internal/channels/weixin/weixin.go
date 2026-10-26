@@ -2,7 +2,8 @@
 // weixin). It talks to Tencent's iLink bot API
 // (https://ilinkai.weixin.qq.com) over net/http: getupdates long-polls
 // for messages with an opaque cursor, sendmessage delivers replies as
-// text in chunks of at most 1800 characters. The bot token comes from a
+// text in chunks of at most 1800 characters, after their files (uploaded
+// encrypted to the WeChat CDN, see sendMedia). The bot token comes from a
 // QR-code login (`nanobot channels login weixin`, see Login), saved in
 // account.json, or from the config.
 //
@@ -93,6 +94,9 @@ type Options struct {
 	DefaultStateDir string
 	// Version goes into base_info.bot_agent.
 	Version string
+	// Workspace is the agent's workspace directory; relative media paths
+	// of outbound messages are resolved against it.
+	Workspace string
 }
 
 // Factory returns the channels.Factory for WeChat.
@@ -117,6 +121,10 @@ type Channel struct {
 	// allow holds the allowFrom entries.
 	allow    map[string]bool
 	allowAll bool
+	// workspace is Options.Workspace; cdnBaseURL takes uploads that come
+	// without a full URL (replaced in tests).
+	workspace  string
+	cdnBaseURL string
 
 	// sleep waits between attempts (replaced in tests); it returns
 	// ctx.Err() if ctx ends first.
@@ -169,21 +177,42 @@ type ticketEntry struct {
 
 type typingTask struct{ cancel context.CancelFunc }
 
-// delivery is one outbound reply split into chunks. Each chunk has a
-// client_id derived from the delivery's id, so a chunk sent again keeps
-// its client_id.
+// delivery is one outbound reply split into parts: its files, then its
+// text in chunks. Each part has a client_id derived from the delivery's
+// id, so a part sent again keeps its client_id.
 type delivery struct {
-	id     string
-	key    string // chat and content hash, for resuming a retry
-	chat   string
-	chunks []string
-	done   int // chunks delivered
-	at     time.Time
+	id    string
+	key   string // chat, content and media hash, for resuming a retry
+	chat  string
+	parts []part
+	done  int // parts delivered
+	at    time.Time
+}
+
+// part is one message of a delivery: a text chunk or a file.
+type part struct {
+	label  string // "text:0", "media:0", "media:0:fallback"
+	text   string
+	media  string // the file path; empty for text
+	aesKey []byte // the file's upload key, kept for a retry
 }
 
 func (d *delivery) clientID(i int) string {
-	sum := sha256.Sum256([]byte(d.id + ":text:" + strconv.Itoa(i)))
+	sum := sha256.Sum256([]byte(d.id + ":" + d.parts[i].label))
 	return "nanobot-" + hex.EncodeToString(sum[:])[:20]
+}
+
+// replyParts returns the parts of a reply: media first, then the text
+// chunks.
+func replyParts(media, chunks []string) []part {
+	parts := make([]part, 0, len(media)+len(chunks))
+	for i, m := range media {
+		parts = append(parts, part{label: "media:" + strconv.Itoa(i), media: m})
+	}
+	for i, t := range chunks {
+		parts = append(parts, part{label: "text:" + strconv.Itoa(i), text: t})
+	}
+	return parts
 }
 
 // New returns a channel for a parsed config (see ParseConfig).
@@ -209,6 +238,8 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		log:            log,
 		pairing:        opts.Pairing,
 		allow:          map[string]bool{},
+		workspace:      opts.Workspace,
+		cdnBaseURL:     defaultCDNBaseURL,
 		sleep:          sleepCtx,
 		now:            time.Now,
 		retryDelay:     retryDelay,
@@ -543,9 +574,9 @@ func (c *Channel) deny(ctx context.Context, from, ctxToken string) {
 		c.log.Warn("weixin: pairing store unavailable; dropping the message", "sender", from, "error", err)
 		return
 	}
-	d := c.newDelivery(from, splitMessage(pairing.Reply(code), maxMessageLen))
-	for i, chunk := range d.chunks {
-		if err := c.sendText(ctx, from, chunk, ctxToken, d.clientID(i)); err != nil {
+	d := c.newDelivery(from, replyParts(nil, splitMessage(pairing.Reply(code), maxMessageLen)))
+	for i, p := range d.parts {
+		if err := c.sendText(ctx, from, p.text, ctxToken, d.clientID(i)); err != nil {
 			c.log.Warn("weixin: send pairing code", "sender", from, "error", err)
 			return
 		}
@@ -564,11 +595,14 @@ func (c *Channel) cacheContext(user, token string) {
 	c.contexts[user] = contextEntry{token: token, at: c.now()}
 }
 
-// Send delivers msg as text, split into messages of at most 1800
-// characters, using the user's cached context_token (refreshed first
-// when it is old). A reply that cannot be sent for lack of a usable
-// context_token is held back, up to three per user, and sent when the
-// user writes again; Send then returns nil. Media are not supported.
+// Send delivers msg's files (at most maxOutboundFiles, each uploaded to
+// the CDN and sent as its own message), then its text, split into
+// messages of at most 1800 characters, using the user's cached
+// context_token (refreshed first when it is old). A file that cannot be
+// sent is replaced by a "[Failed to send: name]" notice, like nanobot's.
+// A reply that cannot be sent for lack of a usable context_token is held
+// back, up to three per user, from the part that was refused, and sent
+// when the user writes again; Send then returns nil.
 // Progress updates, streamed deltas, thinking and superseded replies
 // (bus.IsStreamed) are dropped: the final reply carries the whole text,
 // thinking is never shown in a chat app, and a superseded reply was
@@ -581,11 +615,14 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return channels.Permanent(errors.New("weixin: empty chat id"))
 	}
 	c.stopTyping(msg.ChatID)
-	if len(msg.Media) > 0 {
-		c.log.Warn("weixin: sending media is not supported; sending the text only", "chat_id", msg.ChatID, "files", len(msg.Media))
+	files := msg.Media
+	if len(files) > maxOutboundFiles {
+		c.log.Warn("weixin: too many files in one reply; sending the first ones", "chat_id", msg.ChatID,
+			"files", len(files), "limit", maxOutboundFiles)
+		files = files[:maxOutboundFiles]
 	}
 	chunks := splitMessage(msg.Content, maxMessageLen)
-	if len(chunks) == 0 {
+	if len(chunks) == 0 && len(files) == 0 {
 		c.cancelTyping(ctx, msg.ChatID)
 		return nil
 	}
@@ -596,7 +633,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	case token == "":
 		return errors.New("weixin: not started")
 	}
-	d := c.resume(msg.ChatID, msg.Content, chunks)
+	d := c.resume(msg.ChatID, msg.Content, files, replyParts(files, chunks))
 	err := c.deliver(ctx, d)
 	c.cancelTyping(ctx, msg.ChatID)
 	var q *quotaError
@@ -614,26 +651,39 @@ type quotaError struct{ reason string }
 
 func (e *quotaError) Error() string { return "weixin: no usable context_token: " + e.reason }
 
-// deliver sends d's remaining chunks. It returns a *quotaError when the
+// deliver sends d's remaining parts. It returns a *quotaError when the
 // context_token is missing, used up or rejected; a retryable error
-// leaves d resumable (see resume).
+// leaves d resumable (see resume). A file that cannot be sent becomes a
+// "[Failed to send: name]" text part.
 func (c *Channel) deliver(ctx context.Context, d *delivery) error {
 	ctxToken := c.contextToken(ctx, d.chat)
 	if ctxToken == "" {
 		c.forget(d)
 		return &quotaError{"the user has not written yet"}
 	}
-	for d.done < len(d.chunks) {
+	for d.done < len(d.parts) {
 		if !c.reserveSend(ctxToken) {
 			c.forget(d)
 			return &quotaError{fmt.Sprintf("%d messages sent since the user last wrote", contextMessageBudget)}
 		}
-		err := c.sendText(ctx, d.chat, d.chunks[d.done], ctxToken, d.clientID(d.done))
+		p := &d.parts[d.done]
+		var err error
+		if p.media != "" {
+			err = c.sendMedia(ctx, d.chat, p, ctxToken, d.clientID(d.done))
+		} else {
+			err = c.sendText(ctx, d.chat, p.text, ctxToken, d.clientID(d.done))
+		}
 		if err == nil {
 			d.done++
 			continue
 		}
 		c.unreserveSend(ctxToken)
+		var ue *unsendableError
+		if errors.As(err, &ue) {
+			c.log.Warn("weixin: could not send a file", "chat_id", d.chat, "file", p.media, "error", err)
+			*p = part{label: p.label + ":fallback", text: failedNotice(p.media)}
+			continue
+		}
 		switch {
 		case isAPIError(err, errcodeContextRestricted):
 			c.forget(d)
@@ -657,6 +707,11 @@ func (c *Channel) deliver(ctx context.Context, d *delivery) error {
 
 // sendText sends one text message.
 func (c *Channel) sendText(ctx context.Context, to, text, ctxToken, clientID string) error {
+	return c.sendItem(ctx, to, wireItem{Type: itemText, TextItem: &textItem{Text: text}}, ctxToken, clientID)
+}
+
+// sendItem sends a message of one item.
+func (c *Channel) sendItem(ctx context.Context, to string, item wireItem, ctxToken, clientID string) error {
 	token, base, _ := c.session()
 	body := sendMessageRequest{
 		Msg: outMessage{
@@ -664,7 +719,7 @@ func (c *Channel) sendText(ctx context.Context, to, text, ctxToken, clientID str
 			ClientID:     clientID,
 			MessageType:  messageTypeBot,
 			MessageState: messageStateFinish,
-			ItemList:     []wireItem{{Type: itemText, TextItem: &textItem{Text: text}}},
+			ItemList:     []wireItem{item},
 			ContextToken: ctxToken,
 		},
 		BaseInfo: c.api.info,
@@ -720,17 +775,17 @@ func (c *Channel) contextToken(ctx context.Context, user string) string {
 	return resp.ContextToken
 }
 
-// newDelivery returns a delivery of chunks with a fresh id.
-func (c *Channel) newDelivery(chat string, chunks []string) *delivery {
+// newDelivery returns a delivery of parts with a fresh id.
+func (c *Channel) newDelivery(chat string, parts []part) *delivery {
 	var b [16]byte
 	rand.Read(b[:])
-	return &delivery{id: hex.EncodeToString(b[:]), chat: chat, chunks: chunks, at: c.now()}
+	return &delivery{id: hex.EncodeToString(b[:]), chat: chat, parts: parts, at: c.now()}
 }
 
-// resume returns the partly sent delivery of the same content to chat,
-// when the channel manager retries one, or a new delivery.
-func (c *Channel) resume(chat, content string, chunks []string) *delivery {
-	sum := sha256.Sum256([]byte(chat + "\x00" + content))
+// resume returns the partly sent delivery of the same content and media
+// to chat, when the channel manager retries one, or a new delivery.
+func (c *Channel) resume(chat, content string, media []string, parts []part) *delivery {
+	sum := sha256.Sum256([]byte(chat + "\x00" + content + "\x00" + strings.Join(media, "\x00")))
 	key := hex.EncodeToString(sum[:])
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -740,12 +795,12 @@ func (c *Channel) resume(chat, content string, chunks []string) *delivery {
 			delete(c.partial, k)
 		}
 	}
-	if d := c.partial[key]; d != nil && len(d.chunks) == len(chunks) {
+	if d := c.partial[key]; d != nil && len(d.parts) == len(parts) {
 		return d
 	}
 	var b [16]byte
 	rand.Read(b[:])
-	return &delivery{id: hex.EncodeToString(b[:]), key: key, chat: chat, chunks: chunks, at: now}
+	return &delivery{id: hex.EncodeToString(b[:]), key: key, chat: chat, parts: parts, at: now}
 }
 
 func (c *Channel) keepPartial(d *delivery) {
@@ -970,7 +1025,7 @@ func (c *Channel) saveState() {
 }
 
 // messageText renders a message's items as text (nanobot:
-// _process_message). Media are not downloaded; they appear as
+// _process_message). Inbound media are not downloaded; they appear as
 // placeholders such as "[image]", like nanobot's when a download fails.
 func messageText(items []wireItem) string {
 	var parts []string

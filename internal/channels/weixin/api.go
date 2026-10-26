@@ -384,8 +384,10 @@ type wireMessage struct {
 type wireItem struct {
 	Type      int        `json:"type"`
 	TextItem  *textItem  `json:"text_item,omitempty"`
+	ImageItem *imageItem `json:"image_item,omitempty"`
 	VoiceItem *voiceItem `json:"voice_item,omitempty"`
 	FileItem  *fileItem  `json:"file_item,omitempty"`
+	VideoItem *videoItem `json:"video_item,omitempty"`
 	RefMsg    *refMsg    `json:"ref_msg,omitempty"`
 }
 
@@ -393,12 +395,34 @@ type textItem struct {
 	Text string `json:"text"`
 }
 
+// cdnMedia references an encrypted upload on the WeChat CDN. AESKey is
+// the hex key, base64-encoded.
+type cdnMedia struct {
+	EncryptQueryParam string `json:"encrypt_query_param,omitempty"`
+	AESKey            string `json:"aes_key,omitempty"`
+	EncryptType       int    `json:"encrypt_type,omitempty"`
+}
+
+// imageItem is only sent: inbound images are placeholders.
+type imageItem struct {
+	Media   *cdnMedia `json:"media,omitempty"`
+	MidSize int       `json:"mid_size,omitempty"`
+}
+
+type videoItem struct {
+	Media     *cdnMedia `json:"media,omitempty"`
+	VideoSize int       `json:"video_size,omitempty"`
+}
+
 type voiceItem struct {
-	Text string `json:"text"`
+	Text  string    `json:"text,omitempty"`
+	Media *cdnMedia `json:"media,omitempty"`
 }
 
 type fileItem struct {
-	FileName string `json:"file_name"`
+	FileName string    `json:"file_name"`
+	Len      string    `json:"len,omitempty"`
+	Media    *cdnMedia `json:"media,omitempty"`
 }
 
 type refMsg struct {
@@ -419,6 +443,23 @@ type outMessage struct {
 type sendMessageRequest struct {
 	Msg      outMessage `json:"msg"`
 	BaseInfo baseInfo   `json:"base_info"`
+}
+
+type getUploadURLRequest struct {
+	FileKey     string   `json:"filekey"`
+	MediaType   int      `json:"media_type"`
+	ToUserID    string   `json:"to_user_id"`
+	RawSize     int      `json:"rawsize"`
+	RawFileMD5  string   `json:"rawfilemd5"`
+	FileSize    int      `json:"filesize"`
+	NoNeedThumb bool     `json:"no_need_thumb"`
+	AESKey      string   `json:"aeskey"`
+	BaseInfo    baseInfo `json:"base_info"`
+}
+
+type getUploadURLResponse struct {
+	UploadParam   string `json:"upload_param"`
+	UploadFullURL string `json:"upload_full_url"`
 }
 
 type getConfigRequest struct {

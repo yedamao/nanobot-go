@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -30,6 +31,8 @@ type apiCall struct {
 	Query    map[string][]string
 	Header   http.Header
 	Body     map[string]any
+	Raw      []byte // the body of a CDN upload
+	Path     string
 	Host     string
 }
 
@@ -72,8 +75,10 @@ func (f *fakeILink) setReply(r replyFunc) {
 
 func (f *fakeILink) serve(w http.ResponseWriter, r *http.Request) {
 	endpoint := r.URL.Path[strings.LastIndexByte(r.URL.Path, '/')+1:]
-	call := apiCall{Endpoint: endpoint, Query: r.URL.Query(), Header: r.Header.Clone(), Host: r.Host}
-	if data, _ := io.ReadAll(r.Body); len(data) > 0 {
+	call := apiCall{Endpoint: endpoint, Query: r.URL.Query(), Header: r.Header.Clone(), Host: r.Host, Path: r.URL.Path}
+	if data, _ := io.ReadAll(r.Body); r.Header.Get("Content-Type") == "application/octet-stream" {
+		call.Raw = data
+	} else if len(data) > 0 {
 		if err := json.Unmarshal(data, &call.Body); err != nil {
 			f.t.Errorf("%s: bad JSON body %q", endpoint, data)
 		}
@@ -109,6 +114,12 @@ func (f *fakeILink) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case "getconfig":
 		io.WriteString(w, `{"ret":0,"typing_ticket":"ticket-1"}`)
+	case "getuploadurl":
+		io.WriteString(w, `{"ret":0,"upload_param":"up/param=1"}`)
+	case "upload":
+		// The CDN: the download parameter comes back in a header.
+		w.Header().Set("x-encrypted-param", "dl-param-"+strconv.Itoa(n))
+		w.WriteHeader(http.StatusOK)
 	default:
 		io.WriteString(w, `{"ret":0}`)
 	}
@@ -222,6 +233,7 @@ type harness struct {
 	bus    *bus.MessageBus
 	store  *pairing.Store
 	state  stateFile
+	ws     string // the workspace
 	clock  *clock
 	sleeps chan time.Duration
 	logs   *lockedBuffer
@@ -239,15 +251,17 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 		mutate(&cfg)
 	}
 	h := &harness{f: f, bus: bus.NewMessageBus(16), store: pairing.NewStore(filepath.Join(dir, "pairing.json")),
-		state: stateFile{cfg.StatePath("")}, clock: &clock{t: time.Unix(1_700_000_000, 0)},
+		state: stateFile{cfg.StatePath("")}, ws: filepath.Join(dir, "ws"), clock: &clock{t: time.Unix(1_700_000_000, 0)},
 		sleeps: make(chan time.Duration, 64), logs: &lockedBuffer{}}
 	h.saveLogin(t, testToken)
 	log := slog.New(slog.NewTextHandler(h.logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	ch, err := New(cfg, channels.Deps{Bus: h.bus, Logger: log}, Options{Pairing: h.store, HTTPClient: f.srv.Client(), Version: "test"})
+	ch, err := New(cfg, channels.Deps{Bus: h.bus, Logger: log}, Options{Pairing: h.store, HTTPClient: f.srv.Client(), Version: "test",
+		Workspace: h.ws})
 	if err != nil {
 		t.Fatal(err)
 	}
 	h.ch = ch
+	ch.cdnBaseURL = f.srv.URL + "/c2c"
 	t.Cleanup(func() {
 		if strings.Contains(h.logs.String(), "SECRET") {
 			t.Errorf("the log leaks the token:\n%s", h.logs)

@@ -1,8 +1,8 @@
 // Package message is the agent's message tool (nanobot/agent/tools/message.py):
 // it sends a separate chat message, optionally with file attachments,
 // through the bus. Channels deliver OutboundMessage.Media as they would a
-// reply's (Telegram uploads photos and documents, the WebUI shows media
-// frames).
+// reply's (Telegram uploads photos and documents, WeChat uploads them to
+// its CDN, the WebUI shows media frames).
 package message
 
 import (
