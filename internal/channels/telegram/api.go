@@ -111,6 +111,42 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 	return nil
 }
 
+// errTooLarge marks a download over its size limit.
+var errTooLarge = errors.New("file too large")
+
+// download fetches a file getFile returned (GET {base}/file/bot<token>/
+// <file_path>) into memory, refusing one over limit bytes. Errors never
+// contain the token.
+func (c *client) download(ctx context.Context, filePath string, limit int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+"/file/bot"+c.token+"/"+filePath, nil)
+	if err != nil {
+		return nil, c.redact(fmt.Errorf("telegram download: %w", err))
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			ue.URL = c.base + "/file/bot" + redacted + "/" + filePath
+		}
+		return nil, c.redact(fmt.Errorf("telegram download: %w", err))
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("telegram download: HTTP %d", resp.StatusCode)
+	}
+	if resp.ContentLength > limit {
+		return nil, fmt.Errorf("telegram download: %w (%d bytes, limit %d)", errTooLarge, resp.ContentLength, limit)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
+	if err != nil {
+		return nil, c.redact(fmt.Errorf("telegram download: %w", err))
+	}
+	if int64(len(data)) > limit {
+		return nil, fmt.Errorf("telegram download: %w (limit %d bytes)", errTooLarge, limit)
+	}
+	return data, nil
+}
+
 // scrub removes the token from s.
 func (c *client) scrub(s string) string {
 	if c.token == "" {
@@ -173,7 +209,29 @@ type message struct {
 	Caption         string   `json:"caption"`
 	Entities        []entity `json:"entities"`
 	CaptionEntities []entity `json:"caption_entities"`
-	ReplyToMessage  *message `json:"reply_to_message"`
+	// Photo lists the sizes Telegram made of a photo, smallest first.
+	Photo          []photoSize `json:"photo"`
+	ReplyToMessage *message    `json:"reply_to_message"`
+}
+
+type photoSize struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Width        int    `json:"width"`
+	Height       int    `json:"height"`
+	FileSize     int64  `json:"file_size"`
+}
+
+// file is getFile's result; FilePath is valid for an hour.
+type file struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileSize     int64  `json:"file_size"`
+	FilePath     string `json:"file_path"`
+}
+
+type getFileParams struct {
+	FileID string `json:"file_id"`
 }
 
 type update struct {

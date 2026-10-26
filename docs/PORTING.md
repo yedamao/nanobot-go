@@ -127,8 +127,16 @@ Phase 2 is complete; phase 3 is in progress.
     `proxy`, `groupPolicy`, `replyToMessage`), a `status` token row.
     `internal/pairing` (`pairing.json` next to the config, flock + atomic
     writes) and `nanobot pairing list|approve|deny|revoke`.
-  - Not ported (Telegram): webhook mode, media in either direction
-    (download, transcription, media groups, sending files), Markdown to
+    Inbound photos (`_download_message_media` for `msg.photo[-1]`):
+    the largest size via `getFile` and `/file/bot<token>/<path>`, capped
+    at `providers.MaxImageBytes`, saved as
+    `media/telegram/<file_unique_id>.<ext>` (0600) in the workspace and
+    attached as `InboundMessage.Media`, so the turn is multimodal; a bare
+    photo is published with empty text, a failed download keeps only the
+    caption.
+  - Not ported (Telegram): webhook mode, other inbound media (voice and
+    transcription, video, documents, stickers, media groups, the
+    replied-to message's media), sending files, Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,

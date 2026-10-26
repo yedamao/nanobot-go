@@ -2,7 +2,8 @@
 // telegram). It talks to the Bot API directly over net/http: getMe
 // checks the token at start, getUpdates long-polls for messages, and
 // sendMessage delivers replies as plain text in chunks of at most 4096
-// characters. Senders are checked against allowFrom and the pairing
+// characters. Photos are downloaded into the workspace (MediaDir) and
+// attached to the turn, so vision models see them. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
 package telegram
 
@@ -52,6 +53,10 @@ type Options struct {
 	Pairing *pairing.Store
 	// HTTPClient calls the Bot API; nil builds one from the proxy setting.
 	HTTPClient *http.Client
+	// Workspace is the agent's workspace directory; inbound photos are
+	// saved to its MediaDir. Empty leaves photos out (a caption still
+	// goes through).
+	Workspace string
 }
 
 // Factory returns the channels.Factory for Telegram.
@@ -72,6 +77,8 @@ type Channel struct {
 	bus     *bus.MessageBus
 	log     *slog.Logger
 	pairing *pairing.Store
+	// workspace is Options.Workspace.
+	workspace string
 	// allow holds the allowFrom entries; usernames are lower-cased and
 	// without "@".
 	allow    map[string]bool
@@ -125,6 +132,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		bus:            deps.Bus,
 		log:            log,
 		pairing:        opts.Pairing,
+		workspace:      opts.Workspace,
 		allow:          map[string]bool{},
 		sleep:          sleepCtx,
 		minBackoff:     minBackoff,
@@ -372,7 +380,9 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.deny(ctx, m, senderID)
 		return
 	}
-	if strings.TrimSpace(text) == "" {
+	// A photo whose caption is a command runs the command only.
+	hasPhoto := len(m.Photo) > 0 && !isCommand
+	if strings.TrimSpace(text) == "" && !hasPhoto {
 		c.log.Debug("telegram: skipping a message without text", "chat_id", chatID, "sender", senderID)
 		return
 	}
@@ -383,9 +393,26 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		}
 		return
 	}
+	// A photo that cannot be fetched leaves its caption, if any, to
+	// answer; a photo alone is dropped.
+	var media []string
+	if hasPhoto {
+		if p, err := c.downloadPhoto(ctx, m.Photo); err != nil {
+			c.log.Warn("telegram: could not download a photo", "chat_id", chatID, "sender", senderID, "error", err)
+			if strings.TrimSpace(text) == "" {
+				return
+			}
+		} else {
+			media = []string{p}
+		}
+	}
 	if !isCommand && m.ReplyToMessage != nil {
 		if quote := c.replyContext(m.ReplyToMessage); quote != "" {
-			text = quote + "\n" + text
+			if text == "" {
+				text = quote
+			} else {
+				text = quote + "\n" + text
+			}
 		}
 	}
 
@@ -394,6 +421,7 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		SenderID:  senderID,
 		ChatID:    chatID,
 		Content:   text,
+		Media:     media,
 		Timestamp: time.Now(),
 		Metadata:  metadata(m),
 	}

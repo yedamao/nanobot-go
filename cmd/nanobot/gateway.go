@@ -392,8 +392,9 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
 		telegram.Name: telegram.Factory(telegram.Options{
-			Getenv:  a.getenv,
-			Pairing: store,
+			Getenv:    a.getenv,
+			Pairing:   store,
+			Workspace: ws.Root,
 		}),
 		weixin.Name: weixin.Factory(weixin.Options{
 			Getenv:          a.getenv,

@@ -576,8 +576,13 @@ apply.
   the reply in progress (answered "Stopped."; the stopped turn is not
   saved).
 - **Messages.** Text messages and captions are handled; a reply quotes
-  the message it answers (`[Reply to bot: ...]`). Photos, voice and other
-  media without a caption are ignored. Replies are sent as **plain
+  the message it answers (`[Reply to bot: ...]`). **Photos** are
+  multimodal: the largest size is downloaded to `media/telegram/` in the
+  workspace (up to 3.75 MB, what the providers inline) and attached to the
+  turn as an image, with the caption as its text; a photo without a
+  caption goes through too. If the download fails, a caption is answered
+  on its own and a bare photo is dropped (with a log line). Voice, video,
+  documents and other media without a caption are ignored. Replies are sent as **plain
   text**, so Markdown from the model shows literally but can never break
   delivery; long replies are split at newlines or spaces into messages of
   at most 4096 characters. "typing…" shows while the agent works.

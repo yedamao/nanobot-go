@@ -46,17 +46,26 @@ type fakeAPI struct {
 	counts map[string]int
 	// notify gets every method name, never blocking.
 	notify chan string
+	// files are served at /file/bot<token>/photos/<file_id>, which
+	// getFile names as the file_path of file_id; downloads are recorded
+	// as calls of method "file:<file_path>".
+	files map[string][]byte
 }
 
 func newFakeAPI(t *testing.T) *fakeAPI {
 	t.Helper()
-	f := &fakeAPI{t: t, updates: make(chan []update, 16), counts: map[string]int{}, notify: make(chan string, 1024)}
+	f := &fakeAPI{t: t, updates: make(chan []update, 16), counts: map[string]int{}, notify: make(chan string, 1024),
+		files: map[string][]byte{}}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
 	return f
 }
 
 func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
+	if rest, ok := strings.CutPrefix(r.URL.Path, "/file/bot"); ok {
+		f.serveFile(w, rest)
+		return
+	}
 	rest, ok := strings.CutPrefix(r.URL.Path, "/bot")
 	token, method, _ := strings.Cut(rest, "/")
 	if !ok || token != testToken {
@@ -99,9 +108,54 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case "sendMessage":
 		writeOK(w, map[string]any{"message_id": 1000 + n})
+	case "getFile":
+		id, _ := body["file_id"].(string)
+		f.mu.Lock()
+		data, ok := f.files[id]
+		f.mu.Unlock()
+		if !ok {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, `{"ok":false,"error_code":400,"description":"Bad Request: invalid file_id"}`)
+			return
+		}
+		writeOK(w, file{FileID: id, FileSize: int64(len(data)), FilePath: "photos/" + id})
 	default:
 		writeOK(w, true)
 	}
+}
+
+// serveFile answers a file download; rest is "<token>/<file_path>".
+func (f *fakeAPI) serveFile(w http.ResponseWriter, rest string) {
+	token, filePath, _ := strings.Cut(rest, "/")
+	if token != testToken {
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	f.mu.Lock()
+	f.calls = append(f.calls, apiCall{Method: "file:" + filePath})
+	reply := f.reply
+	id, _ := strings.CutPrefix(filePath, "photos/")
+	data, ok := f.files[id]
+	f.mu.Unlock()
+	if reply != nil {
+		if status, resp, ok := reply("file:"+filePath, 1); ok {
+			w.WriteHeader(status)
+			io.WriteString(w, resp)
+			return
+		}
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	w.Write(data)
+}
+
+// addFile makes data downloadable as file_id id.
+func (f *fakeAPI) addFile(id string, data []byte) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.files[id] = data
 }
 
 func writeOK(w http.ResponseWriter, result any) {
@@ -165,6 +219,8 @@ type harness struct {
 	store  *pairing.Store
 	sleeps chan time.Duration
 	logs   *lockedBuffer
+	// workspace is the channel's Options.Workspace.
+	workspace string
 }
 
 // newHarness builds (but does not start) a channel. mutate adjusts the
@@ -180,12 +236,13 @@ func newHarness(t *testing.T, mutate func(*Config)) *harness {
 	b := bus.NewMessageBus(16)
 	store := pairing.NewStore(t.TempDir() + "/pairing.json")
 	logs := &lockedBuffer{}
+	ws := t.TempDir()
 	log := slog.New(slog.NewTextHandler(logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
-	ch, err := New(cfg, channels.Deps{Bus: b, Logger: log}, Options{Pairing: store, HTTPClient: f.srv.Client()})
+	ch, err := New(cfg, channels.Deps{Bus: b, Logger: log}, Options{Pairing: store, HTTPClient: f.srv.Client(), Workspace: ws})
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := &harness{f: f, ch: ch, bus: b, store: store, sleeps: make(chan time.Duration, 64), logs: logs}
+	h := &harness{f: f, ch: ch, bus: b, store: store, sleeps: make(chan time.Duration, 64), logs: logs, workspace: ws}
 	t.Cleanup(func() {
 		if strings.Contains(logs.String(), "secret_token") {
 			t.Errorf("the log leaks the token:\n%s", logs)
