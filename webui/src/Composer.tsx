@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { uploadFile, type Upload } from "./api";
+import { useT } from "./i18n";
 import { attachmentText, type MediaRef } from "./media";
 
 interface Props {
@@ -19,6 +20,7 @@ export function Composer({ canSend, busy, onSend, onStop }: Props) {
   const [uploadError, setUploadError] = useState("");
   const input = useRef<HTMLTextAreaElement>(null);
   const picker = useRef<HTMLInputElement>(null);
+  const t = useT();
 
   // Grow with the text, up to the CSS max-height. (Setting style through
   // the DOM is allowed by the CSP; style attributes in markup are not.)
@@ -80,15 +82,15 @@ export function Composer({ canSend, busy, onSend, onStop }: Props) {
               <button
                 type="button"
                 className="remove"
-                title={"Remove " + a.name}
-                aria-label={"Remove " + a.name}
+                title={t("composer.remove", { name: a.name })}
+                aria-label={t("composer.remove", { name: a.name })}
                 onClick={() => setAttached((list) => list.filter((x) => x.path !== a.path))}
               >
                 ×
               </button>
             </span>
           ))}
-          {uploading > 0 && <span className="uploading">Uploading…</span>}
+          {uploading > 0 && <span className="uploading">{t("composer.uploading")}</span>}
           {uploadError && <span className="upload-error">{uploadError}</span>}
         </div>
       )}
@@ -96,8 +98,8 @@ export function Composer({ canSend, busy, onSend, onStop }: Props) {
       <button
         id="attach"
         type="button"
-        title="Attach files (saved to the workspace's uploads folder)"
-        aria-label="Attach files"
+        title={t("composer.attachTitle")}
+        aria-label={t("composer.attach")}
         disabled={!canSend}
         onClick={() => picker.current?.click()}
       >
@@ -107,19 +109,19 @@ export function Composer({ canSend, busy, onSend, onStop }: Props) {
         id="input"
         ref={input}
         rows={1}
-        placeholder="Message nanobot (Enter to send, Shift+Enter for a new line)"
-        aria-label="Message"
+        placeholder={t("composer.placeholder")}
+        aria-label={t("composer.message")}
         value={text}
         onChange={(ev) => setText(ev.target.value)}
         onKeyDown={onKeyDown}
       />
       {busy && (
-        <button id="stop" type="button" title="Stop the reply in progress" disabled={!canSend} onClick={onStop}>
-          Stop
+        <button id="stop" type="button" title={t("composer.stopTitle")} disabled={!canSend} onClick={onStop}>
+          {t("composer.stop")}
         </button>
       )}
       <button id="send" type="submit" disabled={!canSend || uploading > 0}>
-        Send
+        {t("composer.send")}
       </button>
     </form>
   );

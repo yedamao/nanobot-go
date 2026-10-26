@@ -4,6 +4,7 @@ import { ChannelsPage } from "./ChannelsPage";
 import { ChatList, useChats } from "./ChatList";
 import { Composer } from "./Composer";
 import { CronPage } from "./CronPage";
+import { LocaleSwitcher, useT, type T } from "./i18n";
 import { Login } from "./Login";
 import { MCPPage } from "./MCPPage";
 import { MessageList } from "./MessageList";
@@ -13,14 +14,14 @@ import { SkillsPage } from "./SkillsPage";
 import { StatusDialog } from "./StatusDialog";
 import { useChat, type Connection } from "./useChat";
 
-function statusText(c: Connection): string {
+function statusText(c: Connection, t: T): string {
   switch (c.state) {
     case "connecting":
-      return "Connecting…";
+      return t("connection.connecting");
     case "open":
-      return "Connected";
+      return t("connection.open");
     case "closed":
-      return "Disconnected; reconnecting in " + c.retryIn + "s…";
+      return t("connection.closed", { seconds: c.retryIn });
   }
 }
 
@@ -78,6 +79,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const { chats, setChats, reload } = useChats();
   const { transcript, conn, chatId, send, stop, switchChat } = useChat(reload);
+  const t = useT();
 
   useEffect(() => {
     const onHash = () => setView(readView());
@@ -106,7 +108,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
 
   return (
     <div id="app" data-sidebar={sidebarOpen ? "open" : undefined} data-view={view}>
-      <aside id="sidebar" aria-label="Chats">
+      <aside id="sidebar" aria-label={t("header.chats")}>
         <ChatList
           chats={chats}
           active={chatId}
@@ -122,26 +124,26 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
           <button
             id="toggle-chats"
             type="button"
-            title="Show the chat list"
+            title={t("header.chatsTitle")}
             aria-controls="sidebar"
             aria-expanded={sidebarOpen}
             onClick={() => setSidebarOpen(!sidebarOpen)}
           >
-            Chats
+            {t("header.chats")}
           </button>
           <h1>nanobot-go</h1>
-          <nav id="main-nav" aria-label="Workbench">
+          <nav id="main-nav" aria-label={t("nav.label")}>
             {(
               [
-                ["chat", "Chat"],
-                ["cron", "Cron"],
-                ["channels", "Channels"],
-                ["models", "Models"],
-                ["providers", "Providers"],
-                ["skills", "Skills"],
-                ["mcp", "MCP"],
+                ["chat", "nav.chat"],
+                ["cron", "nav.cron"],
+                ["channels", "nav.channels"],
+                ["models", "nav.models"],
+                ["providers", "nav.providers"],
+                ["skills", "nav.skills"],
+                ["mcp", "nav.mcp"],
               ] as const
-            ).map(([id, label]) => (
+            ).map(([id, key]) => (
               <button
                 key={id}
                 type="button"
@@ -149,27 +151,28 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
                 aria-current={view === id ? "page" : undefined}
                 onClick={() => go(id)}
               >
-                {label}
+                {t(key)}
               </button>
             ))}
           </nav>
           <span className="status" data-state={conn.state} role="status">
-            {statusText(conn)}
+            {statusText(conn, t)}
           </span>
           <button
             id="show-status"
             type="button"
-            title="Show the gateway status"
+            title={t("header.statusTitle")}
             aria-controls="status-panel"
             onClick={() => setStatusOpen(true)}
           >
-            Status
+            {t("header.status")}
           </button>
           {onSignOut && (
-            <button id="sign-out" type="button" title="Sign out of this browser" onClick={onSignOut}>
-              Sign out
+            <button id="sign-out" type="button" title={t("header.signOutTitle")} onClick={onSignOut}>
+              {t("header.signOut")}
             </button>
           )}
+          <LocaleSwitcher id="locale" />
         </header>
         {view === "chat" && (
           <div id="chat">

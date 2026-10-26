@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
-import { login } from "./auth";
+import { login, loginErrorKey } from "./auth";
+import { LocaleSwitcher, useT } from "./i18n";
 
 // Login asks for the gateway's access token (channels.websocket's token
 // or tokenIssueSecret) and signs in with it.
@@ -7,6 +8,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
   const [token, setToken] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const t = useT();
 
   const submit = async (ev: FormEvent) => {
     ev.preventDefault();
@@ -14,15 +16,15 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
     setBusy(true);
     setError("");
     try {
-      const problem = await login(token.trim());
-      if (problem) {
-        setError(problem);
+      const status = await login(token.trim());
+      if (status) {
+        setError(t(loginErrorKey(status), { status }));
         return;
       }
       setToken("");
       onSignedIn();
     } catch {
-      setError("Cannot reach the gateway.");
+      setError(t("login.unreachable"));
     } finally {
       setBusy(false);
     }
@@ -31,10 +33,13 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
   return (
     <main id="login">
       <form id="login-form" onSubmit={submit}>
-        <h1>nanobot-go</h1>
-        <p>This WebUI is reached over the network, so it needs the access token from the gateway's config (channels.websocket.tokenIssueSecret or token).</p>
+        <div className="login-title">
+          <h1>nanobot-go</h1>
+          <LocaleSwitcher id="login-locale" />
+        </div>
+        <p>{t("login.blurb")}</p>
         <label>
-          Access token
+          {t("login.token")}
           <input
             id="login-token"
             type="password"
@@ -48,7 +53,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
           {error}
         </p>
         <button id="login-submit" type="submit" disabled={busy || !token.trim()}>
-          {busy ? "Signing in…" : "Sign in"}
+          {busy ? t("login.signingIn") : t("login.signIn")}
         </button>
       </form>
     </main>

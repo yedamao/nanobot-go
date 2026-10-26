@@ -1,10 +1,13 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loginError } from "./auth.ts";
+import { loginErrorKey } from "./auth.ts";
+import { translate } from "./i18n/translate.ts";
 
-test("loginError explains each refusal without naming the secret", () => {
-  assert.match(loginError(401), /not right/);
-  assert.match(loginError(429), /Too many/);
-  assert.match(loginError(404), /not configured/);
-  assert.equal(loginError(500), "Sign-in failed (HTTP 500).");
+test("loginErrorKey explains each refusal without naming the secret", () => {
+  const msg = (status: number) => translate("en", loginErrorKey(status), { status });
+  assert.match(msg(401), /not right/);
+  assert.match(msg(429), /Too many/);
+  assert.match(msg(404), /not configured/);
+  assert.equal(msg(500), "Sign-in failed (HTTP 500).");
+  assert.equal(translate("zh-CN", loginErrorKey(500), { status: 500 }), "登录失败（HTTP 500）。");
 });

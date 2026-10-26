@@ -11,6 +11,7 @@ import {
   type CronWrite,
 } from "./api";
 import { formatDuration, runReply, runStatusState } from "./cronRuns";
+import { useT, type MessageKey } from "./i18n";
 
 function fmt(iso?: string): string {
   if (!iso) return "—";
@@ -82,9 +83,10 @@ function formFromJob(job: CronJob): FormState {
   };
 }
 
-function buildWrite(form: FormState, forCreate: boolean): CronWrite | string {
+// buildWrite returns the request, or the message key of what is missing.
+function buildWrite(form: FormState, forCreate: boolean): CronWrite | MessageKey {
   const message = form.message.trim();
-  if (!message) return "message is required";
+  if (!message) return "cron.validation.messageRequired";
   const write: CronWrite = {
     message,
     enabled: form.enabled,
@@ -93,16 +95,16 @@ function buildWrite(form: FormState, forCreate: boolean): CronWrite | string {
   if (name || !forCreate) write.name = name;
   if (form.kind === "every") {
     const mins = Number(form.everyMinutes);
-    if (!Number.isFinite(mins) || mins <= 0) return "every needs a positive interval (minutes)";
+    if (!Number.isFinite(mins) || mins <= 0) return "cron.validation.everyPositive";
     write.schedule = { kind: "every", everyMs: Math.round(mins * 60000) };
   } else if (form.kind === "cron") {
     const expr = form.expr.trim();
-    if (!expr) return "cron schedule needs an expression";
+    if (!expr) return "cron.validation.exprRequired";
     write.schedule = { kind: "cron", expr, tz: form.tz.trim() || undefined };
   } else {
-    if (!form.atLocal.trim()) return "one-time schedule needs a date/time";
+    if (!form.atLocal.trim()) return "cron.validation.atRequired";
     const d = new Date(form.atLocal);
-    if (Number.isNaN(d.getTime())) return "invalid date/time";
+    if (Number.isNaN(d.getTime())) return "cron.validation.atInvalid";
     write.schedule = { kind: "at", at: d.toISOString() };
     write.deleteAfterRun = form.deleteAfterRun || forCreate;
   }
@@ -121,6 +123,7 @@ export function CronPage() {
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
   const [history, setHistory] = useState<{ job: CronJob; runs: CronRun[] | null; error: string } | null>(null);
+  const t = useT();
 
   const load = useCallback(async () => {
     setError("");
@@ -151,11 +154,11 @@ export function CronPage() {
     setNote("");
     try {
       await runCronJob(job.id, !job.enabled);
-      setNote("Ran " + job.name);
+      setNote(t("cron.notes.ran", { name: job.name }));
       await load();
       if (history?.job.id === job.id) await loadHistory(job);
     } catch (err) {
-      setNote("Run failed: " + (err as Error).message);
+      setNote(t("cron.notes.runFailed", { error: (err as Error).message }));
     } finally {
       setBusy(null);
     }
@@ -163,15 +166,15 @@ export function CronPage() {
 
   const remove = async (job: CronJob) => {
     if (job.system) return;
-    if (!confirm('Remove cron job "' + job.name + '"?')) return;
+    if (!confirm(t("cron.notes.removeConfirm", { name: job.name }))) return;
     setBusy(job.id);
     setNote("");
     try {
       await removeCronJob(job.id);
-      setNote("Removed " + job.name);
+      setNote(t("cron.notes.removed", { name: job.name }));
       await load();
     } catch (err) {
-      setNote("Remove failed: " + (err as Error).message);
+      setNote(t("cron.notes.removeFailed", { error: (err as Error).message }));
     } finally {
       setBusy(null);
     }
@@ -183,10 +186,10 @@ export function CronPage() {
     setNote("");
     try {
       await patchCronJob(job.id, { enabled: !job.enabled });
-      setNote((job.enabled ? "Disabled " : "Enabled ") + job.name);
+      setNote(t(job.enabled ? "cron.notes.disabled" : "cron.notes.enabled", { name: job.name }));
       await load();
     } catch (err) {
-      setNote("Update failed: " + (err as Error).message);
+      setNote(t("cron.notes.updateFailed", { error: (err as Error).message }));
     } finally {
       setBusy(null);
     }
@@ -196,18 +199,18 @@ export function CronPage() {
     e.preventDefault();
     const write = buildWrite(create, true);
     if (typeof write === "string") {
-      setNote(write);
+      setNote(t(write));
       return;
     }
     setBusy("create");
     setNote("");
     try {
       const job = await createCronJob(write);
-      setNote("Created " + job.name);
+      setNote(t("cron.notes.created", { name: job.name }));
       setCreate(emptyForm());
       await load();
     } catch (err) {
-      setNote("Create failed: " + (err as Error).message);
+      setNote(t("cron.notes.createFailed", { error: (err as Error).message }));
     } finally {
       setBusy(null);
     }
@@ -225,18 +228,18 @@ export function CronPage() {
     if (!editing) return;
     const write = buildWrite(editForm, false);
     if (typeof write === "string") {
-      setNote(write);
+      setNote(t(write));
       return;
     }
     setBusy(editing.id);
     setNote("");
     try {
       const job = await patchCronJob(editing.id, write);
-      setNote("Updated " + job.name);
+      setNote(t("cron.notes.updated", { name: job.name }));
       setEditing(null);
       await load();
     } catch (err) {
-      setNote("Update failed: " + (err as Error).message);
+      setNote(t("cron.notes.updateFailed", { error: (err as Error).message }));
     } finally {
       setBusy(null);
     }
@@ -245,37 +248,37 @@ export function CronPage() {
   return (
     <section className="page" aria-labelledby="cron-heading">
       <header className="page-header">
-        <h2 id="cron-heading">Cron</h2>
+        <h2 id="cron-heading">{t("cron.heading")}</h2>
         <button type="button" onClick={() => void load()} disabled={busy !== null}>
-          Refresh
+          {t("common.refresh")}
         </button>
       </header>
-      {error && <p className="page-error">Cannot load cron jobs ({error}).</p>}
+      {error && <p className="page-error">{t("cron.loadError", { error })}</p>}
       {note && <p className="page-note">{note}</p>}
 
       <form className="cron-form" onSubmit={(e) => void submitCreate(e)}>
-        <h3>New job</h3>
+        <h3>{t("cron.newJob")}</h3>
         <CronFields form={create} setForm={setCreate} idPrefix="create" />
         <div className="cron-form-actions">
           <button type="submit" disabled={busy !== null}>
-            Create
+            {t("cron.create")}
           </button>
         </div>
       </form>
 
-      {!error && jobs === null && <p className="page-empty">Loading…</p>}
+      {!error && jobs === null && <p className="page-empty">{t("common.loading")}</p>}
       {!error && jobs && jobs.length === 0 && (
-        <p className="page-empty">No scheduled jobs yet. Create one above.</p>
+        <p className="page-empty">{t("cron.empty")}</p>
       )}
       {jobs && jobs.length > 0 && (
         <table className="page-table">
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Schedule</th>
-              <th>Next</th>
-              <th>Last</th>
-              <th>Status</th>
+              <th>{t("cron.columns.name")}</th>
+              <th>{t("cron.columns.schedule")}</th>
+              <th>{t("cron.columns.next")}</th>
+              <th>{t("cron.columns.last")}</th>
+              <th>{t("cron.columns.status")}</th>
               <th></th>
             </tr>
           </thead>
@@ -284,8 +287,8 @@ export function CronPage() {
               <tr key={j.id} data-system={j.system || undefined} data-disabled={!j.enabled || undefined}>
                 <td>
                   {j.name}
-                  {j.system && <span className="badge">system</span>}
-                  {!j.enabled && <span className="badge">disabled</span>}
+                  {j.system && <span className="badge">{t("cron.badges.system")}</span>}
+                  {!j.enabled && <span className="badge">{t("cron.badges.disabled")}</span>}
                 </td>
                 <td>{j.schedule.summary}</td>
                 <td>{fmt(j.state.nextRun)}</td>
@@ -296,19 +299,19 @@ export function CronPage() {
                 </td>
                 <td className="page-actions">
                   <button type="button" disabled={busy === j.id} onClick={() => void run(j)}>
-                    Run
+                    {t("cron.actions.run")}
                   </button>
                   <button type="button" onClick={() => void loadHistory(j)}>
-                    History
+                    {t("cron.actions.history")}
                   </button>
                   <button type="button" disabled={j.system || busy === j.id} onClick={() => openEdit(j)}>
-                    Edit
+                    {t("cron.actions.edit")}
                   </button>
                   <button type="button" disabled={j.system || busy === j.id} onClick={() => void toggleEnabled(j)}>
-                    {j.enabled ? "Disable" : "Enable"}
+                    {j.enabled ? t("cron.actions.disable") : t("cron.actions.enable")}
                   </button>
                   <button type="button" disabled={j.system || busy === j.id} onClick={() => void remove(j)}>
-                    Remove
+                    {t("cron.actions.remove")}
                   </button>
                 </td>
               </tr>
@@ -320,18 +323,18 @@ export function CronPage() {
       {history && (
         <dialog className="cron-dialog cron-history" open onCancel={() => setHistory(null)}>
           <div className="cron-form">
-            <h3>History: {history.job.name}</h3>
-            {history.error && <p className="page-error">Cannot load runs ({history.error}).</p>}
-            {!history.error && history.runs === null && <p className="page-empty">Loading…</p>}
-            {history.runs && history.runs.length === 0 && <p className="page-empty">No runs yet.</p>}
+            <h3>{t("cron.history.title", { name: history.job.name })}</h3>
+            {history.error && <p className="page-error">{t("cron.history.loadError", { error: history.error })}</p>}
+            {!history.error && history.runs === null && <p className="page-empty">{t("common.loading")}</p>}
+            {history.runs && history.runs.length === 0 && <p className="page-empty">{t("cron.history.empty")}</p>}
             {history.runs && history.runs.length > 0 && (
               <table className="page-table">
                 <thead>
                   <tr>
-                    <th>Time</th>
-                    <th>Status</th>
-                    <th>Duration</th>
-                    <th>Error</th>
+                    <th>{t("cron.history.columns.time")}</th>
+                    <th>{t("cron.history.columns.status")}</th>
+                    <th>{t("cron.history.columns.duration")}</th>
+                    <th>{t("cron.history.columns.error")}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -354,7 +357,7 @@ export function CronPage() {
                             {reply ? (
                               <pre className="cron-run-reply">{reply}</pre>
                             ) : (
-                              <span className="cron-run-noreply">No reply.</span>
+                              <span className="cron-run-noreply">{t("cron.history.noReply")}</span>
                             )}
                           </td>
                         </tr>
@@ -366,10 +369,10 @@ export function CronPage() {
             )}
             <div className="cron-form-actions">
               <button type="button" onClick={() => void loadHistory(history.job)}>
-                Refresh
+                {t("common.refresh")}
               </button>
               <button type="button" onClick={() => setHistory(null)}>
-                Close
+                {t("common.close")}
               </button>
             </div>
           </div>
@@ -379,14 +382,14 @@ export function CronPage() {
       {editing && (
         <dialog className="cron-dialog" open onCancel={() => setEditing(null)}>
           <form className="cron-form" onSubmit={(e) => void submitEdit(e)}>
-            <h3>Edit {editing.name}</h3>
+            <h3>{t("cron.edit.title", { name: editing.name })}</h3>
             <CronFields form={editForm} setForm={setEditForm} idPrefix="edit" />
             <div className="cron-form-actions">
               <button type="button" onClick={() => setEditing(null)} disabled={busy === editing.id}>
-                Cancel
+                {t("common.cancel")}
               </button>
               <button type="submit" disabled={busy === editing.id}>
-                Save
+                {t("common.save")}
               </button>
             </div>
           </form>
@@ -406,44 +409,45 @@ function CronFields({
   idPrefix: string;
 }) {
   const set = (patch: Partial<FormState>) => setForm({ ...form, ...patch });
+  const t = useT();
   return (
     <fieldset className="cron-fields">
       <label htmlFor={idPrefix + "-name"}>
-        Name
+        {t("cron.fields.name")}
         <input
           id={idPrefix + "-name"}
           type="text"
           value={form.name}
-          placeholder="optional"
+          placeholder={t("cron.fields.namePlaceholder")}
           onChange={(e) => set({ name: e.target.value })}
         />
       </label>
       <label htmlFor={idPrefix + "-message"}>
-        Message
+        {t("cron.fields.message")}
         <textarea
           id={idPrefix + "-message"}
           rows={3}
           required
           value={form.message}
-          placeholder="What the agent should do"
+          placeholder={t("cron.fields.messagePlaceholder")}
           onChange={(e) => set({ message: e.target.value })}
         />
       </label>
       <label htmlFor={idPrefix + "-kind"}>
-        Schedule
+        {t("cron.fields.schedule")}
         <select
           id={idPrefix + "-kind"}
           value={form.kind}
           onChange={(e) => set({ kind: e.target.value as Kind })}
         >
-          <option value="every">Every N minutes</option>
-          <option value="cron">Cron expression</option>
-          <option value="at">One-time (at)</option>
+          <option value="every">{t("cron.fields.kindEvery")}</option>
+          <option value="cron">{t("cron.fields.kindCron")}</option>
+          <option value="at">{t("cron.fields.kindAt")}</option>
         </select>
       </label>
       {form.kind === "every" && (
         <label htmlFor={idPrefix + "-every"}>
-          Minutes
+          {t("cron.fields.minutes")}
           <input
             id={idPrefix + "-every"}
             type="number"
@@ -457,7 +461,7 @@ function CronFields({
       {form.kind === "cron" && (
         <>
           <label htmlFor={idPrefix + "-expr"}>
-            Expression
+            {t("cron.fields.expression")}
             <input
               id={idPrefix + "-expr"}
               type="text"
@@ -467,7 +471,7 @@ function CronFields({
             />
           </label>
           <label htmlFor={idPrefix + "-tz"}>
-            Timezone
+            {t("cron.fields.timezone")}
             <input
               id={idPrefix + "-tz"}
               type="text"
@@ -481,7 +485,7 @@ function CronFields({
       {form.kind === "at" && (
         <>
           <label htmlFor={idPrefix + "-at"}>
-            When
+            {t("cron.fields.when")}
             <input
               id={idPrefix + "-at"}
               type="datetime-local"
@@ -496,7 +500,7 @@ function CronFields({
               checked={form.deleteAfterRun}
               onChange={(e) => set({ deleteAfterRun: e.target.checked })}
             />
-            Delete after run
+            {t("cron.fields.deleteAfterRun")}
           </label>
         </>
       )}
@@ -507,7 +511,7 @@ function CronFields({
           checked={form.enabled}
           onChange={(e) => set({ enabled: e.target.checked })}
         />
-        Enabled
+        {t("cron.fields.enabled")}
       </label>
     </fieldset>
   );

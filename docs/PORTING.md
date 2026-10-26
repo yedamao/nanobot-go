@@ -528,11 +528,26 @@ Phase 2 is complete; phase 3 is in progress.
     no OAuth, no preset catalog/marketplace or Cursor/Claude config
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
-  - Next WebUI slices: i18n, a richer layout and components (nanobot's
+  - Done (simplified): WebUI i18n, first slice (`webui/src/i18n/`).
+    English and Simplified Chinese (`en`, `zh-CN`, native labels
+    English / 简体中文) from a small typed catalog layer instead of
+    nanobot's i18next + react-i18next: `en.ts` is the reference,
+    `zh-CN.ts` must have the same keys (type-checked and tested), and
+    `t("nav.cron", {name})` falls back zh-CN → en → key. Same storage key
+    as nanobot (`nanobot.locale`); first visit follows
+    `navigator.languages` when supported, else English; `<html lang>`
+    follows the choice. A header select (also on the sign-in form)
+    switches at once. Translated: header/nav/connection status, sign-in
+    form and its errors, the Composer, and the Cron page (form, table,
+    notes, History and Edit dialogs). Gaps: Channels, Models, Providers,
+    Skills, MCP pages, the chat list, message list, Status dialog,
+    restart prompt and server-sent error text are still English; dates
+    use the browser's locale; no zh-TW/ja/fr/… yet.
+  - Next WebUI slices: i18n for the remaining pages, a richer layout and components (nanobot's
     Radix/Tailwind UI), a model catalog/picker, provider OAuth and
     custom providers, MCP presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
-    Radix, i18n, KaTeX/Mermaid), settings/models/apps/marketplace pages
+    Radix, i18next and its many locales, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
     provider OAuth/custom-provider forms, channel tokens and allow lists, SSRF whitelist,
     MCP servers and OAuth, hot-applying saved

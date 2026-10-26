@@ -1,0 +1,143 @@
+// English messages: the reference catalog. Every other locale has the same
+// keys (the Messages type enforces it). "{name}" placeholders are filled by t().
+export const en = {
+  app: {
+    language: "Language",
+  },
+  nav: {
+    label: "Workbench",
+    chat: "Chat",
+    cron: "Cron",
+    channels: "Channels",
+    models: "Models",
+    providers: "Providers",
+    skills: "Skills",
+    mcp: "MCP",
+  },
+  header: {
+    chats: "Chats",
+    chatsTitle: "Show the chat list",
+    status: "Status",
+    statusTitle: "Show the gateway status",
+    signOut: "Sign out",
+    signOutTitle: "Sign out of this browser",
+  },
+  connection: {
+    connecting: "Connecting…",
+    open: "Connected",
+    closed: "Disconnected; reconnecting in {seconds}s…",
+  },
+  login: {
+    blurb:
+      "This WebUI is reached over the network, so it needs the access token from the gateway's config (channels.websocket.tokenIssueSecret or token).",
+    token: "Access token",
+    signIn: "Sign in",
+    signingIn: "Signing in…",
+    unreachable: "Cannot reach the gateway.",
+    errors: {
+      badToken: "That access token is not right.",
+      tooMany: "Too many failed attempts; wait a few minutes and try again.",
+      notConfigured: "Sign-in is not configured on this gateway.",
+      failed: "Sign-in failed (HTTP {status}).",
+    },
+  },
+  composer: {
+    placeholder: "Message nanobot (Enter to send, Shift+Enter for a new line)",
+    message: "Message",
+    attach: "Attach files",
+    attachTitle: "Attach files (saved to the workspace's uploads folder)",
+    remove: "Remove {name}",
+    uploading: "Uploading…",
+    stop: "Stop",
+    stopTitle: "Stop the reply in progress",
+    send: "Send",
+  },
+  common: {
+    refresh: "Refresh",
+    loading: "Loading…",
+    close: "Close",
+    cancel: "Cancel",
+    save: "Save",
+  },
+  cron: {
+    heading: "Cron",
+    loadError: "Cannot load cron jobs ({error}).",
+    newJob: "New job",
+    create: "Create",
+    empty: "No scheduled jobs yet. Create one above.",
+    columns: {
+      name: "Name",
+      schedule: "Schedule",
+      next: "Next",
+      last: "Last",
+      status: "Status",
+    },
+    badges: {
+      system: "system",
+      disabled: "disabled",
+    },
+    actions: {
+      run: "Run",
+      history: "History",
+      edit: "Edit",
+      disable: "Disable",
+      enable: "Enable",
+      remove: "Remove",
+    },
+    notes: {
+      ran: "Ran {name}",
+      runFailed: "Run failed: {error}",
+      removeConfirm: 'Remove cron job "{name}"?',
+      removed: "Removed {name}",
+      removeFailed: "Remove failed: {error}",
+      enabled: "Enabled {name}",
+      disabled: "Disabled {name}",
+      created: "Created {name}",
+      createFailed: "Create failed: {error}",
+      updated: "Updated {name}",
+      updateFailed: "Update failed: {error}",
+    },
+    validation: {
+      messageRequired: "message is required",
+      everyPositive: "every needs a positive interval (minutes)",
+      exprRequired: "cron schedule needs an expression",
+      atRequired: "one-time schedule needs a date/time",
+      atInvalid: "invalid date/time",
+    },
+    history: {
+      title: "History: {name}",
+      loadError: "Cannot load runs ({error}).",
+      empty: "No runs yet.",
+      noReply: "No reply.",
+      columns: {
+        time: "Time",
+        status: "Status",
+        duration: "Duration",
+        error: "Error",
+      },
+    },
+    edit: {
+      title: "Edit {name}",
+    },
+    fields: {
+      name: "Name",
+      namePlaceholder: "optional",
+      message: "Message",
+      messagePlaceholder: "What the agent should do",
+      schedule: "Schedule",
+      kindEvery: "Every N minutes",
+      kindCron: "Cron expression",
+      kindAt: "One-time (at)",
+      minutes: "Minutes",
+      expression: "Expression",
+      timezone: "Timezone",
+      when: "When",
+      deleteAfterRun: "Delete after run",
+      enabled: "Enabled",
+    },
+  },
+};
+
+type Catalog<T> = { [K in keyof T]: T[K] extends string ? string : Catalog<T[K]> };
+
+export type Messages = Catalog<typeof en>;

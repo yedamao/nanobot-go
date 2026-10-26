@@ -511,3 +511,5 @@ button:disabled { opacity: 0.5; cursor: default; }
 .weixin-login-details div { display: grid; grid-template-columns: 140px 1fr; gap: 8px; }
 .weixin-login-details dt { color: var(--muted); }
 .weixin-login-details dd { margin: 0; overflow-wrap: anywhere; }
+.locale-switcher { font: inherit; font-size: 13px; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); }
+.login-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

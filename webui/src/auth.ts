@@ -4,6 +4,8 @@
 // cookie, which later requests and the WebSocket send on their own. The
 // secret is never kept in the page.
 
+import type { Messages } from "./i18n/en.ts";
+
 export interface AuthState {
   required: boolean;
   authenticated: boolean;
@@ -15,32 +17,37 @@ export async function getAuth(): Promise<AuthState> {
   return resp.json();
 }
 
-// login signs in with token; it returns "" on success or why it failed.
-export async function login(token: string): Promise<string> {
+// login signs in with token; it returns 0 on success or the refusal's
+// HTTP status (see loginErrorKey).
+export async function login(token: string): Promise<number> {
   const resp = await fetch("login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ token }),
   });
-  return resp.ok ? "" : loginError(resp.status);
+  return resp.ok ? 0 : resp.status;
 }
 
 export async function logout(): Promise<void> {
   await fetch("logout", { method: "POST" });
 }
 
-export function loginError(status: number): string {
+// loginErrorKey names the message explaining a refused sign-in; the
+// "failed" message takes the HTTP status as {status}.
+export function loginErrorKey(status: number): LoginErrorKey {
   switch (status) {
     case 401:
-      return "That access token is not right.";
+      return "login.errors.badToken";
     case 429:
-      return "Too many failed attempts; wait a few minutes and try again.";
+      return "login.errors.tooMany";
     case 404:
-      return "Sign-in is not configured on this gateway.";
+      return "login.errors.notConfigured";
     default:
-      return "Sign-in failed (HTTP " + status + ").";
+      return "login.errors.failed";
   }
 }
+
+export type LoginErrorKey = `login.errors.${keyof Messages["login"]["errors"]}`;
 
 // A 401 from any /ui/ endpoint means the session ended (or never began);
 // the app listens for this event and shows the sign-in form.
