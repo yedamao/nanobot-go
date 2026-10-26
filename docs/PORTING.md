@@ -305,10 +305,11 @@ Phase 2 is complete; phase 3 is in progress.
     (`maxReplyChars`; `RunFunc` returns the reply like `CronRunResult.response`),
     in `jobs.json`; canceled runs are not recorded. No `run_id`/`session_key`
     per run and no full `cron/runs/*.json` response files.
-  - Not ported: local triggers, run records (`cron/runs/`),
-    WebUI `change_binding` UI (create/edit/enable via POST/PATCH `/ui/cron`
-    are under WebUI; list/run/remove too);
-    for the heartbeat,
+  - Done (simplified): WebUI job list/create/edit/enable/run/remove via
+    `/ui/cron` through the live `cron.Service` (see WebUI below).
+  - Not ported: local triggers, run records (`cron/runs/`), a WebUI
+    `change_binding` picker (the API takes a binding; the Cron page
+    does not expose it); for the heartbeat,
     see Cron below.
 - `internal/api`: an OpenAI-compatible API.
   - Done: `api.Server` (`GET /health`, `GET /v1/models`,
@@ -620,7 +621,15 @@ Phase 2 is complete; phase 3 is in progress.
     `GET /ui/cron` lists jobs (safe fields only; system flagged);
     `POST /ui/cron/{id}/run` (`{"force":true}` for disabled) and
     `DELETE /ui/cron/{id}` (403 for system) go through the live
-    `cron.Service`. `GET /ui/pairing` plus approve/deny/revoke POST
+    `cron.Service`. `POST /ui/cron` creates an agent-turn job
+    (`at`/`every`/`cron` schedule, message, enabled, optional
+    `binding`; omitted binding runs in websocket chat `cron`), and
+    `PATCH /ui/cron/{id}` updates name/message/schedule/enabled/
+    `deleteAfterRun`/binding (403 for system, 404 when missing); both
+    apply live through `cron.Service` Add/Update, no restart. The Cron
+    page has a Create form, an Edit dialog and an Enable/Disable toggle
+    next to History/Run/Delete; system jobs cannot be edited, toggled
+    or removed. `GET /ui/pairing` plus approve/deny/revoke POST
     routes use the same `pairing.Store` as Telegram/WeChat.
     `GET /ui/skills` lists `skills/*/SKILL.md` under the workspace plus
     the bundled builtins not yet installed (`internal/skills`, embedded
@@ -632,8 +641,9 @@ Phase 2 is complete; phase 3 is in progress.
     through `os.Root` (403 for builtins). The system prompt now carries
     a skills summary of the enabled workspace skills. The React header
     nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
-    no automation create/edit UI, no enable/disable toggle, run
-    replies only as stored truncated (`GET /ui/cron/{id}/runs` and the
+    the Cron form has no binding fields (create uses the default
+    websocket `cron` chat, edit keeps the job's binding; other
+    channels/chats only via the API), run replies only as stored truncated (`GET /ui/cron/{id}/runs` and the
     Cron page's **History** show status, duration, truncated error and
     reply; no per-run detail GET), no skill marketplace (skills.sh/ClawHub),
     skill detail/raw view, requirement checks (`requires.bins/env`) or
