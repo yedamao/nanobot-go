@@ -17,11 +17,11 @@ func TestBoundRunner(t *testing.T) {
 	}
 	var turns []bus.InboundMessage
 	var delivered []bus.OutboundMessage
-	reply, turnErr := "standup time!", error(nil)
+	reply, sent, turnErr := "standup time!", false, error(nil)
 	run := BoundRunner(
-		func(_ context.Context, msg bus.InboundMessage) (string, error) {
+		func(_ context.Context, msg bus.InboundMessage) (string, bool, error) {
 			turns = append(turns, msg)
-			return reply, turnErr
+			return reply, sent, turnErr
 		},
 		func(_ context.Context, msg bus.OutboundMessage) error {
 			delivered = append(delivered, msg)
@@ -48,6 +48,14 @@ func TestBoundRunner(t *testing.T) {
 	if IsCronTurn(job.Binding.Metadata) {
 		t.Error("binding metadata gained the trigger marker")
 	}
+
+	// When the message tool already sent to the chat, the reply is only
+	// returned for the history.
+	sent = true
+	if got, err := run(context.Background(), job); err != nil || got != "standup time!" || len(delivered) != 1 {
+		t.Errorf("message tool sent: run = %q, %v, delivered %d", got, err, len(delivered))
+	}
+	sent = false
 
 	// An empty reply delivers nothing; a failed turn neither.
 	reply = "  "

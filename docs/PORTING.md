@@ -1071,9 +1071,12 @@ Phase 2 is complete; phase 3 is in progress.
   `bus.IsStreamed`, so Telegram and WeChat drop it (no second message)
   while the websocket channel still sends it as the `message` frame that
   settles the reply's streamed deltas, which nanobot's WebUI ends with a
-  stream-end event instead. Only bus-driven turns: a cron job's reply
-  (`Loop.ProcessMessage` + `BoundRunner`) is delivered even when the tool
-  already sent to the job's chat. nanobot's `had_injections` exception
+  stream-end event instead. Cron jobs (`BoundRunner`, fed
+  `Loop.Process`'s `Reply.Delivered`) skip delivering the final reply
+  entirely when the tool already sent to the job's chat; it is still
+  recorded in the run history. Heartbeat turns are unaffected: the tool
+  never delivers from the `heartbeat` session, so `heartbeat.Config.Turn`
+  keeps returning only the reply. nanobot's `had_injections` exception
   does not apply (no mid-turn injections).
 - **Not ported:** `buttons` (inline keyboards), remote `http(s)` media
   URLs (refused with an error), `generate_image` artifacts, the

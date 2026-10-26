@@ -39,9 +39,10 @@ func IsCronTurn(metadata map[string]any) bool {
 	return ok
 }
 
-// TurnFunc runs one agent turn for msg and returns the reply
-// (agent.Loop.ProcessMessage).
-type TurnFunc func(ctx context.Context, msg bus.InboundMessage) (string, error)
+// TurnFunc runs one agent turn for msg and returns the reply and whether a
+// tool (the message tool) already sent to msg's chat during the turn
+// (agent.Loop.Process's Reply.Content and Reply.Delivered).
+type TurnFunc func(ctx context.Context, msg bus.InboundMessage) (reply string, delivered bool, err error)
 
 // DeliverFunc sends a reply to a chat (bus.MessageBus.PublishOutbound in
 // the gateway).
@@ -51,7 +52,10 @@ type DeliverFunc func(ctx context.Context, msg bus.OutboundMessage) error
 // run_bound_cron_job: the job's message runs as a turn in the session of
 // the chat it was created from, marked as a cron turn (sender "cron",
 // TriggerMetaKey in the metadata), and a non-empty reply is delivered to
-// that chat and returned for the run history. Jobs without a complete binding, and system jobs, are
+// that chat and returned for the run history. When the message tool
+// already sent to that chat during the turn, the reply is only returned
+// (nanobot's capture_message_deliveries; the bus counterpart is
+// bus.MetaSuperseded). Jobs without a complete binding, and system jobs, are
 // skipped (ErrSkipped). A failed turn delivers nothing; the failure is
 // recorded on the job.
 func BoundRunner(turn TurnFunc, deliver DeliverFunc) RunFunc {
@@ -68,7 +72,7 @@ func BoundRunner(turn TurnFunc, deliver DeliverFunc) RunFunc {
 			meta = map[string]any{}
 		}
 		meta[TriggerMetaKey] = map[string]any{"job_id": job.ID, "job_name": job.Name}
-		reply, err := turn(ctx, bus.InboundMessage{
+		reply, delivered, err := turn(ctx, bus.InboundMessage{
 			Channel:            b.Channel,
 			ChatID:             b.ChatID,
 			SenderID:           SenderID,
@@ -80,7 +84,7 @@ func BoundRunner(turn TurnFunc, deliver DeliverFunc) RunFunc {
 		if err != nil {
 			return reply, err
 		}
-		if strings.TrimSpace(reply) == "" {
+		if delivered || strings.TrimSpace(reply) == "" {
 			return reply, nil
 		}
 		return reply, deliver(ctx, bus.OutboundMessage{

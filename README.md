@@ -265,7 +265,8 @@ are refused, whatever `restrictToWorkspace` says). Telegram uploads them
 them in the message. `channel` and `chat_id` default to the current chat,
 whose thread and reply target the message keeps; a message to another
 chat carries none of them. When the tool has answered the current chat,
-chat apps do not get the turn's final reply as a second message. The
+chat apps do not get the turn's final reply as a second message; the
+same holds for a cron job that used the tool to answer its chat. The
 tool only works under `nanobot gateway`; heartbeat runs acknowledge its
 sends without delivering them, so only replies that pass the heartbeat
 check reach you. Remote URLs and buttons are not supported yet.

@@ -308,7 +308,10 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 			return errors.New("no chat channels run in this process")
 		}
 	}
-	rt.runBound = cron.BoundRunner(loop.ProcessMessage, deliver)
+	rt.runBound = cron.BoundRunner(func(ctx context.Context, msg bus.InboundMessage) (string, bool, error) {
+		r, err := loop.Process(ctx, msg)
+		return r.Content, r.Delivered, err
+	}, deliver)
 	rt.heartbeat = heartbeat.New(heartbeat.Config{
 		Workspace: ws.Root,
 		Provider:  provider,
