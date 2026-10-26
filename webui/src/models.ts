@@ -1,4 +1,5 @@
 import type { FallbackModel, ProviderModels, Settings, SettingsPatch } from "./api.ts";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 /** The Models page's form: the primary model and the ordered fallbacks. */
 export interface ModelsDraft {
@@ -93,13 +94,13 @@ export function catalogOptions(c: Catalog | undefined): { value: string; label: 
 
 /** catalogNote is the quiet line under a model field: where its
  * suggestions come from, or why there are none. "" when nothing to say. */
-export function catalogNote(c: Catalog | undefined): string {
+export function catalogNote(c: Catalog | undefined, t: Translator = enT): string {
   if (!c) return "";
-  if (c.state === "loading") return "Loading model suggestions…";
-  if (c.state === "error") return "No model suggestions (" + c.error + "). Type a model ID.";
+  if (c.state === "loading") return t("models.catalog.loading");
+  if (c.state === "error") return t("models.catalog.error", { error: c.error });
   const m = c.models;
   const n = (m.models ?? []).length;
-  if (m.status === "unsupported" || n === 0) return m.message || "No model list for this provider. Type a model ID.";
-  if (m.source === "provider") return n + " models listed by " + m.provider + ". Any model ID can be typed.";
-  return m.message || "Built-in suggestions; any model ID can be typed.";
+  if (m.status === "unsupported" || n === 0) return m.message || t("models.catalog.none");
+  if (m.source === "provider") return t("models.catalog.provider", { n, provider: m.provider });
+  return m.message || t("models.catalog.builtin");
 }

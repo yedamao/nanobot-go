@@ -1,8 +1,10 @@
+import { useT } from "./i18n";
 import type { MediaRef } from "./media";
 
 // Attachments shows a message's files under its bubble: images as
 // thumbnails linked to the full-size file, other files as download chips.
 export function Attachments({ media }: { media: MediaRef[] }) {
+  const t = useT();
   if (media.length === 0) return null;
   return (
     <div className="attachments">
@@ -12,7 +14,7 @@ export function Attachments({ media }: { media: MediaRef[] }) {
             <img className="media-img" src={m.url} alt={m.name} loading="lazy" />
           </a>
         ) : (
-          <a key={m.url} className="file-chip" href={m.url} download={m.name} title={"Download " + m.name}>
+          <a key={m.url} className="file-chip" href={m.url} download={m.name} title={t("messages.download", { name: m.name })}>
             <span aria-hidden="true">📎</span> {m.name}
           </a>
         ),

@@ -11,13 +11,7 @@ import {
   type CronWrite,
 } from "./api";
 import { formatDuration, runReply, runStatusState } from "./cronRuns";
-import { useT, type MessageKey } from "./i18n";
-
-function fmt(iso?: string): string {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? iso : d.toLocaleString();
-}
+import { useFormatDate, useT, type MessageKey } from "./i18n";
 
 type Kind = "every" | "cron" | "at";
 
@@ -115,6 +109,8 @@ function buildWrite(form: FormState, forCreate: boolean): CronWrite | MessageKey
 }
 
 export function CronPage() {
+  const formatDate = useFormatDate();
+  const fmt = (iso?: string) => (iso ? formatDate(iso) : "—");
   const [jobs, setJobs] = useState<CronJob[] | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);

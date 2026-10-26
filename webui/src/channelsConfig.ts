@@ -1,4 +1,5 @@
 import type { ChannelConfig, ChannelConfigPatch, ChannelTestResult, WeixinLogin } from "./api.ts";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 /** One channel's form. token is a new token typed in, never the saved one
  * (the page is never sent it); "" keeps the saved token. allowFrom is
@@ -131,18 +132,23 @@ function hasTokenAfter(saved: ChannelConfig, d: ChannelDraft): boolean {
 }
 
 /** tokenStatus describes the saved token without revealing it. */
-export function tokenStatus(c: ChannelConfig): string {
-  const env = c.env_overrides.includes("token") ? " (overridden by the environment)" : "";
-  if (c.hasToken) return "Set" + (c.tokenHint ? ": " + c.tokenHint : "") + env;
-  if (c.name === "weixin" && c.hasLoginState) return "From 'nanobot channels login weixin'" + env;
-  return "Not set" + env;
+export function tokenStatus(c: ChannelConfig, t: Translator = enT): string {
+  const env = c.env_overrides.includes("token");
+  if (c.hasToken) return withEnv(c.tokenHint ? t("common.setHint", { hint: c.tokenHint }) : t("common.set"), env, t);
+  if (c.name === "weixin" && c.hasLoginState) return withEnv(t("channels.tokenFromLogin"), env, t);
+  return withEnv(t("common.notSet"), env, t);
 }
 
+function withEnv(status: string, env: boolean, t: Translator): string {
+  return env ? t("common.envOverridden", { status }) : status;
+}
+
+
 /** channelState is the one-line state of a channel. */
-export function channelState(c: ChannelConfig): string {
-  if (!c.present) return "not in config.json";
-  if (c.running) return "running";
-  return c.enabled ? "enabled, not running" : "disabled";
+export function channelState(c: ChannelConfig, t: Translator = enT): string {
+  if (!c.present) return t("channels.notInConfig");
+  if (c.running) return t("common.running");
+  return t(c.enabled ? "common.enabledNotRunning" : "common.disabled");
 }
 
 /** canTest reports whether Test has a token to probe. */
@@ -152,26 +158,26 @@ export function canTest(c: ChannelConfig, d: ChannelDraft): boolean {
 }
 
 /** testNote is the card's note for a probe's result. */
-export function testNote(r: ChannelTestResult): { kind: "ok" | "error" | ""; text: string } {
+export function testNote(r: ChannelTestResult, t: Translator = enT): { kind: "ok" | "error" | ""; text: string } {
   if (r.status === "unsupported") return { kind: "", text: r.message };
-  const text = r.message || (r.ok ? "The token works." : "The test failed.");
-  return { kind: r.ok ? "ok" : "error", text: (r.ok ? "Test passed: " : "Test failed: ") + text };
+  const message = r.message || t(r.ok ? "channels.tokenWorks" : "common.testFailedDefault");
+  return { kind: r.ok ? "ok" : "error", text: t(r.ok ? "common.testPassed" : "common.testFailed", { message }) };
 }
 
 /** loginStatus is the WeChat card's one-line login state. */
-export function loginStatus(l: WeixinLogin): { kind: "ok" | "error" | ""; text: string } {
-  if (l.error) return { kind: "error", text: "Login unreadable: " + l.error };
-  if (l.loggedIn) return { kind: "ok", text: "Login saved" };
-  return { kind: "", text: "Not logged in" };
+export function loginStatus(l: WeixinLogin, t: Translator = enT): { kind: "ok" | "error" | ""; text: string } {
+  if (l.error) return { kind: "error", text: t("channels.login.unreadable", { error: l.error }) };
+  if (l.loggedIn) return { kind: "ok", text: t("channels.login.saved") };
+  return { kind: "", text: t("channels.login.notLoggedIn") };
 }
 
 /** loginDetails are the saved login's non-secret fields to show. */
-export function loginDetails(l: WeixinLogin): [string, string][] {
+export function loginDetails(l: WeixinLogin, t: Translator = enT): [string, string][] {
   if (!l.loggedIn) return [];
   const out: [string, string][] = [];
-  if (l.botId) out.push(["Bot ID", l.botId]);
-  if (l.userId) out.push(["User ID", l.userId]);
-  if (l.baseUrl) out.push(["Assigned base URL", l.baseUrl]);
+  if (l.botId) out.push([t("channels.login.botId"), l.botId]);
+  if (l.userId) out.push([t("channels.login.userId"), l.userId]);
+  if (l.baseUrl) out.push([t("channels.login.baseUrl"), l.baseUrl]);
   return out;
 }
 
@@ -188,10 +194,9 @@ export function canClearLogin(l: WeixinLogin): boolean {
 }
 
 /** clearLoginPrompt asks before the saved login is removed. */
-export function clearLoginPrompt(l: WeixinLogin, running: boolean): string {
-  let msg = "Clear the saved WeChat login?\n\nThis removes " + l.statePath + ". Log in again from a terminal to use it.";
-  if (running) msg += " The running WeChat channel keeps the login until the gateway restarts.";
-  return msg;
+export function clearLoginPrompt(l: WeixinLogin, running: boolean, t: Translator = enT): string {
+  const msg = t("channels.login.clearConfirm", { path: l.statePath });
+  return running ? msg + t("channels.login.clearConfirmRunning") : msg;
 }
 
 /** withLogin is c with the login of v, a view returned after the login

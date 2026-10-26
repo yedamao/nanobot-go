@@ -4,8 +4,7 @@ import { Markdown } from "./Markdown";
 import { imagesInText, type MediaRef } from "./media";
 import type { Message, Transcript } from "./transcript";
 import type { ConnState } from "./useChat";
-
-const THINKING = "nanobot is thinking…";
+import { useT } from "./i18n";
 
 // attachments are a message's files; a user message's plain text also
 // shows the workspace images its markdown names.
@@ -19,10 +18,11 @@ function attachments(m: Message): MediaRef[] {
 // panel that is open while it streams and collapses when it ends; the
 // reader can still open it again.
 function Thinking({ message }: { message: Message }) {
+  const t = useT();
   const live = !!message.streaming;
   return (
     <details className={"msg thinking" + (live ? " streaming" : "")} open={live}>
-      <summary>{live ? "Thinking…" : "Thought"}</summary>
+      <summary>{live ? t("messages.thinking") : t("messages.thought")}</summary>
       <div className="thinking-text">{message.content}</div>
     </details>
   );
@@ -32,6 +32,7 @@ function Thinking({ message }: { message: Message }) {
 // live streaming bubble and, while a reply is due, the pending bubble
 // with the turn's progress.
 export function MessageList({ transcript, conn }: { transcript: Transcript; conn: ConnState }) {
+  const t = useT();
   const ref = useRef<HTMLElement>(null);
   const { messages, waiting, progress, pendingHidden } = transcript;
 
@@ -46,7 +47,7 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
     <main id="messages" ref={ref} aria-live="polite">
       {empty && conn !== "closed" && (
         <p className="empty">
-          {conn === "open" ? "No messages yet. Say hello to start the conversation." : "Loading the conversation…"}
+          {conn === "open" ? t("messages.empty") : t("messages.loading")}
         </p>
       )}
       {messages.map((m) =>
@@ -62,10 +63,10 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
       {waiting > 0 && !pendingHidden && (
         <div className="msg pending">
           {progress === null ? (
-            THINKING
+            t("messages.pending")
           ) : (
             <>
-              nanobot is working: <code>{progress}</code>
+              {t("messages.working")} <code>{progress}</code>
             </>
           )}
         </div>

@@ -1,4 +1,5 @@
 import type { Provider, ProviderPatch, ProviderTest, ProviderTestResult } from "./api.ts";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 /** One provider's form. apiKey is a new key typed in, never the saved
  * one (the page is never sent it); "" keeps the saved key. */
@@ -56,10 +57,13 @@ export function checkProvider(d: ProviderDraft): string {
 }
 
 /** keyStatus describes the saved key without revealing it. */
-export function keyStatus(p: Provider): string {
-  const env = p.env_overrides.includes("apiKey") ? " (overridden by the environment)" : "";
-  if (!p.hasApiKey) return "Not set" + env;
-  return "Set" + (p.apiKeyHint ? ": " + p.apiKeyHint : "") + env;
+export function keyStatus(p: Provider, t: Translator = enT): string {
+  const status = !p.hasApiKey
+    ? t("common.notSet")
+    : p.apiKeyHint
+      ? t("common.setHint", { hint: p.apiKeyHint })
+      : t("common.set");
+  return p.env_overrides.includes("apiKey") ? t("common.envOverridden", { status }) : status;
 }
 
 /** canTest reports whether there is a key to test: one typed in, or a
@@ -82,7 +86,7 @@ export function testBody(saved: Provider, d: ProviderDraft): ProviderTest {
 }
 
 /** testNote is the card's note for a probe's result. */
-export function testNote(r: ProviderTestResult): { kind: "ok" | "error"; text: string } {
-  const text = r.message || (r.ok ? "The credential works." : "The test failed.");
-  return { kind: r.ok ? "ok" : "error", text: (r.ok ? "Test passed: " : "Test failed: ") + text };
+export function testNote(r: ProviderTestResult, t: Translator = enT): { kind: "ok" | "error"; text: string } {
+  const message = r.message || t(r.ok ? "providers.credentialWorks" : "common.testFailedDefault");
+  return { kind: r.ok ? "ok" : "error", text: t(r.ok ? "common.testPassed" : "common.testFailed", { message }) };
 }

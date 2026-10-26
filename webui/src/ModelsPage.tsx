@@ -15,6 +15,7 @@ import {
 } from "./models";
 import { pendingText, withCurrent } from "./settings";
 import { RestartGateway } from "./RestartGateway";
+import { Fill, useT } from "./i18n";
 
 // ModelsPage edits agents.defaults.model, .provider and the ordered
 // .fallbackModels through GET and PATCH /ui/settings, the same store the
@@ -22,6 +23,7 @@ import { RestartGateway } from "./RestartGateway";
 // model field suggests IDs from its row's provider catalog (GET
 // /ui/providers/{name}/models), advisory only: any ID can be typed.
 export function ModelsPage() {
+  const t = useT();
   const [view, setView] = useState<SettingsView | null>(null);
   const [draft, setDraft] = useState<ModelsDraft | null>(null);
   const [error, setError] = useState("");
@@ -74,21 +76,21 @@ export function ModelsPage() {
     if (saving || !view || !draft) return;
     const bad = checkModels(draft);
     if (bad) {
-      setNote({ kind: "error", text: "Not saved: " + bad + "." });
+      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: bad }) });
       return;
     }
     const patch = diffModels(view.settings, draft);
     if (!Object.keys(patch).length) {
-      setNote({ kind: "", text: "Nothing changed." });
+      setNote({ kind: "", text: t("common.nothingChanged") });
       return;
     }
     setSaving(true);
-    setNote({ kind: "", text: "Saving…" });
+    setNote({ kind: "", text: t("common.saving") });
     try {
       show(await saveSettings(patch));
-      setNote({ kind: "ok", text: "Saved to config.json." });
+      setNote({ kind: "ok", text: t("common.savedToConfig") });
     } catch (err) {
-      setNote({ kind: "error", text: "Not saved: " + (err as Error).message });
+      setNote({ kind: "error", text: t("common.notSaved", { message: (err as Error).message }) });
     } finally {
       setSaving(false);
     }
@@ -104,31 +106,31 @@ export function ModelsPage() {
       </option>
     ));
   const catalogHint = (provider: string) => {
-    const text = catalogNote(catalogs[provider || "auto"]);
+    const text = catalogNote(catalogs[provider || "auto"], t);
     return text ? <small className="models-catalog-note">{text}</small> : null;
   };
   const saved: Settings | undefined = view?.settings;
   const dirty = !!(saved && draft && Object.keys(diffModels(saved, draft)).length);
-  const pending = view ? pendingText(view) : "";
+  const pending = view ? pendingText(view, t) : "";
 
   return (
     <section className="page" aria-labelledby="models-heading">
       <header className="page-header">
-        <h2 id="models-heading">Models</h2>
+        <h2 id="models-heading">{t("models.heading")}</h2>
         <button type="button" onClick={() => void load()} disabled={saving}>
-          Refresh
+          {t("common.refresh")}
         </button>
       </header>
-      {error && <p className="page-error">Cannot load the settings ({error}).</p>}
-      {!error && !draft && <p className="page-empty">Loading…</p>}
-      {pending && <p className="page-note">{pending} The provider chain is built when the gateway starts.</p>}
+      {error && <p className="page-error">{t("models.loadError", { error })}</p>}
+      {!error && !draft && <p className="page-empty">{t("common.loading")}</p>}
+      {pending && <p className="page-note">{t("models.pendingNote", { pending })}</p>}
       {(view?.restart_required ?? []).length > 0 && <RestartGateway />}
       {draft && (
         <form className="cron-form" autoComplete="off" onSubmit={(e) => void submit(e)}>
-          <h3>Primary</h3>
+          <h3>{t("models.primary")}</h3>
           <fieldset className="cron-fields" disabled={saving}>
             <label htmlFor="models-model">
-              Model
+              {t("models.model")}
               <input
                 id="models-model"
                 type="text"
@@ -142,7 +144,7 @@ export function ModelsPage() {
               {catalogHint(draft.provider)}
             </label>
             <label htmlFor="models-provider">
-              Provider
+              {t("models.provider")}
               <select
                 id="models-provider"
                 value={draft.provider}
@@ -153,19 +155,19 @@ export function ModelsPage() {
             </label>
           </fieldset>
 
-          <h3>Fallbacks</h3>
-          <p className="page-empty">Tried in order when the primary provider fails with a retryable error.</p>
+          <h3>{t("models.fallbacks")}</h3>
+          <p className="page-empty">{t("models.fallbacksHelp")}</p>
           {draft.fallbacks.length === 0 ? (
-            <p className="page-empty">No fallback models.</p>
+            <p className="page-empty">{t("models.noFallbacks")}</p>
           ) : (
             <ol className="page-list models-fallbacks">
               {draft.fallbacks.map((f, i) => (
                 <li key={i}>
                   <fieldset className="cron-fields" disabled={saving}>
                     <label>
-                      Provider
+                      {t("models.provider")}
                       <select
-                        aria-label={"Fallback " + (i + 1) + " provider"}
+                        aria-label={t("models.fallbackProvider", { n: i + 1 })}
                         value={f.provider || "auto"}
                         onChange={(e) => editFallback(i, { provider: e.target.value })}
                       >
@@ -173,9 +175,9 @@ export function ModelsPage() {
                       </select>
                     </label>
                     <label>
-                      Model
+                      {t("models.model")}
                       <input
-                        aria-label={"Fallback " + (i + 1) + " model"}
+                        aria-label={t("models.fallbackModel", { n: i + 1 })}
                         type="text"
                         maxLength={200}
                         spellCheck={false}
@@ -193,21 +195,21 @@ export function ModelsPage() {
                       disabled={saving || i === 0}
                       onClick={() => edit((d) => ({ ...d, fallbacks: moveItem(d.fallbacks, i, -1) }))}
                     >
-                      Up
+                      {t("models.up")}
                     </button>
                     <button
                       type="button"
                       disabled={saving || i === draft.fallbacks.length - 1}
                       onClick={() => edit((d) => ({ ...d, fallbacks: moveItem(d.fallbacks, i, 1) }))}
                     >
-                      Down
+                      {t("models.down")}
                     </button>
                     <button
                       type="button"
                       disabled={saving}
                       onClick={() => edit((d) => ({ ...d, fallbacks: d.fallbacks.filter((_, j) => j !== i) }))}
                     >
-                      Remove
+                      {t("common.remove")}
                     </button>
                   </span>
                 </li>
@@ -220,13 +222,13 @@ export function ModelsPage() {
               disabled={saving || draft.fallbacks.length >= maxFallbacks}
               onClick={() => edit((d) => ({ ...d, fallbacks: [...d.fallbacks, { provider: "auto", model: "" }] }))}
             >
-              Add fallback
+              {t("models.addFallback")}
             </button>
             <button type="button" disabled={saving || !dirty} onClick={() => saved && setDraft(modelsDraft(saved))}>
-              Reset
+              {t("common.reset")}
             </button>
             <button type="submit" disabled={saving || !dirty}>
-              Save
+              {t("common.save")}
             </button>
           </div>
           {Object.entries(catalogs).map(([name, c]) => (
@@ -246,8 +248,10 @@ export function ModelsPage() {
         </form>
       )}
       <p className="page-empty">
-        Saved to <code>agents.defaults</code> in config.json and applied when the gateway restarts. API keys and
-        endpoints are set per provider on the <a href="#/providers">Providers</a> page.
+        <Fill
+          text={t("models.help")}
+          vars={{ path: <code>agents.defaults</code>, link: <a href="#/providers">{t("models.providersLink")}</a> }}
+        />
       </p>
     </section>
   );

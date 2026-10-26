@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { deleteMCPServer, listMCP, putMCPServer, setMCPServerEnabled, type MCPList, type MCPServer } from "./api";
 import { buildMCPInput, emptyMCPForm, mcpBadges, mcpTarget, type MCPForm } from "./mcp";
 import { RestartGateway } from "./RestartGateway";
+import { Fill, useT, type MessageKey } from "./i18n";
 
 export function MCPPage() {
+  const t = useT();
   const [list, setList] = useState<MCPList | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -34,7 +36,7 @@ export function MCPPage() {
       await load();
       return true;
     } catch (err) {
-      setNote("Failed: " + (err as Error).message);
+      setNote(t("mcp.failed", { message: (err as Error).message }));
       return false;
     } finally {
       setBusy(null);
@@ -42,51 +44,56 @@ export function MCPPage() {
   };
 
   const toggle = (s: MCPServer) =>
-    act(s.name, (s.enabled ? "Disabled " : "Enabled ") + s.name, () => setMCPServerEnabled(s.name, !s.enabled));
+    act(s.name, t(s.enabled ? "mcp.disabledNote" : "mcp.enabledNote", { name: s.name }), () =>
+      setMCPServerEnabled(s.name, !s.enabled),
+    );
   const remove = (s: MCPServer) => {
-    if (!confirm('Remove MCP server "' + s.name + '" from the config?')) return;
-    void act(s.name, "Removed " + s.name, () => deleteMCPServer(s.name));
+    if (!confirm(t("mcp.removeConfirm", { name: s.name }))) return;
+    void act(s.name, t("mcp.removed", { name: s.name }), () => deleteMCPServer(s.name));
   };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const built = buildMCPInput(form);
     if (typeof built === "string") {
-      setNote("Cannot add: " + built);
+      setNote(t("mcp.cannotAdd", { message: built }));
       return;
     }
     if (list?.servers.some((s) => s.name === built.name && !s.removed)) {
-      if (!confirm('Replace the MCP server "' + built.name + '"?')) return;
+      if (!confirm(t("mcp.replaceConfirm", { name: built.name }))) return;
     }
-    if (await act("+add", "Saved " + built.name, () => putMCPServer(built.name, built.input))) {
+    if (await act("+add", t("mcp.saved", { name: built.name }), () => putMCPServer(built.name, built.input))) {
       setForm(emptyMCPForm);
     }
   };
 
   const set = (patch: Partial<MCPForm>) => setForm({ ...form, ...patch });
+  // stateLabel names a live connection state; unknown ones show as sent.
+  const stateLabel = (state: string) => {
+    const key = ("mcp.states." + state) as MessageKey;
+    const label = t(key);
+    return label === key ? state.replace("_", " ") : label;
+  };
 
   return (
     <section className="page" aria-labelledby="mcp-heading">
       <header className="page-header">
-        <h2 id="mcp-heading">MCP servers</h2>
+        <h2 id="mcp-heading">{t("mcp.heading")}</h2>
         <button type="button" onClick={() => void load()} disabled={busy !== null}>
-          Refresh
+          {t("common.refresh")}
         </button>
       </header>
-      {error && <p className="page-error">Cannot load MCP servers ({error}).</p>}
+      {error && <p className="page-error">{t("mcp.loadError", { error })}</p>}
       {note && <p className="page-note">{note}</p>}
       {list && list.restart_required.length > 0 && (
-        <p className="page-note">
-          Restart the gateway to apply changes to: {list.restart_required.join(", ")}. MCP servers connect when the
-          gateway starts.
-        </p>
+        <p className="page-note">{t("mcp.pending", { names: list.restart_required.join(", ") })}</p>
       )}
       {list && list.restart_required.length > 0 && <RestartGateway />}
-      {!error && list === null && <p className="page-empty">Loading…</p>}
+      {!error && list === null && <p className="page-empty">{t("common.loading")}</p>}
       {list &&
         (list.servers.length === 0 ? (
           <p className="page-empty">
-            No MCP servers configured. Add one below; it is saved to <code>tools.mcpServers</code>.
+            <Fill text={t("mcp.empty")} vars={{ path: <code>tools.mcpServers</code> }} />
           </p>
         ) : (
           <ul className="page-list skills-list">
@@ -94,23 +101,23 @@ export function MCPPage() {
               <li key={s.name} data-disabled={s.enabled ? undefined : ""}>
                 <div className="skill-head">
                   <strong>{s.name}</strong>
-                  {mcpBadges(s).map((b) => (
+                  {mcpBadges(s, t).map((b) => (
                     <span key={b} className="badge">
                       {b}
                     </span>
                   ))}
                   {list.live && (
                     <span className="badge" data-state={s.state}>
-                      {s.state.replace("_", " ")}
+                      {stateLabel(s.state)}
                     </span>
                   )}
                   {!s.removed && (
                     <span className="page-actions">
                       <button type="button" disabled={busy !== null} onClick={() => void toggle(s)}>
-                        {s.enabled ? "Disable" : "Enable"}
+                        {t(s.enabled ? "common.disable" : "common.enable")}
                       </button>
                       <button type="button" disabled={busy !== null} onClick={() => remove(s)}>
-                        Remove
+                        {t("common.remove")}
                       </button>
                     </span>
                   )}
@@ -118,90 +125,89 @@ export function MCPPage() {
                 <code className="skill-path">{mcpTarget(s)}</code>
                 {!!(s.env_keys?.length || s.header_keys?.length || s.enabled_tools || s.tool_timeout) && (
                   <p>
-                    {s.env_keys?.length ? "env: " + s.env_keys.join(", ") + " (values hidden). " : ""}
-                    {s.header_keys?.length ? "headers: " + s.header_keys.join(", ") + " (values hidden). " : ""}
-                    {s.enabled_tools ? "tools allowed: " + (s.enabled_tools.join(", ") || "none") + ". " : ""}
-                    {s.tool_timeout ? "timeout " + s.tool_timeout + "s." : ""}
+                    {s.env_keys?.length ? t("mcp.env", { keys: s.env_keys.join(", ") }) : ""}
+                    {s.header_keys?.length ? t("mcp.headers", { keys: s.header_keys.join(", ") }) : ""}
+                    {s.enabled_tools ? t("mcp.toolsAllowed", { tools: s.enabled_tools.join(", ") || t("common.none") }) : ""}
+                    {s.tool_timeout ? t("mcp.timeout", { seconds: s.tool_timeout }) : ""}
                   </p>
                 )}
                 {s.error && <p className="page-error">{s.error}</p>}
-                {s.tools && s.tools.length > 0 && <p>Tools: {s.tools.join(", ")}</p>}
+                {s.tools && s.tools.length > 0 && <p>{t("mcp.tools", { tools: s.tools.join(", ") })}</p>}
               </li>
             ))}
           </ul>
         ))}
 
       <form className="cron-form" onSubmit={(e) => void submit(e)} autoComplete="off">
-        <h3>Add MCP server</h3>
+        <h3>{t("mcp.add")}</h3>
         <fieldset className="cron-fields">
           <label htmlFor="mcp-name">
-            Name
-            <input id="mcp-name" type="text" required value={form.name} placeholder="e.g. filesystem" onChange={(e) => set({ name: e.target.value })} />
+            {t("mcp.fields.name")}
+            <input id="mcp-name" type="text" required value={form.name} placeholder={t("mcp.fields.namePlaceholder")} onChange={(e) => set({ name: e.target.value })} />
           </label>
           <label htmlFor="mcp-kind">
-            Transport
+            {t("mcp.fields.transport")}
             <select id="mcp-kind" value={form.kind} onChange={(e) => set({ kind: e.target.value as MCPForm["kind"] })}>
-              <option value="stdio">stdio (command)</option>
-              <option value="http">HTTP (url)</option>
+              <option value="stdio">{t("mcp.fields.stdio")}</option>
+              <option value="http">{t("mcp.fields.http")}</option>
             </select>
           </label>
           {form.kind === "stdio" ? (
             <>
               <label htmlFor="mcp-command">
-                Command
+                {t("mcp.fields.command")}
                 <input id="mcp-command" type="text" value={form.command} placeholder="npx" onChange={(e) => set({ command: e.target.value })} />
               </label>
               <label htmlFor="mcp-args">
-                Args
-                <textarea id="mcp-args" rows={3} value={form.args} placeholder="one per line" onChange={(e) => set({ args: e.target.value })} />
+                {t("mcp.fields.args")}
+                <textarea id="mcp-args" rows={3} value={form.args} placeholder={t("mcp.fields.argsPlaceholder")} onChange={(e) => set({ args: e.target.value })} />
               </label>
               <label htmlFor="mcp-env">
-                Env
-                <textarea id="mcp-env" rows={2} value={form.env} placeholder="KEY=value or KEY=${VAR}, one per line" onChange={(e) => set({ env: e.target.value })} />
+                {t("mcp.fields.env")}
+                <textarea id="mcp-env" rows={2} value={form.env} placeholder={t("mcp.fields.envPlaceholder")} onChange={(e) => set({ env: e.target.value })} />
               </label>
             </>
           ) : (
             <>
               <label htmlFor="mcp-url">
-                URL
+                {t("mcp.fields.url")}
                 <input id="mcp-url" type="text" value={form.url} placeholder="https://host/mcp" onChange={(e) => set({ url: e.target.value })} />
               </label>
               <label htmlFor="mcp-type">
-                Type
+                {t("mcp.fields.type")}
                 <select id="mcp-type" value={form.type} onChange={(e) => set({ type: e.target.value as MCPForm["type"] })}>
-                  <option value="">auto (…/sse means sse)</option>
+                  <option value="">{t("mcp.fields.typeAuto")}</option>
                   <option value="streamableHttp">streamableHttp</option>
                   <option value="sse">sse</option>
                 </select>
               </label>
               <label htmlFor="mcp-headers">
-                Headers
+                {t("mcp.fields.headers")}
                 <textarea id="mcp-headers" rows={2} value={form.headers} placeholder="Authorization: Bearer ${TOKEN}" onChange={(e) => set({ headers: e.target.value })} />
               </label>
             </>
           )}
           <label htmlFor="mcp-tools">
-            Tools
-            <input id="mcp-tools" type="text" value={form.enabledTools} placeholder="all (or comma-separated names)" onChange={(e) => set({ enabledTools: e.target.value })} />
+            {t("mcp.fields.tools")}
+            <input id="mcp-tools" type="text" value={form.enabledTools} placeholder={t("mcp.fields.toolsPlaceholder")} onChange={(e) => set({ enabledTools: e.target.value })} />
           </label>
           <label htmlFor="mcp-timeout">
-            Timeout (s)
+            {t("mcp.fields.timeout")}
             <input id="mcp-timeout" type="number" min={0} step={1} value={form.toolTimeout} placeholder="30" onChange={(e) => set({ toolTimeout: e.target.value })} />
           </label>
           <label className="check">
             <input type="checkbox" checked={form.enabled} onChange={(e) => set({ enabled: e.target.checked })} />
-            Enabled
+            {t("common.enabled")}
           </label>
         </fieldset>
         <div className="cron-form-actions">
           <button type="submit" disabled={busy !== null}>
-            Save
+            {t("common.save")}
           </button>
         </div>
       </form>
       <p className="page-empty">
-        Env and header values are saved to the config file and never shown here; prefer <code>${"{VAR}"}</code>{" "}
-        references so secrets stay in the environment. Changes apply when the gateway restarts.
+        <Fill text={t("mcp.help")} vars={{ ref: <code>${"{VAR}"}</code> }} />
       </p>
     </section>
   );

@@ -1,11 +1,11 @@
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { Fragment, createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { initialLocale, normalizeLocale, persistLocale, supportedLocales, type Locale } from "./config.ts";
-import { translate, type MessageKey, type Vars } from "./translate.ts";
+import { translate, type Translator } from "./translate.ts";
 
 export type { Locale } from "./config.ts";
-export type { MessageKey } from "./translate.ts";
+export type { MessageKey, Translator } from "./translate.ts";
 
-export type T = (key: MessageKey, vars?: Vars) => string;
+export type T = Translator;
 
 interface LocaleState {
   locale: Locale;
@@ -60,5 +60,34 @@ export function LocaleSwitcher({ id }: { id?: string }) {
         </option>
       ))}
     </select>
+  );
+}
+
+/** useFormatDate formats an ISO time (or Date) in the selected locale;
+ * an unparsable string is returned as is. */
+export function useFormatDate(): (iso?: string | Date) => string {
+  const { locale } = useLocale();
+  return useCallback(
+    (iso) => {
+      if (!iso) return "";
+      const d = iso instanceof Date ? iso : new Date(iso);
+      return Number.isNaN(d.getTime()) ? String(iso) : d.toLocaleString(locale);
+    },
+    [locale],
+  );
+}
+
+/**
+ * Fill renders a translated message whose {name} placeholders are
+ * elements, such as <code> or a link: Fill text={t("x")} vars={{ path: <code>p</code> }}.
+ */
+export function Fill({ text, vars }: { text: string; vars: Record<string, ReactNode> }) {
+  const parts = text.split(/\{(\w+)\}/);
+  return (
+    <>
+      {parts.map((part, i) =>
+        i % 2 === 0 ? part : <Fragment key={i}>{part in vars ? vars[part] : "{" + part + "}"}</Fragment>,
+      )}
+    </>
   );
 }

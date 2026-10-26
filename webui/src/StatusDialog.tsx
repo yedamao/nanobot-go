@@ -2,27 +2,32 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { getSettings, getStatus, saveSettings, type Settings, type Status } from "./api";
 import { RestartGateway } from "./RestartGateway";
 import { diffSettings, duration, pendingText, withCurrent } from "./settings";
+import { useT } from "./i18n";
 
 type Note = { kind: "" | "ok" | "error"; text: string };
 
 function StatusList({ status, error }: { status: Status | null; error: string }) {
-  const onOff = (b: boolean | undefined) => (b ? "on" : "off");
+  const t = useT();
+  const onOff = (b: boolean | undefined) => t(b ? "status.on" : "status.off");
   let rows: [string, string][];
-  if (error) rows = [["Error", "Cannot load the status (" + error + ")."]];
-  else if (!status) rows = [["Status", "Loading…"]];
+  if (error) rows = [[t("status.rows.error"), t("status.loadError", { error })]];
+  else if (!status) rows = [[t("status.rows.status"), t("common.loading")]];
   else {
-    const chans = (status.channels ?? []).map(
-      (c) => c.name + " (" + (c.running ? "running" : c.enabled ? "enabled, not running" : "disabled") + ")",
+    const chans = (status.channels ?? []).map((c) =>
+      t("status.channelState", {
+        name: c.name,
+        state: t(c.running ? "common.running" : c.enabled ? "common.enabledNotRunning" : "common.disabled"),
+      }),
     );
     rows = [
-      ["Version", status.version + (status.go ? " (" + status.go + ")" : "")],
-      ["Uptime", duration(status.uptime_seconds || 0)],
-      ["Model", status.model || "—"],
-      ["Provider", status.provider || "—"],
-      ["Workspace", status.workspace || "—"],
-      ["Channels", chans.length ? chans.join(", ") : "none"],
-      ["API", onOff(status.api_enabled)],
-      ["Tools", "exec " + onOff(status.tools?.exec) + ", web_fetch " + onOff(status.tools?.web_fetch)],
+      [t("status.rows.version"), status.version + (status.go ? " (" + status.go + ")" : "")],
+      [t("status.rows.uptime"), duration(status.uptime_seconds || 0)],
+      [t("status.rows.model"), status.model || "—"],
+      [t("status.rows.provider"), status.provider || "—"],
+      [t("status.rows.workspace"), status.workspace || "—"],
+      [t("status.rows.channels"), chans.length ? chans.join(", ") : t("common.none")],
+      [t("status.rows.api"), onOff(status.api_enabled)],
+      [t("status.rows.tools"), t("status.tools", { exec: onOff(status.tools?.exec), web_fetch: onOff(status.tools?.web_fetch) })],
     ];
   }
   return (
@@ -41,6 +46,7 @@ function StatusList({ status, error }: { status: Status | null; error: string })
 // settings with GET and PATCH /ui/settings; the Models page owns the
 // model settings. Esc or Close closes it.
 export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const t = useT();
   const dialog = useRef<HTMLDialogElement>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [statusError, setStatusError] = useState("");
@@ -57,21 +63,21 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
   const load = useCallback(async () => {
     setStatus(null);
     setStatusError("");
-    setNote({ kind: "", text: "Loading…" });
+    setNote({ kind: "", text: t("common.loading") });
     getStatus().then(setStatus, (err: Error) => setStatusError(err.message));
     try {
       const view = await getSettings();
       setSaved(view.settings);
       setDraft(view.settings);
       setChoices(view.choices);
-      setNote({ kind: "", text: pendingText(view) });
+      setNote({ kind: "", text: pendingText(view, t) });
       setRestartPending((view.restart_required ?? []).length > 0);
     } catch (err) {
       setSaved(null);
       setDraft(null);
-      setNote({ kind: "error", text: "Cannot load the settings (" + (err as Error).message + ")." });
+      setNote({ kind: "error", text: t("status.settingsLoadError", { error: (err as Error).message }) });
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     const el = dialog.current;
@@ -89,26 +95,26 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
     if (saving || !saved || !draft) return;
     const patch = diffSettings(saved, draft);
     if (!Object.keys(patch).length) {
-      setNote({ kind: "", text: "Nothing changed." });
+      setNote({ kind: "", text: t("common.nothingChanged") });
       return;
     }
     if (
       patch.channels?.websocket?.enabled === false &&
-      !confirm("Disable the websocket channel?\n\nThis page will be gone after the gateway restarts.")
+      !confirm(t("status.disableWebsocket"))
     ) {
       return;
     }
     setSaving(true);
-    setNote({ kind: "", text: "Saving…" });
+    setNote({ kind: "", text: t("common.saving") });
     try {
       const view = await saveSettings(patch);
       setSaved(view.settings);
       setDraft(view.settings);
       setChoices(view.choices);
-      setNote({ kind: "ok", text: "Saved — restart the gateway to apply. " + pendingText(view) });
+      setNote({ kind: "ok", text: t("status.saved", { pending: pendingText(view, t) }).trim() });
       setRestartPending((view.restart_required ?? []).length > 0);
     } catch (err) {
-      setNote({ kind: "error", text: "Not saved: " + (err as Error).message });
+      setNote({ kind: "error", text: t("common.notSaved", { message: (err as Error).message }) });
     } finally {
       setSaving(false);
     }
@@ -121,22 +127,22 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
 
   return (
     <dialog id="status-panel" ref={dialog} aria-labelledby="status-title" onClose={onClose}>
-      <h2 id="status-title">Gateway status</h2>
+      <h2 id="status-title">{t("status.title")}</h2>
       <StatusList status={status} error={statusError} />
-      <p className="status-note">What the gateway is running with now.</p>
+      <p className="status-note">{t("status.note")}</p>
       <form id="settings-form" autoComplete="off" onSubmit={submit}>
-        <h3>Settings</h3>
+        <h3>{t("status.settings")}</h3>
         <fieldset id="settings-fields" disabled={disabled}>
           <p className="status-note">
-            Model, provider and fallback models are edited on the{" "}
+            {t("status.modelsBefore")}{" "}
             <a href="#/models" onClick={() => dialog.current?.close()}>
-              Models page
+              {t("status.modelsLink")}
             </a>
-            .
+            {t("status.modelsAfter")}
           </p>
           <label className="check">
             <input type="checkbox" checked={draft?.tools.exec ?? false} onChange={(ev) => tool("exec", ev.target.checked)} />{" "}
-            exec tool
+            {t("status.execTool")}
           </label>
           <label className="check">
             <input
@@ -144,10 +150,10 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
               checked={draft?.tools.web_fetch ?? false}
               onChange={(ev) => tool("web_fetch", ev.target.checked)}
             />{" "}
-            web_fetch tool
+            {t("status.webFetchTool")}
           </label>
           <label>
-            Exec sandbox
+            {t("status.execSandbox")}
             <select
               id="set-exec-sandbox"
               value={draft?.tools.exec_sandbox ?? ""}
@@ -156,7 +162,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
               {draft &&
                 withCurrent(choices.exec_sandbox, draft.tools.exec_sandbox).map((v) => (
                   <option key={v} value={v}>
-                    {v || "none"}
+                    {v || t("common.none")}
                   </option>
                 ))}
             </select>
@@ -174,14 +180,13 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
                         edit((d) => ({ ...d, channels: { ...d.channels, [name]: { enabled: ev.target.checked } } }))
                       }
                     />{" "}
-                    {name} channel
+                    {t("status.channel", { name })}
                   </label>
                 ))}
           </div>
         </fieldset>
         <p className="status-note">
-          Saved to config.json; the gateway uses saved settings after a restart. Keys, tokens and allow lists are edited
-          in config.json only.
+          {t("status.savedNote")}
         </p>
         <p id="settings-message" className="status-note" role="status" data-kind={note.kind || undefined}>
           {note.text}
@@ -189,13 +194,13 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
         {restartPending && <RestartGateway />}
         <div className="status-actions">
           <button type="submit" disabled={disabled}>
-            Save
+            {t("common.save")}
           </button>
           <button type="button" onClick={load} disabled={saving}>
-            Refresh
+            {t("common.refresh")}
           </button>
           <button type="button" onClick={() => dialog.current?.close()}>
-            Close
+            {t("common.close")}
           </button>
         </div>
       </form>

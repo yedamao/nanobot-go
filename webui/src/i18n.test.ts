@@ -108,3 +108,18 @@ test("zh-CN keeps every placeholder of the English message", () => {
     assert.deepEqual(names(translate("zh-CN", key)), names(translate("en", key)), key);
   }
 });
+
+test("display helpers localize with a zh-CN translator and default to English", async () => {
+  const { keyStatus, testNote } = await import("./providers.ts");
+  const { pendingText } = await import("./settings.ts");
+  const { mcpBadges } = await import("./mcp.ts");
+  const zh = (key: Parameters<typeof translate>[1], vars?: Record<string, string | number>) => translate("zh-CN", key, vars);
+  const p = { name: "openai", hasApiKey: true, apiKeyHint: "sk-…1", env_overrides: ["apiKey"] } as unknown as Parameters<typeof keyStatus>[0];
+  assert.equal(keyStatus(p), "Set: sk-…1 (overridden by the environment)");
+  assert.equal(keyStatus(p, zh), "已设置：sk-…1（被环境变量覆盖）");
+  assert.deepEqual(testNote({ ok: false, status: "rejected", message: "" }, zh), { kind: "error", text: "测试失败：测试未通过。" });
+  const view = { restart_required: ["model"], env_overrides: [] } as unknown as Parameters<typeof pendingText>[0];
+  assert.equal(pendingText(view, zh), "重启网关以应用：model。");
+  const s = { transport: "stdio", enabled: false, restart_required: true } as unknown as Parameters<typeof mcpBadges>[0];
+  assert.deepEqual(mcpBadges(s, zh), ["stdio", "已停用", "需要重启"]);
+});

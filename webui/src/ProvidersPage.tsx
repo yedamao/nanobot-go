@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { listProviders, saveProvider, testProvider, type Provider } from "./api";
 import { canTest, checkProvider, diffProvider, keyStatus, providerDraft, testBody, testNote, type ProviderDraft } from "./providers";
 import { RestartGateway } from "./RestartGateway";
+import { Fill, useT } from "./i18n";
 
 // ProvidersPage sets or clears each known provider's apiKey and edits its
 // apiBase through GET and PATCH /ui/providers. Saved keys are never sent
@@ -10,6 +11,7 @@ import { RestartGateway } from "./RestartGateway";
 // (else the saved one) through POST /ui/providers/{name}/test, saving
 // neither.
 export function ProvidersPage() {
+  const t = useT();
   const [providers, setProviders] = useState<Provider[] | null>(null);
   const [error, setError] = useState("");
 
@@ -33,30 +35,29 @@ export function ProvidersPage() {
   return (
     <section className="page" aria-labelledby="providers-heading">
       <header className="page-header">
-        <h2 id="providers-heading">Providers</h2>
+        <h2 id="providers-heading">{t("providers.heading")}</h2>
         <button type="button" onClick={() => void load()}>
-          Refresh
+          {t("common.refresh")}
         </button>
       </header>
-      {error && <p className="page-error">Cannot load the providers ({error}).</p>}
-      {!error && !providers && <p className="page-empty">Loading…</p>}
-      {pending.length > 0 && (
-        <p className="page-note">
-          Restart the gateway to use the saved credentials of {pending.join(", ")}. Provider clients are built when the
-          gateway starts.
-        </p>
-      )}
+      {error && <p className="page-error">{t("providers.loadError", { error })}</p>}
+      {!error && !providers && <p className="page-empty">{t("common.loading")}</p>}
+      {pending.length > 0 && <p className="page-note">{t("providers.pending", { names: pending.join(", ") })}</p>}
       {pending.length > 0 && <RestartGateway />}
       {providers?.map((p) => <ProviderForm key={p.name} provider={p} onSaved={saved} />)}
       <p className="page-empty">
-        Saved to <code>providers.&lt;name&gt;</code> in config.json. <code>NANOBOT_GO_&lt;NAME&gt;_API_KEY</code> and{" "}
-        <code>_API_BASE</code> in the environment win over the file.
+        <Fill text={t("providers.savedTo")} vars={{ path: <code>providers.&lt;name&gt;</code> }} />{" "}
+        <Fill
+          text={t("providers.envWins")}
+          vars={{ key: <code>NANOBOT_GO_&lt;NAME&gt;_API_KEY</code>, base: <code>_API_BASE</code> }}
+        />
       </p>
     </section>
   );
 }
 
 function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (p: Provider) => void }) {
+  const t = useT();
   const [draft, setDraft] = useState<ProviderDraft>(() => providerDraft(p));
   const [note, setNote] = useState<{ kind: "" | "ok" | "error"; text: string }>({ kind: "", text: "" });
   const [saving, setSaving] = useState(false);
@@ -69,21 +70,21 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
     if (saving) return;
     const bad = checkProvider(draft);
     if (bad) {
-      setNote({ kind: "error", text: "Not saved: " + bad + "." });
+      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: bad }) });
       return;
     }
     const patch = diffProvider(p, draft);
     if (!Object.keys(patch).length) {
-      setNote({ kind: "", text: "Nothing changed." });
+      setNote({ kind: "", text: t("common.nothingChanged") });
       return;
     }
     setSaving(true);
-    setNote({ kind: "", text: "Saving…" });
+    setNote({ kind: "", text: t("common.saving") });
     try {
       onSaved(await saveProvider(p.name, patch));
-      setNote({ kind: "ok", text: "Saved to config.json." });
+      setNote({ kind: "ok", text: t("common.savedToConfig") });
     } catch (err) {
-      setNote({ kind: "error", text: "Not saved: " + (err as Error).message });
+      setNote({ kind: "error", text: t("common.notSaved", { message: (err as Error).message }) });
     } finally {
       setSaving(false);
     }
@@ -94,15 +95,15 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
     const body = testBody(p, draft);
     const bad = checkProvider({ apiKey: body.apiKey ?? "", clearKey: false, apiBase: body.apiBase ?? "" });
     if (bad) {
-      setNote({ kind: "error", text: "Not tested: " + bad + "." });
+      setNote({ kind: "error", text: t("common.notTestedInvalid", { message: bad }) });
       return;
     }
     setTesting(true);
-    setNote({ kind: "", text: "Testing…" });
+    setNote({ kind: "", text: t("common.testing") });
     try {
-      setNote(testNote(await testProvider(p.name, body)));
+      setNote(testNote(await testProvider(p.name, body), t));
     } catch (err) {
-      setNote({ kind: "error", text: "Not tested: " + (err as Error).message });
+      setNote({ kind: "error", text: t("common.notTested", { message: (err as Error).message }) });
     } finally {
       setTesting(false);
     }
@@ -114,39 +115,39 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
     <form className="cron-form" autoComplete="off" onSubmit={(e) => void submit(e)} aria-labelledby={id + "-heading"}>
       <h3 id={id + "-heading"}>
         {p.name}{" "}
-        {p.restart_required && <span className="badge">restart required</span>}
+        {p.restart_required && <span className="badge">{t("common.restartRequired")}</span>}
       </h3>
-      <p className="page-empty">API key: {keyStatus(p)}</p>
+      <p className="page-empty">{t("providers.apiKey", { status: keyStatus(p, t) })}</p>
       <fieldset className="cron-fields" disabled={saving}>
         <label htmlFor={id + "-key"}>
-          New API key
+          {t("providers.newApiKey")}
           <input
             id={id + "-key"}
             type="password"
             autoComplete="new-password"
             spellCheck={false}
             maxLength={4096}
-            placeholder={p.hasApiKey ? "Leave empty to keep the saved key" : "Paste the key"}
+            placeholder={t(p.hasApiKey ? "providers.keepKeyPlaceholder" : "providers.pastePlaceholder")}
             disabled={draft.clearKey}
             value={draft.apiKey}
             onChange={(e) => setDraft((d) => ({ ...d, apiKey: e.target.value }))}
           />
         </label>
         <label htmlFor={id + "-base"}>
-          API base
+          {t("common.apiBase")}
           <input
             id={id + "-base"}
             type="text"
             inputMode="url"
             spellCheck={false}
             maxLength={2048}
-            placeholder={p.defaultApiBase || "Default endpoint"}
+            placeholder={p.defaultApiBase || t("providers.defaultEndpoint")}
             value={draft.apiBase}
             onChange={(e) => setDraft((d) => ({ ...d, apiBase: e.target.value }))}
           />
         </label>
       </fieldset>
-      {p.env_overrides.includes("apiBase") && <p className="page-empty">The environment overrides the API base.</p>}
+      {p.env_overrides.includes("apiBase") && <p className="page-empty">{t("providers.envBase")}</p>}
       <div className="cron-form-actions">
         <button
           type="button"
@@ -154,16 +155,16 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
           aria-pressed={draft.clearKey}
           onClick={() => setDraft((d) => ({ ...d, apiKey: "", clearKey: !d.clearKey }))}
         >
-          {draft.clearKey ? "Keep key" : "Clear key"}
+          {t(draft.clearKey ? "providers.keepKey" : "providers.clearKey")}
         </button>
         <button type="button" disabled={saving || testing || !canTest(p, draft)} onClick={() => void test()}>
-          {testing ? "Testing…" : "Test"}
+          {t(testing ? "common.testing" : "common.test")}
         </button>
         <button type="button" disabled={saving || !dirty} onClick={() => setDraft(providerDraft(p))}>
-          Reset
+          {t("common.reset")}
         </button>
         <button type="submit" disabled={saving || !dirty}>
-          Save
+          {t("common.save")}
         </button>
       </div>
       {note.text && (

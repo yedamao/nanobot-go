@@ -1,4 +1,5 @@
 import type { Skill } from "./api.ts";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 /** The Skills page's two sections. */
 export interface SkillGroups {
@@ -16,9 +17,9 @@ export function groupSkills(skills: Skill[]): SkillGroups {
 }
 
 /** The badges shown next to an installed skill's name. */
-export function skillBadges(s: Skill): string[] {
+export function skillBadges(s: Skill, t: Translator = enT): string[] {
   const out: string[] = [];
-  if (s.builtin) out.push("bundled");
-  if (!s.enabled) out.push("disabled");
+  if (s.builtin) out.push(t("skills.badges.bundled"));
+  if (!s.enabled) out.push(t("common.disabled"));
   return out;
 }

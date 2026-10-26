@@ -528,22 +528,30 @@ Phase 2 is complete; phase 3 is in progress.
     no OAuth, no preset catalog/marketplace or Cursor/Claude config
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
-  - Done (simplified): WebUI i18n, first slice (`webui/src/i18n/`).
+  - Done (simplified): WebUI i18n (`webui/src/i18n/`).
     English and Simplified Chinese (`en`, `zh-CN`, native labels
     English / 简体中文) from a small typed catalog layer instead of
     nanobot's i18next + react-i18next: `en.ts` is the reference,
-    `zh-CN.ts` must have the same keys (type-checked and tested), and
-    `t("nav.cron", {name})` falls back zh-CN → en → key. Same storage key
-    as nanobot (`nanobot.locale`); first visit follows
-    `navigator.languages` when supported, else English; `<html lang>`
-    follows the choice. A header select (also on the sign-in form)
-    switches at once. Translated: header/nav/connection status, sign-in
-    form and its errors, the Composer, and the Cron page (form, table,
-    notes, History and Edit dialogs). Gaps: Channels, Models, Providers,
-    Skills, MCP pages, the chat list, message list, Status dialog,
-    restart prompt and server-sent error text are still English; dates
-    use the browser's locale; no zh-TW/ja/fr/… yet.
-  - Next WebUI slices: i18n for the remaining pages, a richer layout and components (nanobot's
+    `zh-CN.ts` must have the same keys and placeholders (type-checked and
+    tested), and `t("nav.cron", {name})` falls back zh-CN → en → key;
+    `<Fill>` puts elements (`<code>`, links) into a message's
+    placeholders. Same storage key as nanobot (`nanobot.locale`); first
+    visit follows `navigator.languages` when supported, else English;
+    `<html lang>` follows the choice. A header select (also on the
+    sign-in form) switches at once. Translated: header/nav/connection,
+    sign-in, Composer, chat list, message list (thinking panel, empty
+    and pending text, code copy, attachments), Status dialog, the
+    Restart gateway prompt, and the Cron, Channels (pairing, configure
+    cards, WeChat login), Models, Providers, Skills and MCP pages. Dates
+    (Cron, pairing expiry, chat list) use the selected locale. Display
+    helpers (`keyStatus`, `tokenStatus`, `pendingText`, badges, …) take
+    an optional translator that defaults to English. Gaps: text sent by
+    the gateway (API errors, test results, the restart-unavailable
+    reason, model catalog notes) and the client-side form validation
+    messages of Channels, Models, Providers and MCP stay English; cron
+    status tokens are not translated; no zh-TW/ja/fr/… yet.
+  - Next WebUI slices: translated form validation (return message keys
+    as Cron does), a richer layout and components (nanobot's
     Radix/Tailwind UI), a model catalog/picker, provider OAuth and
     custom providers, MCP presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,

@@ -1,4 +1,5 @@
 import type { MCPServer, MCPServerInput } from "./api.ts";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 /** The MCP page's add form. */
 export interface MCPForm {
@@ -93,10 +94,10 @@ export function mcpTarget(s: MCPServer): string {
 }
 
 /** mcpBadges are the badges shown next to a server's name. */
-export function mcpBadges(s: MCPServer): string[] {
+export function mcpBadges(s: MCPServer, t: Translator = enT): string[] {
   const out = [s.transport];
-  if (s.removed) out.push("removed");
-  else if (!s.enabled) out.push("disabled");
-  if (s.restart_required) out.push("restart required");
+  if (s.removed) out.push(t("mcp.badges.removed"));
+  else if (!s.enabled) out.push(t("common.disabled"));
+  if (s.restart_required) out.push(t("common.restartRequired"));
   return out;
 }

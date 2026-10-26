@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteSkill, installSkill, listSkills, setSkillEnabled, type Skill, type SkillsList } from "./api";
 import { groupSkills, skillBadges } from "./skills";
+import { Fill, useT, type MessageKey } from "./i18n";
 
 export function SkillsPage() {
+  const t = useT();
   const [list, setList] = useState<SkillsList | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -22,27 +24,30 @@ export function SkillsPage() {
     void load();
   }, [load]);
 
-  // act runs one change for skill s, then reloads the list.
-  const act = async (s: Skill, what: string, change: () => Promise<unknown>) => {
+  // act runs one change for skill s, then reloads the list; done and
+  // failed are its notes.
+  const act = async (s: Skill, done: MessageKey, failed: MessageKey, change: () => Promise<unknown>) => {
     setBusy(s.name);
     setNote("");
     try {
       await change();
-      setNote(what + " " + s.name);
+      setNote(t(done, { name: s.name }));
       await load();
     } catch (err) {
-      setNote(what + " failed: " + (err as Error).message);
+      setNote(t(failed, { message: (err as Error).message }));
     } finally {
       setBusy(null);
     }
   };
 
   const toggle = (s: Skill) =>
-    act(s, s.enabled ? "Disabled" : "Enabled", () => setSkillEnabled(s.name, !s.enabled));
-  const install = (s: Skill) => act(s, "Installed", () => installSkill(s.name));
+    s.enabled
+      ? act(s, "skills.disabledNote", "skills.disableFailed", () => setSkillEnabled(s.name, false))
+      : act(s, "skills.enabledNote", "skills.enableFailed", () => setSkillEnabled(s.name, true));
+  const install = (s: Skill) => act(s, "skills.installed", "skills.installFailed", () => installSkill(s.name));
   const remove = (s: Skill) => {
-    if (!confirm('Delete skill "' + s.name + '" and its skills/' + s.name + "/ directory?")) return;
-    void act(s, "Deleted", () => deleteSkill(s.name));
+    if (!confirm(t("skills.deleteConfirm", { name: s.name }))) return;
+    void act(s, "skills.deleted", "skills.deleteFailed", () => deleteSkill(s.name));
   };
 
   const groups = list ? groupSkills(list.skills) : null;
@@ -51,21 +56,20 @@ export function SkillsPage() {
   return (
     <section className="page" aria-labelledby="skills-heading">
       <header className="page-header">
-        <h2 id="skills-heading">Skills</h2>
+        <h2 id="skills-heading">{t("skills.heading")}</h2>
         <button type="button" onClick={() => void load()} disabled={busy !== null}>
-          Refresh
+          {t("common.refresh")}
         </button>
       </header>
-      {error && <p className="page-error">Cannot load skills ({error}).</p>}
+      {error && <p className="page-error">{t("skills.loadError", { error })}</p>}
       {note && <p className="page-note">{note}</p>}
-      {!error && list === null && <p className="page-empty">Loading…</p>}
+      {!error && list === null && <p className="page-empty">{t("common.loading")}</p>}
       {groups && (
         <>
-          <h3>Workspace</h3>
+          <h3>{t("skills.workspace")}</h3>
           {groups.installed.length === 0 ? (
             <p className="page-empty">
-              No workspace skills yet. Install a bundled one below, or let Dream or the agent write{" "}
-              <code>skills/&lt;name&gt;/SKILL.md</code>.
+              <Fill text={t("skills.noWorkspace")} vars={{ path: <code>skills/&lt;name&gt;/SKILL.md</code> }} />
             </p>
           ) : (
             <ul className="page-list skills-list">
@@ -73,7 +77,7 @@ export function SkillsPage() {
                 <li key={s.name} data-disabled={s.enabled ? undefined : ""}>
                   <div className="skill-head">
                     <strong>{s.name}</strong>
-                    {skillBadges(s).map((b) => (
+                    {skillBadges(s, t).map((b) => (
                       <span key={b} className="badge">
                         {b}
                       </span>
@@ -81,10 +85,10 @@ export function SkillsPage() {
                     {canEdit && (
                       <span className="page-actions">
                         <button type="button" disabled={busy !== null} onClick={() => void toggle(s)}>
-                          {s.enabled ? "Disable" : "Enable"}
+                          {t(s.enabled ? "common.disable" : "common.enable")}
                         </button>
                         <button type="button" disabled={busy !== null} onClick={() => remove(s)}>
-                          Delete
+                          {t("skills.delete")}
                         </button>
                       </span>
                     )}
@@ -97,7 +101,7 @@ export function SkillsPage() {
           )}
           {groups.available.length > 0 && (
             <>
-              <h3>Bundled</h3>
+              <h3>{t("skills.bundled")}</h3>
               <ul className="page-list skills-list">
                 {groups.available.map((s) => (
                   <li key={s.name}>
@@ -106,7 +110,7 @@ export function SkillsPage() {
                       {canEdit && (
                         <span className="page-actions">
                           <button type="button" disabled={busy !== null} onClick={() => void install(s)}>
-                            Install
+                            {t("skills.install")}
                           </button>
                         </span>
                       )}
@@ -118,8 +122,7 @@ export function SkillsPage() {
             </>
           )}
           <p className="page-empty">
-            Enabled workspace skills are listed in the agent's system prompt from the next turn; the agent reads a
-            skill's SKILL.md when it needs it.
+            {t("skills.help")}
           </p>
         </>
       )}

@@ -1,9 +1,11 @@
 import { memo, useRef, useState, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
 import { components, markdownOptions } from "./markdown-options";
+import { useT } from "./i18n";
 
 // CodeBlock frames a fenced block with a copy button.
 function CodeBlock({ children }: ComponentProps<"pre">) {
+  const t = useT();
   const ref = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
   const copy = () => {
@@ -16,7 +18,7 @@ function CodeBlock({ children }: ComponentProps<"pre">) {
   return (
     <div className="code-block">
       <button type="button" className="copy" onClick={copy}>
-        {copied ? "Copied" : "Copy"}
+        {t(copied ? "messages.copied" : "messages.copy")}
       </button>
       <pre ref={ref}>{children}</pre>
     </div>

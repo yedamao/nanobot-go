@@ -1148,10 +1148,15 @@ The page is localized in English and Simplified Chinese (简体中文): the
 language select in the header (and on the sign-in form) switches at once
 and is remembered in `localStorage` under `nanobot.locale` (the key the
 Python WebUI uses); a first visit follows the browser's language. The
-header, sign-in form, Composer and Cron page are translated; Channels,
-Models, Providers, Skills, MCP, the chat list and the Status dialog are
-still English. Messages live in `webui/src/i18n/en.ts` and `zh-CN.ts`
-(same keys; `npm test` checks).
+whole page chrome is translated (chat list and messages, Status dialog,
+Cron, Channels, Models, Providers, Skills, MCP) and dates follow the
+chosen language. Left in English: messages from the gateway (API errors,
+test results, the restart-unavailable reason, model catalog notes),
+form validation messages on Channels, Models, Providers and MCP, cron
+status tokens (`ok`, `error`, `skipped`), and names such as channels,
+providers, config paths and environment variables. Messages live in
+`webui/src/i18n/en.ts` and `zh-CN.ts` (same keys and placeholders;
+`npm test` checks).
 
 The build has no inline scripts or styles, so the page keeps its strict
 CSP (`default-src 'self'; img-src 'self'`). `npm run dev` serves the app with hot reload

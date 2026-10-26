@@ -47,3 +47,9 @@ export function messageKeys(tree: unknown, prefix = ""): string[] {
   }
   return keys.sort();
 }
+
+/** Translator is t(): a message for key with its placeholders filled. */
+export type Translator = (key: MessageKey, vars?: Vars) => string;
+
+/** enT is the English Translator, the default of helpers that take one. */
+export const enT: Translator = (key, vars) => translate("en", key, vars);

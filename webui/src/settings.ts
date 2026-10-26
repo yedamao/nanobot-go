@@ -1,4 +1,5 @@
 import type { Settings, SettingsPatch, SettingsView } from "./api";
+import { enT, type Translator } from "./i18n/translate.ts";
 
 // diffSettings returns the fields of draft that differ from saved, as a
 // PATCH /ui/settings body. The model is compared trimmed.
@@ -22,12 +23,12 @@ export function diffSettings(saved: Settings, draft: Settings): SettingsPatch {
 
 // pendingText says which saved settings wait for a restart and which an
 // environment variable overrides.
-export function pendingText(view: SettingsView): string {
+export function pendingText(view: SettingsView, t: Translator = enT): string {
   const parts: string[] = [];
   const restart = view.restart_required ?? [];
   const env = view.env_overrides ?? [];
-  if (restart.length) parts.push("Restart the gateway to apply: " + restart.join(", ") + ".");
-  if (env.length) parts.push("Set by an environment variable, which wins over the saved value: " + env.join(", ") + ".");
+  if (restart.length) parts.push(t("status.pendingRestart", { names: restart.join(", ") }));
+  if (env.length) parts.push(t("status.pendingEnv", { names: env.join(", ") }));
   return parts.join(" ");
 }
 
