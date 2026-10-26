@@ -281,8 +281,10 @@ minutes, so jobs added by another process are picked up too. Jobs that
 came due while the gateway was down are skipped, except one-time (`at`)
 jobs, which run once at startup. If a run fails, the error is recorded
 on the job and nothing is sent. Each job keeps its last 20 runs (time,
-status, duration, truncated error) in `jobs.json`; the WebUI Cron page
-shows them under **History**.
+status, duration, truncated error, and the agent's reply cut to 3000
+characters) in `jobs.json`; the WebUI Cron page shows them under
+**History**. Full replies stay in the chat's session; there are no
+per-run audit files.
 
 `nanobot agent` offers the tool as well, but only the gateway runs jobs.
 A job created from the CLI runs in the `cli:direct` session; there is no

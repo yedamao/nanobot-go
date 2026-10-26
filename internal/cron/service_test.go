@@ -78,18 +78,23 @@ func (c *fakeClock) waitSleep(t *testing.T) time.Duration {
 
 // recorder is a RunFunc that records the jobs it runs.
 type recorder struct {
-	ran chan Job
-	err func(Job) error
+	ran   chan Job
+	err   func(Job) error
+	reply func(Job) string
 }
 
 func newRecorder() *recorder { return &recorder{ran: make(chan Job, 100)} }
 
-func (r *recorder) run(ctx context.Context, j Job) error {
+func (r *recorder) run(ctx context.Context, j Job) (string, error) {
 	r.ran <- j
-	if r.err != nil {
-		return r.err(j)
+	var reply string
+	if r.reply != nil {
+		reply = r.reply(j)
 	}
-	return nil
+	if r.err != nil {
+		return reply, r.err(j)
+	}
+	return reply, nil
 }
 
 func (r *recorder) wait(t *testing.T) Job {
@@ -334,12 +339,14 @@ func TestServiceRunHistoryCapped(t *testing.T) {
 		h.clock.Advance(1500 * time.Millisecond)
 		return nil
 	}
+	h.rec.reply = func(Job) string { return "done ✓" }
 	var starts []time.Time
 	for i := range MaxRunHistory + 1 {
 		h.clock.Advance(time.Minute)
 		starts = append(starts, h.clock.Now())
 		if i == MaxRunHistory {
 			h.rec.err = func(Job) error { return errors.New(strings.Repeat("x", 2*maxErrorChars)) }
+			h.rec.reply = func(Job) string { return strings.Repeat("é", 2*maxReplyChars) }
 		}
 		if _, ran, _ := h.svc.RunJob(context.Background(), job.ID, false); !ran {
 			t.Fatalf("run %d did not run", i)
@@ -351,11 +358,12 @@ func TestServiceRunHistoryCapped(t *testing.T) {
 	if len(hist) != MaxRunHistory || j.State.RunCount != MaxRunHistory+1 {
 		t.Fatalf("history len = %d, runCount = %d", len(hist), j.State.RunCount)
 	}
-	if !hist[0].RunAt.Equal(starts[1]) || hist[0].Status != StatusOK || hist[0].DurationMs != 1500 {
+	if !hist[0].RunAt.Equal(starts[1]) || hist[0].Status != StatusOK || hist[0].DurationMs != 1500 || hist[0].Reply != "done ✓" {
 		t.Errorf("oldest = %+v, want start %v", hist[0], starts[1])
 	}
 	last := hist[len(hist)-1]
-	if !last.RunAt.Equal(starts[MaxRunHistory]) || last.Status != StatusError || len(last.Error) != maxErrorChars || last.DurationMs != 0 {
+	if !last.RunAt.Equal(starts[MaxRunHistory]) || last.Status != StatusError || len(last.Error) != maxErrorChars || last.DurationMs != 0 ||
+		last.Reply != strings.Repeat("é", maxReplyChars) {
 		t.Errorf("newest = %+v", last)
 	}
 }
@@ -369,6 +377,7 @@ func TestServiceDoesNotRecordCanceledRuns(t *testing.T) {
 		cancelJobs()
 		return context.Canceled
 	}
+	h.rec.reply = func(Job) string { return "partial" }
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- h.svc.Serve(ctx, jobCtx) }()

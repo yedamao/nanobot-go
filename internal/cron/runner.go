@@ -51,17 +51,17 @@ type DeliverFunc func(ctx context.Context, msg bus.OutboundMessage) error
 // run_bound_cron_job: the job's message runs as a turn in the session of
 // the chat it was created from, marked as a cron turn (sender "cron",
 // TriggerMetaKey in the metadata), and a non-empty reply is delivered to
-// that chat. Jobs without a complete binding, and system jobs, are
+// that chat and returned for the run history. Jobs without a complete binding, and system jobs, are
 // skipped (ErrSkipped). A failed turn delivers nothing; the failure is
 // recorded on the job.
 func BoundRunner(turn TurnFunc, deliver DeliverFunc) RunFunc {
-	return func(ctx context.Context, job Job) error {
+	return func(ctx context.Context, job Job) (string, error) {
 		if job.System() {
-			return fmt.Errorf("%w: system job %s has no handler", ErrSkipped, job.ID)
+			return "", fmt.Errorf("%w: system job %s has no handler", ErrSkipped, job.ID)
 		}
 		b := job.Binding
 		if !b.Complete() {
-			return fmt.Errorf("%w: job has no chat to run in; recreate it from a chat session", ErrSkipped)
+			return "", fmt.Errorf("%w: job has no chat to run in; recreate it from a chat session", ErrSkipped)
 		}
 		meta := maps.Clone(b.Metadata)
 		if meta == nil {
@@ -78,12 +78,12 @@ func BoundRunner(turn TurnFunc, deliver DeliverFunc) RunFunc {
 			SessionKeyOverride: b.SessionKey,
 		})
 		if err != nil {
-			return err
+			return reply, err
 		}
 		if strings.TrimSpace(reply) == "" {
-			return nil
+			return reply, nil
 		}
-		return deliver(ctx, bus.OutboundMessage{
+		return reply, deliver(ctx, bus.OutboundMessage{
 			Channel:  b.Channel,
 			ChatID:   b.ChatID,
 			Content:  reply,

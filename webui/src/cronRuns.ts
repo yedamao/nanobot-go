@@ -21,3 +21,8 @@ export function runStatusState(status: string): string {
       return status;
   }
 }
+
+/** runReply returns a run's reply for display, or "" when it has none. */
+export function runReply(run: { reply?: string }): string {
+  return run.reply?.trim() ?? "";
+}

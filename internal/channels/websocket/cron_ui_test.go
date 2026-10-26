@@ -18,7 +18,7 @@ import (
 func TestCronUIListRunRemove(t *testing.T) {
 	svc, err := cron.NewService(cron.ServiceConfig{
 		Store: cron.NewStore(t.TempDir()),
-		Run:   func(context.Context, cron.Job) error { return nil },
+		Run:   func(context.Context, cron.Job) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestCronUIListRunRemove(t *testing.T) {
 func TestCronUICreateAndPatch(t *testing.T) {
 	svc, err := cron.NewService(cron.ServiceConfig{
 		Store: cron.NewStore(t.TempDir()),
-		Run:   func(context.Context, cron.Job) error { return nil },
+		Run:   func(context.Context, cron.Job) (string, error) { return "", nil },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -253,14 +253,14 @@ func TestCronUICreateAndPatch(t *testing.T) {
 }
 
 func TestCronUIRuns(t *testing.T) {
-	fail := false
+	fail, reply := false, ""
 	svc, err := cron.NewService(cron.ServiceConfig{
 		Store: cron.NewStore(t.TempDir()),
-		Run: func(context.Context, cron.Job) error {
+		Run: func(context.Context, cron.Job) (string, error) {
 			if fail {
-				return errors.New("provider down")
+				return "", errors.New("provider down")
 			}
-			return nil
+			return reply, nil
 		},
 	})
 	if err != nil {
@@ -292,8 +292,12 @@ func TestCronUIRuns(t *testing.T) {
 	if code != http.StatusOK || !strings.Contains(string(body), `"runs":[]`) {
 		t.Fatalf("runs before any run = %d %s", code, body)
 	}
-	for _, f := range []bool{false, true} {
-		fail = f
+	huge := strings.Repeat("长", 50_000)
+	for _, r := range []struct {
+		fail  bool
+		reply string
+	}{{false, "Time to stretch!"}, {true, ""}, {false, huge}} {
+		fail, reply = r.fail, r.reply
 		resp, err := client.Post(h.srv.URL+CronPath+"/"+job.ID+"/run", "application/json", strings.NewReader(`{}`))
 		if err != nil {
 			t.Fatal(err)
@@ -314,14 +318,23 @@ func TestCronUIRuns(t *testing.T) {
 	if err := json.Unmarshal(body, &v); err != nil {
 		t.Fatal(err)
 	}
-	if v.JobID != job.ID || v.Name != "stretch" || len(v.Runs) != 2 {
+	if v.JobID != job.ID || v.Name != "stretch" || len(v.Runs) != 3 {
 		t.Fatalf("runs = %+v", v)
 	}
-	// Newest first.
-	if v.Runs[0].Status != "error" || v.Runs[0].Error != "provider down" || v.Runs[1].Status != "ok" || v.Runs[1].Error != "" {
-		t.Errorf("runs = %+v", v.Runs)
+	// Newest first; the huge reply is truncated.
+	if n := len([]rune(v.Runs[0].Reply)); v.Runs[0].Status != "ok" || n == 0 || n > 4000 || !strings.HasPrefix(huge, v.Runs[0].Reply) {
+		t.Errorf("huge reply run: status %s, %d runes", v.Runs[0].Status, n)
 	}
-	if _, err := time.Parse(time.RFC3339, v.Runs[0].RunAt); err != nil {
+	if len(body) > 20_000 {
+		t.Errorf("runs body is %d bytes", len(body))
+	}
+	if r := v.Runs[1]; r.Status != "error" || r.Error != "provider down" || r.Reply != "" {
+		t.Errorf("failed run = %+v", r)
+	}
+	if r := v.Runs[2]; r.Status != "ok" || r.Error != "" || r.Reply != "Time to stretch!" {
+		t.Errorf("first run = %+v", r)
+	}
+	if _, err := time.Parse(time.RFC3339, v.Runs[1].RunAt); err != nil {
 		t.Errorf("runAt %q: %v", v.Runs[0].RunAt, err)
 	}
 

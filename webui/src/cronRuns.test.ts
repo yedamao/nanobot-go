@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration, runStatusState } from "./cronRuns.ts";
+import { formatDuration, runReply, runStatusState } from "./cronRuns.ts";
 
 test("formatDuration", () => {
   assert.equal(formatDuration(undefined), "—");
@@ -16,4 +16,10 @@ test("runStatusState maps statuses to badge states", () => {
   assert.equal(runStatusState("ok"), "connected");
   assert.equal(runStatusState("error"), "failed");
   assert.equal(runStatusState("skipped"), "skipped");
+});
+
+test("runReply trims and defaults to empty", () => {
+  assert.equal(runReply({}), "");
+  assert.equal(runReply({ reply: "  \n " }), "");
+  assert.equal(runReply({ reply: "\nTime to stretch!\n" }), "Time to stretch!");
 });

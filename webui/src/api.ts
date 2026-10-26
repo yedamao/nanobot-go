@@ -179,6 +179,8 @@ export interface CronRun {
   status: "ok" | "error" | "skipped" | string;
   durationMs?: number;
   error?: string;
+  /** The agent's reply, truncated by the gateway. */
+  reply?: string;
 }
 
 export interface CronRuns {

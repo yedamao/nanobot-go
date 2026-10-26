@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   createCronJob,
   listCronJobs,
@@ -10,7 +10,7 @@ import {
   type CronRun,
   type CronWrite,
 } from "./api";
-import { formatDuration, runStatusState } from "./cronRuns";
+import { formatDuration, runReply, runStatusState } from "./cronRuns";
 
 function fmt(iso?: string): string {
   if (!iso) return "—";
@@ -335,18 +335,32 @@ export function CronPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.runs.map((r, i) => (
-                    <tr key={r.runAt + ":" + i}>
-                      <td>{fmt(r.runAt)}</td>
-                      <td>
-                        <span className="badge" data-state={runStatusState(r.status)}>
-                          {r.status}
-                        </span>
-                      </td>
-                      <td>{formatDuration(r.durationMs)}</td>
-                      <td className="cron-run-error">{r.error || ""}</td>
-                    </tr>
-                  ))}
+                  {history.runs.map((r, i) => {
+                    const reply = runReply(r);
+                    return (
+                      <Fragment key={r.runAt + ":" + i}>
+                        <tr className="cron-run-row">
+                          <td>{fmt(r.runAt)}</td>
+                          <td>
+                            <span className="badge" data-state={runStatusState(r.status)}>
+                              {r.status}
+                            </span>
+                          </td>
+                          <td>{formatDuration(r.durationMs)}</td>
+                          <td className="cron-run-error">{r.error || ""}</td>
+                        </tr>
+                        <tr className="cron-run-reply-row">
+                          <td colSpan={4}>
+                            {reply ? (
+                              <pre className="cron-run-reply">{reply}</pre>
+                            ) : (
+                              <span className="cron-run-noreply">No reply.</span>
+                            )}
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             )}

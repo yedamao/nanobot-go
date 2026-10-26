@@ -471,6 +471,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 .cron-history .badge { margin-left: 0; }
 .badge[data-state="skipped"] { color: var(--muted); border-style: dashed; }
 .cron-run-error { color: var(--error); font-size: 12px; word-break: break-word; }
+.cron-history .cron-run-row td { border-bottom: none; }
+.cron-history .cron-run-reply-row td { padding-top: 0; }
+.cron-run-reply {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 180px;
+  overflow: auto;
+  background: var(--code-bg);
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.cron-run-noreply { color: var(--muted); font-size: 12px; }
 .models-catalog-note { display: block; color: var(--muted); font-size: 12px; font-weight: normal; }
 
 /* WeChat login status on the Channels page */

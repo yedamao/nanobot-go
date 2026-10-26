@@ -22,13 +22,18 @@ const DefaultMaxSleep = 5 * time.Minute
 // maxErrorChars caps State.LastError.
 const maxErrorChars = 500
 
+// maxReplyChars caps RunRecord.Reply, keeping jobs.json bounded.
+const maxReplyChars = 3000
+
 // ErrSkipped marks a run the RunFunc deliberately did not do (a job
 // without a chat to run in). Wrap it to give the reason; the run is
 // recorded as skipped instead of failed.
 var ErrSkipped = errors.New("skipped")
 
-// RunFunc runs a job. The Service records the outcome.
-type RunFunc func(ctx context.Context, job Job) error
+// RunFunc runs a job and returns the agent's reply, if any (nanobot's
+// CronRunResult.response). The Service records the outcome and the reply,
+// truncated to maxReplyChars.
+type RunFunc func(ctx context.Context, job Job) (reply string, err error)
 
 // Clock is the Service's time source, replaceable in tests.
 type Clock interface {
@@ -557,7 +562,7 @@ func (s *Service) runIf(ctx context.Context, id string, ok func(Job) bool) (Job,
 func (s *Service) execute(ctx context.Context, job Job) (Job, error) {
 	start := s.clock.Now()
 	s.log.Info("cron: running job", "job", job.ID, "name", job.Name)
-	runErr := s.run(ctx, job)
+	reply, runErr := s.run(ctx, job)
 	if runErr != nil && ctx.Err() != nil {
 		s.log.Warn("cron: job canceled; it stays due", "job", job.ID, "error", runErr)
 		return job, runErr
@@ -591,6 +596,7 @@ func (s *Service) execute(ctx context.Context, job Job) (Job, error) {
 			Status:     status,
 			DurationMs: max(0, now.Sub(start).Milliseconds()),
 			Error:      j.State.LastError,
+			Reply:      truncate(reply, maxReplyChars),
 		})
 		if n := len(j.State.RunHistory); n > MaxRunHistory {
 			j.State.RunHistory = slices.Clone(j.State.RunHistory[n-MaxRunHistory:])

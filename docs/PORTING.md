@@ -179,9 +179,11 @@ Phase 2 is complete; phase 3 is in progress.
     `prompts/evaluator.md`), delivery plus `Loop.Record` into the chat's
     session; the `HEARTBEAT.md` template.
   - Done: run history — `State.RunHistory` keeps the last 20 runs
-    (`MaxRunHistory`, like `_MAX_RUN_HISTORY`): start, status, duration
-    and the truncated error, in `jobs.json`; canceled runs are not
-    recorded. No `run_id`/`session_key` per run.
+    (`MaxRunHistory`, like `_MAX_RUN_HISTORY`): start, status, duration,
+    the truncated error and the agent's reply truncated to 3000 runes
+    (`maxReplyChars`; `RunFunc` returns the reply like `CronRunResult.response`),
+    in `jobs.json`; canceled runs are not recorded. No `run_id`/`session_key`
+    per run and no full `cron/runs/*.json` response files.
   - Not ported: local triggers, run records (`cron/runs/`),
     WebUI `change_binding` UI (create/edit/enable via POST/PATCH `/ui/cron`
     are under WebUI; list/run/remove too);
@@ -505,9 +507,10 @@ Phase 2 is complete; phase 3 is in progress.
     through `os.Root` (403 for builtins). The system prompt now carries
     a skills summary of the enabled workspace skills. The React header
     nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
-    no automation create/edit UI, no enable/disable toggle, no run
-    result/reply viewer (`GET /ui/cron/{id}/runs` and the Cron page's
-    **History** show only status, duration and truncated error), no skill marketplace (skills.sh/ClawHub),
+    no automation create/edit UI, no enable/disable toggle, run
+    replies only as stored truncated (`GET /ui/cron/{id}/runs` and the
+    Cron page's **History** show status, duration, truncated error and
+    reply; no per-run detail GET), no skill marketplace (skills.sh/ClawHub),
     skill detail/raw view, requirement checks (`requires.bins/env`) or
     brew/apt install options, builtins only reach the prompt once
     installed (nanobot lists them in place), no `$skill` invocation,

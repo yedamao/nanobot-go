@@ -83,13 +83,15 @@ type CronRunsView struct {
 	Runs []CronRunView `json:"runs"`
 }
 
-// CronRunView is one recorded run: outcome and truncated error only,
-// never the session or the agent's reply.
+// CronRunView is one recorded run: outcome, truncated error and the
+// agent's reply as stored (truncated by the cron service), never the
+// session.
 type CronRunView struct {
 	RunAt      string `json:"runAt"`
 	Status     string `json:"status"`
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Error      string `json:"error,omitempty"`
+	Reply      string `json:"reply,omitempty"`
 }
 
 // cronJobView maps a cron.Job into the WebUI shape.
@@ -205,6 +207,7 @@ func (c *Channel) serveCronRuns(w http.ResponseWriter, r *http.Request) {
 			Status:     string(rec.Status),
 			DurationMs: rec.DurationMs,
 			Error:      rec.Error,
+			Reply:      rec.Reply,
 		})
 	}
 	writeJSON(w, out)

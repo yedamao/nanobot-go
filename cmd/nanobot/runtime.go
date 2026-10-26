@@ -153,20 +153,20 @@ type agentRuntime struct {
 }
 
 // runCronJob runs one cron job: the Dream or heartbeat system job, or an
-// agent turn in the job's chat.
-func (rt *agentRuntime) runCronJob(ctx context.Context, job cron.Job) error {
+// agent turn in the job's chat. System jobs return no reply.
+func (rt *agentRuntime) runCronJob(ctx context.Context, job cron.Job) (string, error) {
 	switch {
 	case job.System() && job.ID == cron.DreamJobID:
 		res, err := rt.dream.Run(ctx)
 		rt.logger.Info("cron: dream run", "pending", res.Pending, "processed", res.Processed,
 			"completed", res.Outcome.Completed, "commit", res.Commit)
-		return err
+		return "", err
 	case job.System() && job.ID == cron.HeartbeatJobID:
 		res, err := rt.heartbeat.Run(ctx)
 		if err == nil && res.Skipped == "" {
 			rt.logger.Info("cron: heartbeat run", "notified", res.Notified)
 		}
-		return err
+		return "", err
 	}
 	return rt.runBound(ctx, job)
 }

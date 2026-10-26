@@ -29,8 +29,8 @@ func TestBoundRunner(t *testing.T) {
 		},
 	)
 
-	if err := run(context.Background(), job); err != nil {
-		t.Fatal(err)
+	if got, err := run(context.Background(), job); err != nil || got != "standup time!" {
+		t.Fatalf("run = %q, %v", got, err)
 	}
 	if len(turns) != 1 || len(delivered) != 1 {
 		t.Fatalf("turns = %v, delivered = %v", turns, delivered)
@@ -51,11 +51,11 @@ func TestBoundRunner(t *testing.T) {
 
 	// An empty reply delivers nothing; a failed turn neither.
 	reply = "  "
-	if err := run(context.Background(), job); err != nil || len(delivered) != 1 {
+	if _, err := run(context.Background(), job); err != nil || len(delivered) != 1 {
 		t.Errorf("empty reply: err %v, delivered %d", err, len(delivered))
 	}
 	turnErr = errors.New("provider down")
-	if err := run(context.Background(), job); !errors.Is(err, turnErr) || len(delivered) != 1 {
+	if _, err := run(context.Background(), job); !errors.Is(err, turnErr) || len(delivered) != 1 {
 		t.Errorf("failed turn: err %v, delivered %d", err, len(delivered))
 	}
 
@@ -66,8 +66,8 @@ func TestBoundRunner(t *testing.T) {
 		{ID: "p", Payload: Payload{Kind: PayloadAgentTurn, Message: "m"}, Binding: &Binding{Channel: "telegram", SessionKey: "telegram:"}},
 		{ID: DreamJobID, Payload: Payload{Kind: PayloadSystem}},
 	} {
-		if err := run(context.Background(), j); !errors.Is(err, ErrSkipped) {
-			t.Errorf("run %s = %v, want ErrSkipped", j.ID, err)
+		if got, err := run(context.Background(), j); !errors.Is(err, ErrSkipped) || got != "" {
+			t.Errorf("run %s = %q, %v, want ErrSkipped", j.ID, got, err)
 		}
 	}
 	if len(turns) != n {

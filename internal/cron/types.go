@@ -237,6 +237,9 @@ type RunRecord struct {
 	DurationMs int64     `json:"durationMs,omitempty"`
 	// Error is the truncated run error or skip reason.
 	Error string `json:"error,omitempty"`
+	// Reply is the agent's reply, truncated to maxReplyChars runes. Full
+	// replies are not kept (no nanobot runs/ audit files).
+	Reply string `json:"reply,omitempty"`
 }
 
 // Job is a scheduled task.
