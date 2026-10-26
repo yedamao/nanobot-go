@@ -91,9 +91,25 @@ func IsThinkingEnd(msg OutboundMessage) bool {
 	return v
 }
 
+// MetaSuperseded is the Metadata key that marks a turn's final reply to
+// a chat the message tool already sent to during the turn, like
+// nanobot's suppressed response. Chat apps drop it, so the chat does not
+// get a second message; a channel that showed the reply's deltas (the
+// WebUI) delivers it as usual to settle the streamed text. See
+// IsSuperseded.
+const MetaSuperseded = "_superseded"
+
+// IsSuperseded reports whether msg is a final reply superseded by the
+// message tool's own send.
+func IsSuperseded(msg OutboundMessage) bool {
+	v, _ := msg.Metadata[MetaSuperseded].(bool)
+	return v
+}
+
 // IsStreamed reports whether msg is a transient streamed update rather
-// than a reply: a progress update, a delta, thinking or its end. Channels
-// that only send whole messages drop these.
+// than a reply: a progress update, a delta, thinking or its end, or a
+// superseded reply that only closes the stream. Channels that only send
+// whole messages drop these.
 func IsStreamed(msg OutboundMessage) bool {
-	return IsProgress(msg) || IsDelta(msg) || IsThinking(msg) || IsThinkingEnd(msg)
+	return IsProgress(msg) || IsDelta(msg) || IsThinking(msg) || IsThinkingEnd(msg) || IsSuperseded(msg)
 }

@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/nanobot-go/internal/tools/message"
 )
 
 func TestTurnSendsInboundImagesAndPersistsPaths(t *testing.T) {
@@ -58,5 +60,70 @@ func TestTurnSendsInboundImagesAndPersistsPaths(t *testing.T) {
 	}
 	if hist := p.reqs[1].Messages[1]; len(hist.Parts) != 3 || hist.Parts[1].Image == nil {
 		t.Errorf("replayed message = %+v", hist)
+	}
+}
+
+func TestMessageToolSupersedesTheReply(t *testing.T) {
+	ws, err := security.NewWorkspace(t.TempDir(), false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ws.Root, "cat.png"), []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	b := bus.NewMessageBus(16)
+	p := &scripted{steps: []step{
+		callTools(call("c1", "message", `{"content":"here","media":["cat.png"]}`)), reply("Sent it."),
+		callTools(call("c2", "message", `{"content":"fyi","chat_id":"other"}`)), reply("Told them."),
+	}}
+	l, _, _ := newTestLoop(t, p, registry(t, message.NewTool(b, ws)), b)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go l.Run(ctx)
+
+	// next returns the next outbound message that is not a progress
+	// update or delta.
+	next := func() bus.OutboundMessage {
+		t.Helper()
+		for {
+			out, err := consumeWithTimeout(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bus.IsProgress(out) && !bus.IsDelta(out) && !bus.IsThinking(out) && !bus.IsThinkingEnd(out) {
+				return out
+			}
+		}
+	}
+	in := bus.InboundMessage{Channel: "telegram", ChatID: "42", Content: "send the cat", Metadata: map[string]any{"message_id": 5}}
+	if err := b.PublishInbound(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	sent := next()
+	if sent.Content != "here" || len(sent.Media) != 1 || sent.Media[0] != filepath.Join(ws.Root, "cat.png") ||
+		sent.Metadata["message_id"] != 5 || bus.IsStreamed(sent) {
+		t.Errorf("tool message = %+v", sent)
+	}
+	// The reply to the chat the tool answered is marked superseded, so
+	// chat apps drop it (bus.IsStreamed) while the WebUI settles its
+	// streamed text.
+	final := next()
+	if final.Content != "Sent it." || !bus.IsSuperseded(final) || !bus.IsStreamed(final) || final.Metadata["message_id"] != 5 {
+		t.Errorf("final = %+v", final)
+	}
+	if in.Metadata[bus.MetaSuperseded] != nil {
+		t.Error("inbound metadata modified")
+	}
+
+	// A send to another chat leaves this chat's reply alone.
+	in.Content = "tell the others"
+	if err := b.PublishInbound(ctx, in); err != nil {
+		t.Fatal(err)
+	}
+	if sent := next(); sent.ChatID != "other" || sent.Content != "fyi" {
+		t.Errorf("tool message = %+v", sent)
+	}
+	if final := next(); final.Content != "Told them." || bus.IsSuperseded(final) || bus.IsStreamed(final) {
+		t.Errorf("final = %+v", final)
 	}
 }

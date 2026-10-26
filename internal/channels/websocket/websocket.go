@@ -515,6 +515,8 @@ func (c *Channel) Stop(ctx context.Context) error {
 // as a "delta" frame when it is a streamed piece of a reply
 // (bus.IsDelta), or as a "thinking" or "thinking_end" frame for the
 // model's streamed thinking (bus.IsThinking, bus.IsThinkingEnd). A
+// superseded reply (bus.IsSuperseded) is a message frame as usual: it
+// settles the streamed text, though the message tool already sent. A
 // message frame's markdown images and media that name
 // workspace files point at the media route. A chat with no open connection (the tab was closed) is a
 // Permanent error for a reply: it is dropped with a log line instead of

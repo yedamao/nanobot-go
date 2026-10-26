@@ -19,8 +19,9 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - Agent: model/tool loop with an iteration cap, concurrent read-only tools,
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
-  `web_fetch`. `exec` can run commands in an OS sandbox (phase 4):
-  bubblewrap on Linux, Seatbelt on macOS.
+  `web_fetch`, `message` (send a message with workspace files attached).
+  `exec` can run commands in an OS sandbox (phase 4): bubblewrap on Linux,
+  Seatbelt on macOS.
 - Persistent sessions (SQLite, one database per workspace, conflict
   detection between processes), `/new`, `/compact` and `/help`; in chat
   channels `/stop` stops the reply in progress.
@@ -252,6 +253,22 @@ or a timer instead.
 
 Runs that overlap are refused, and history appends from a running agent
 are safe while Dream trims the file.
+
+### Sending files (message tool)
+
+Normal replies need no tool: the turn's final answer goes to the chat.
+To deliver a file, such as a chart the agent wrote to the workspace, the
+agent calls `message` with `content` and `media`, a list of up to 10
+workspace paths (relative to the workspace or absolute; files outside it
+are refused, whatever `restrictToWorkspace` says). Telegram uploads them
+(`sendPhoto` for images, `sendDocument` otherwise) and the WebUI shows
+them in the message. `channel` and `chat_id` default to the current chat,
+whose thread and reply target the message keeps; a message to another
+chat carries none of them. When the tool has answered the current chat,
+chat apps do not get the turn's final reply as a second message. The
+tool only works under `nanobot gateway`; heartbeat runs acknowledge its
+sends without delivering them, so only replies that pass the heartbeat
+check reach you. Remote URLs and buttons are not supported yet.
 
 ### Scheduled jobs (cron)
 

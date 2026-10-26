@@ -13,6 +13,7 @@ in which we port them.
 | `nanobot/agent/runner.py`, `hook.py`     | `internal/agent` (`Runner`, `Hook`) | Model-facing loop: provider calls, tools, iteration caps |
 | `nanobot/agent/context.py`               | `internal/agent` (`ContextBuilder`) | System prompt assembly |
 | `nanobot/agent/tools`                    | `internal/tools`, `internal/tools/builtin` | `Tool` interface, `Registry`, built-in tools |
+| `nanobot/agent/tools/message.py`         | `internal/tools/message`         | `message` tool: content and workspace media to `OutboundMessage` |
 | `nanobot/agent/tools/mcp.py`, `mcp_oauth.py` | `internal/mcp`               | MCP client, tools wrapped as `mcp_<server>_<tool>` |
 | `nanobot/agent/memory.py` (Consolidator, Dream) | `internal/memory`         | history.jsonl archive, long-term files, Dream job |
 | `nanobot/agent/subagent.py`              | `internal/agent/subagent`        | Reuses `Runner` with a restricted registry |
@@ -758,7 +759,7 @@ Phase 2 is complete; phase 3 is in progress.
   most servers are used for their tools. Planned as a follow-up.
 - **Images are described, not stored.** nanobot saves image results as
   artifacts and tells the model to deliver them with the message tool.
-  nanobot-go has no artifacts or message tool yet, so images, audio and
+  nanobot-go has the message tool but no artifacts yet, so images, audio and
   blobs become a placeholder (`[image: image/png, 5120 bytes]`); text
   resources embedded in a result are inlined.
 - **SSE is supported** through the SDK, inferred like nanobot from a URL
@@ -1050,6 +1051,36 @@ Phase 2 is complete; phase 3 is in progress.
 - **Not ported: WeCom.** `nanobot/channels/wecom` (enterprise WeChat over
   the WeCom WebSocket SDK) is a different channel and remains a gap.
 
+### Message tool
+
+- **Done (minimal):** `internal/tools/message`, registered in every
+  runtime with the runtime's bus (`nanobot agent` has none, so the tool
+  answers "Message sending not configured"). Arguments `content`,
+  `channel`, `chat_id` and `media`; the target defaults to `tools.Turn`,
+  whose metadata is cloned only when the target is the same
+  channel+chat (nanobot's same-target rule for `message_id`). With no
+  turn (Dream) the target must be explicit. Media are resolved with
+  `Workspace.ResolveRead` and must be existing regular files inside the
+  workspace even when the workspace is not restricted (nanobot passes
+  any path then): attachments leave the machine. At most 10, like
+  Telegram's per-reply limit.
+- **Final reply suppression** (`capture_message_deliveries`): the loop
+  attaches `tools.WithDeliveries` to each turn and the tool records each
+  target it published to. When that includes the turn's chat, the final
+  reply is still published but marked `bus.MetaSuperseded`; it counts as
+  `bus.IsStreamed`, so Telegram and WeChat drop it (no second message)
+  while the websocket channel still sends it as the `message` frame that
+  settles the reply's streamed deltas, which nanobot's WebUI ends with a
+  stream-end event instead. Only bus-driven turns: a cron job's reply
+  (`Loop.ProcessMessage` + `BoundRunner`) is delivered even when the tool
+  already sent to the job's chat. nanobot's `had_injections` exception
+  does not apply (no mid-turn injections).
+- **Not ported:** `buttons` (inline keyboards), remote `http(s)` media
+  URLs (refused with an error), `generate_image` artifacts, the
+  WebSocket chat_id mismatch check, `strip_think` on content, the
+  `_record_channel_delivery` and session-generation metadata, and
+  `message_id` as an argument.
+
 ### Cron
 
 - **Own cron parser.** nanobot uses croniter; nanobot-go parses standard
@@ -1101,8 +1132,8 @@ Phase 2 is complete; phase 3 is in progress.
   `Loop.ProcessMessage`, which already queues it behind the session's
   turns. The rendered reminder prompt is saved to the session as the
   user message (nanobot saves "Scheduled cron job triggered: ..."), and
-  the prompt drops nanobot's line about the message tool, which does not
-  exist here. The trigger marker is `_cron_trigger` in the inbound
+  the prompt drops nanobot's line about the message tool (which now
+  exists, see "Message tool"). The trigger marker is `_cron_trigger` in the inbound
   metadata; the tool refuses `add` in such a turn, like nanobot.
 - **Turn context through `context.Context`.** nanobot's tool reads a
   request-context variable; nanobot-go's Loop attaches `tools.Turn`
@@ -1141,9 +1172,12 @@ Phase 2 is complete; phase 3 is in progress.
     there is no `unified_session` route and no archived-key filter. Keys
     with more parts (Telegram forum topics, `telegram:<chat>:topic:<n>`)
     are skipped, since the chat id alone would post outside the topic.
-  - There is no message tool, so nothing has to be suppressed during the
-    turn; the reply is the only output and goes through the check. Tool
-    progress is not streamed anywhere.
+  - The message tool acknowledges sends from the `heartbeat` session
+    without publishing them (nanobot's `set_suppress_delivery`), so the
+    reply is the only output and goes through the check. nanobot-go keys
+    this on the session (`heartbeat.SessionKey` in `tools.Turn`) rather
+    than a flag set around the run. Tool progress is not streamed
+    anywhere.
   - The delivery is recorded without nanobot's session-generation check:
     a chat cleared with `/new` during the run still gets the result in
     its new history.

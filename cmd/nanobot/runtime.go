@@ -23,6 +23,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/skills"
 	"github.com/yedamao/nanobot-go/internal/tools"
 	"github.com/yedamao/nanobot-go/internal/tools/builtin"
+	"github.com/yedamao/nanobot-go/internal/tools/message"
 )
 
 // commonFlags are the flags of every command that runs the agent.
@@ -245,6 +246,9 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		return nil, err
 	}
 	if err := reg.Register(cron.NewTool(rt.cron, cron.ToolConfig{AddNote: opts.cronNote})); err != nil {
+		return nil, err
+	}
+	if err := reg.Register(message.NewTool(opts.bus, ws)); err != nil {
 		return nil, err
 	}
 	if rt.dream, err = newDream(s, nil); err != nil {

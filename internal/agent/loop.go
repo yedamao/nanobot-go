@@ -118,6 +118,9 @@ type Reply struct {
 	// Usage sums the tokens of the turn's model requests. It is zero for
 	// the built-in commands.
 	Usage providers.Usage
+	// Delivered reports that a tool (the message tool) already sent a
+	// message to the turn's own chat, so the reply need not be.
+	Delivered bool
 }
 
 // NewLoop returns a Loop.
@@ -339,6 +342,14 @@ func (l *Loop) handle(ctx context.Context, j job) {
 		content = fmt.Sprintf(errorReplyText, err)
 	}
 	out := bus.OutboundMessage{Channel: j.msg.Channel, ChatID: j.msg.ChatID, Content: content, Metadata: maps.Clone(j.msg.Metadata)}
+	if err == nil && r.Delivered {
+		// The message tool already answered this chat: chat apps drop
+		// the reply, the WebUI uses it to settle the streamed text.
+		if out.Metadata == nil {
+			out.Metadata = map[string]any{}
+		}
+		out.Metadata[bus.MetaSuperseded] = true
+	}
 	if err := l.cfg.Bus.PublishOutbound(j.ctx, out); err != nil {
 		l.log.Warn("drop outbound message", "session", j.msg.SessionKey(), "error", err)
 	}
@@ -380,6 +391,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks)
 
 	l.consolidate(ctx, sess, msg)
 	ctx = tools.WithTurn(ctx, tools.Turn{Channel: msg.Channel, ChatID: msg.ChatID, SessionKey: key, Metadata: msg.Metadata})
+	ctx, sent := tools.WithDeliveries(ctx)
 	// Attached images go to the model as image parts; other files are
 	// named in the text for the model to read with its tools.
 	content, images := providers.SplitMedia(msg.Content, msg.Media)
@@ -408,7 +420,7 @@ func (l *Loop) turn(ctx context.Context, msg bus.InboundMessage, progress Hooks)
 	}
 	l.log.Debug("agent turn done", "session", key, "iterations", res.Iterations, "stop", res.StopReason,
 		"input_tokens", res.Usage.InputTokens, "output_tokens", res.Usage.OutputTokens)
-	return Reply{Content: res.FinalContent, Usage: res.Usage}, nil
+	return Reply{Content: res.FinalContent, Usage: res.Usage, Delivered: sent.Delivered(msg.Channel, msg.ChatID)}, nil
 }
 
 // consolidate summarizes the oldest unconsolidated messages of sess when

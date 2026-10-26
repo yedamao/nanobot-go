@@ -188,6 +188,15 @@ func TestDeltaFrames(t *testing.T) {
 	if f := readFrame(t, conn); f.Type != TypeMessage || f.Role != "assistant" || f.Content != "Hello" {
 		t.Errorf("reply frame = %+v", f)
 	}
+	// A reply superseded by the message tool still settles the streamed
+	// text here, unlike in chat apps.
+	superseded := map[string]any{bus.MetaSuperseded: true}
+	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "Sent.", Metadata: superseded}); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeMessage || f.Role != "assistant" || f.Content != "Sent." {
+		t.Errorf("superseded reply frame = %+v", f)
+	}
 	// A delta for a closed tab is not worth an error.
 	if err := h.ch.Send(testCtx(t), bus.OutboundMessage{Channel: Name, ChatID: "nobody", Content: "x", Metadata: delta}); err != nil {
 		t.Errorf("Send(delta) to unknown chat = %v", err)

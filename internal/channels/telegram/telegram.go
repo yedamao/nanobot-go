@@ -594,8 +594,9 @@ func (c *Channel) replyContext(r *message) string {
 // name]" notice, like nanobot's, so a retry never repeats the files that
 // went through. With replyToMessage (or an explicit msg.ReplyTo) the
 // messages reply to the inbound message. Progress updates, streamed
-// deltas and thinking (bus.IsStreamed) are dropped: the final reply
-// carries the whole text, and thinking is never shown in a chat app.
+// deltas, thinking and superseded replies (bus.IsStreamed) are dropped:
+// the final reply carries the whole text, thinking is never shown in a
+// chat app, and a superseded reply was already sent by the message tool.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if bus.IsStreamed(msg) {
 		return nil // no status display; the typing indicator keeps running

@@ -58,6 +58,8 @@ func TestIsThinkingAndIsStreamed(t *testing.T) {
 		{"thinking", map[string]any{MetaThinking: true}, true, false, true},
 		{"thinking end", map[string]any{MetaThinkingEnd: true}, false, true, true},
 		{"not a bool", map[string]any{MetaThinking: "yes"}, false, false, false},
+		{"superseded", map[string]any{MetaSuperseded: true}, false, false, true},
+		{"superseded false", map[string]any{MetaSuperseded: false}, false, false, false},
 	}
 	for _, tt := range tests {
 		msg := OutboundMessage{Metadata: tt.meta}
