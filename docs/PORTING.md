@@ -163,9 +163,14 @@ Phase 2 is complete; phase 3 is in progress.
     and flood-control retries; up to 10 per reply; a failure sends
     `[Failed to send: name]`. Unlike nanobot, text that fits (1024 UTF-16
     units) is the first file's caption instead of a separate message.
+    Remote `http(s)` media URLs are checked like nanobot's
+    `validate_url_target` (`security.CheckURL` with
+    `tools.ssrfWhitelist`) and passed to `sendPhoto`/`sendDocument` as
+    the URL itself (sent as form fields, not uploaded); the Bot API
+    fetches them. A refused URL becomes `[Failed to send: name]`.
   - Not ported (Telegram): webhook mode, other inbound media (voice and
     transcription, video, documents, stickers, media groups, non-photo
-    replied-to media), outbound remote media URLs, sendVideo/sendVoice/
+    replied-to media), sendVideo/sendVoice/
     sendAudio (sent as documents), media groups (albums), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
@@ -190,7 +195,11 @@ Phase 2 is complete; phase 3 is in progress.
     MB, a file that cannot be sent becomes a `[Failed to send: name]`
     notice, each file counts against the context-token budget and is held
     with the rest of the reply when the budget runs out, a retry reuses
-    the upload key and `client_id`), inbound media (image, voice, file
+    the upload key and `client_id`; beyond nanobot, whose
+    `_send_media_file` sends local files only, an `http(s)` media URL is
+    downloaded through `security.Policy.Download` (SSRF-checked target
+    and redirects, pinned DNS, 50 MB cap) and uploaded like a file),
+    inbound media (image, voice, file
     and video items downloaded from `full_url`, falling back to the CDN's
     `download?encrypted_query_param=`, AES-128-ECB decrypted with
     `image_item.aeskey` or `media.aes_key` in either encoding, unencrypted
@@ -480,7 +489,9 @@ Phase 2 is complete; phase 3 is in progress.
     `history` (user messages too) point markdown images naming workspace
     files at the route; `OutboundMessage.Media` inside the workspace
     becomes the frame's `media` list (`url`, `name`, `kind`), shown as
-    thumbnails and download chips. `POST /ui/upload` (auth-gated,
+    thumbnails and download chips; `http(s)` URLs in `Media` pass through
+    as `kind: "link"` refs the page shows as new-tab link chips (not
+    images, given `img-src 'self'`; the gateway never fetches them). `POST /ui/upload` (auth-gated,
     same-origin, 10 MiB like nanobot's per-file limit) saves to
     `uploads/<random>-<safe name>`; the composer names uploads by
     workspace path in the message text and sends them as the chat
@@ -1139,8 +1150,12 @@ Phase 2 is complete; phase 3 is in progress.
   (`[Yes] [No]` per row, empty rows skipped) after a blank line, where
   nanobot's WeChat and websocket channels drop the buttons. The WebUI
   has no clickable buttons.
-- **Not ported:** remote `http(s)` media
-  URLs (refused with an error), `generate_image` artifacts, the
+- **Remote media URLs.** As in nanobot, `http(s)` entries of `media`
+  are passed through as they are, not fetched by the tool; the channel
+  checks them against the SSRF policy at send time (Telegram, WeChat).
+  Other `scheme://` entries are refused. Unlike nanobot, nanobot-go's
+  WeChat and WebUI handle them too (see the channels).
+- **Not ported:** `generate_image` artifacts, the
   WebSocket chat_id mismatch check, `strip_think` on content, the
   `_record_channel_delivery` and session-generation metadata, and
   `message_id` as an argument.

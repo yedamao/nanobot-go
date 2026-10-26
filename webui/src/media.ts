@@ -5,11 +5,13 @@
 export const MEDIA_PREFIX = "/ui/media/";
 
 // MediaRef is a file attached to a message: the media list of a message
-// frame, or a markdown image in a user message.
+// frame, or a markdown image in a user message. A "link" is a remote
+// http(s) URL the agent sent; it is shown as a link, since the CSP keeps
+// the page from loading remote images.
 export interface MediaRef {
   url: string;
   name: string;
-  kind: "image" | "file";
+  kind: "image" | "file" | "link";
 }
 
 const imageExt = /\.(png|jpe?g|gif|webp|svg)$/i;
@@ -41,15 +43,40 @@ function mediaName(url: string): string {
   }
 }
 
+// remoteURL returns url normalized when it is an absolute http(s) URL
+// with a host, else null.
+export function remoteURL(url: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return null;
+  }
+  return (u.protocol === "http:" || u.protocol === "https:") && u.host !== "" ? u.href : null;
+}
+
+function remoteName(href: string): string {
+  const u = new URL(href);
+  return mediaName(u.pathname) || u.host;
+}
+
 // mediaRefs keeps the well-formed media URLs of a message frame's media
-// list; anything else (another origin, a malformed entry) is dropped.
+// list, and http(s) URLs as links; anything else (a malformed entry,
+// another scheme) is dropped.
 export function mediaRefs(v: unknown): MediaRef[] {
   if (!Array.isArray(v)) return [];
   const out: MediaRef[] = [];
   for (const m of v) {
     if (!m || typeof m !== "object") continue;
     const { url, name } = m as { url?: unknown; name?: unknown };
-    if (typeof url !== "string" || !isMediaURL(url)) continue;
+    if (typeof url !== "string") continue;
+    if (!isMediaURL(url)) {
+      const href = remoteURL(url);
+      if (href) {
+        out.push({ url: href, name: typeof name === "string" && name ? name : remoteName(href), kind: "link" });
+      }
+      continue;
+    }
     out.push({
       url,
       name: typeof name === "string" && name ? name : mediaName(url),

@@ -6,15 +6,20 @@ import (
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 // writeFile writes data to rel in the workspace and returns its path.
@@ -326,5 +331,71 @@ func TestTooManyFilesAreCapped(t *testing.T) {
 	h.greet(t, "m3", "ctx-3")
 	if n := len(h.f.callsOf("upload")); n != maxOutboundFiles {
 		t.Errorf("%d uploads, want %d", n, maxOutboundFiles)
+	}
+}
+
+func TestSendRemoteMediaDownloadsThenUploads(t *testing.T) {
+	h := newHarness(t, nil)
+	png := bytes.Repeat([]byte("PNG"), 50)
+	var gets atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		switch r.URL.Path {
+		case "/img/cat.png":
+			w.Write(png)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer remote.Close()
+	// The fixture is on loopback: whitelist it as the public host it
+	// stands in for.
+	h.ch.ssrf = &security.Policy{Whitelist: []netip.Prefix{netip.MustParsePrefix("127.0.0.1/32")}}
+	h.start(t)
+	h.greet(t, "m1", "ctx-1")
+	if err := sendMedia(h, "look", remote.URL+"/img/cat.png?sig=1", remote.URL+"/missing.pdf"); err != nil {
+		t.Fatal(err)
+	}
+	calls := h.f.callsOf("sendmessage")
+	if got := itemKinds(t, calls); got != "image_item,text_item,text_item" {
+		t.Fatalf("sent %s", got)
+	}
+	if texts, _, _ := sentTexts(calls); texts[1] != "[Failed to send: missing.pdf]" || texts[2] != "look" {
+		t.Errorf("texts %q", texts)
+	}
+	ups, cdn := h.f.callsOf("getuploadurl"), h.f.callsOf("upload")
+	if len(ups) != 1 || len(cdn) != 1 || ups[0].Body["media_type"] != float64(uploadMediaImage) || ups[0].Body["rawsize"] != float64(len(png)) {
+		t.Fatalf("getuploadurl %v, %d CDN uploads", ups, len(cdn))
+	}
+	key, _ := hex.DecodeString(ups[0].Body["aeskey"].(string))
+	if !bytes.Equal(mustDecrypt(t, cdn[0].Raw, key), png) {
+		t.Error("the CDN did not get the downloaded file")
+	}
+	if gets.Load() != 2 {
+		t.Errorf("%d downloads", gets.Load())
+	}
+}
+
+func TestSendRemoteMediaBlockedBySSRF(t *testing.T) {
+	h := newHarness(t, nil)
+	var gets atomic.Int32
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gets.Add(1)
+		w.Write([]byte("secret"))
+	}))
+	defer remote.Close()
+	h.start(t)
+	h.greet(t, "m1", "ctx-1")
+	// The default policy (no whitelist): loopback, private and metadata
+	// addresses are never fetched.
+	if err := sendMedia(h, "x", remote.URL+"/a.png", "http://10.0.0.1/b.png", "http://169.254.169.254/latest/c.png"); err != nil {
+		t.Fatal(err)
+	}
+	texts, _, _ := sentTexts(h.f.callsOf("sendmessage"))
+	if strings.Join(texts, "|") != "[Failed to send: a.png]|[Failed to send: b.png]|[Failed to send: c.png]|x" {
+		t.Errorf("sent %q", texts)
+	}
+	if gets.Load() != 0 || len(h.f.callsOf("getuploadurl")) != 0 {
+		t.Errorf("%d downloads, %d upload requests", gets.Load(), len(h.f.callsOf("getuploadurl")))
 	}
 }

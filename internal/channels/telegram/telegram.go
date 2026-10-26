@@ -18,8 +18,6 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"path"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -29,6 +27,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/pairing"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 const (
@@ -63,6 +62,10 @@ type Options struct {
 	// saved to its MediaDir. Empty leaves photos out (a caption still
 	// goes through).
 	Workspace string
+	// SSRF checks the http(s) media URLs of outbound messages before the
+	// Bot API is asked to fetch them (tools.ssrfWhitelist); nil blocks
+	// private, loopback, link-local and metadata addresses.
+	SSRF *security.Policy
 }
 
 // Factory returns the channels.Factory for Telegram.
@@ -85,6 +88,8 @@ type Channel struct {
 	pairing *pairing.Store
 	// workspace is Options.Workspace.
 	workspace string
+	// ssrf is Options.SSRF.
+	ssrf *security.Policy
 	// allow holds the allowFrom entries; usernames are lower-cased and
 	// without "@".
 	allow    map[string]bool
@@ -139,6 +144,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		log:            log,
 		pairing:        opts.Pairing,
 		workspace:      opts.Workspace,
+		ssrf:           opts.SSRF,
 		allow:          map[string]bool{},
 		sleep:          sleepCtx,
 		minBackoff:     minBackoff,
@@ -669,7 +675,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 			return err
 		}
 		c.log.Warn("telegram: could not send a file", "chat_id", chatID, "file", p, "error", err)
-		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, "[Failed to send: "+path.Base(filepath.ToSlash(p))+"]"); err != nil {
+		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, "[Failed to send: "+mediaName(p)+"]"); err != nil {
 			return err
 		}
 	}

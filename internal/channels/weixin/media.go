@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 // Outbound media (nanobot: _send_media_file, after openclaw-weixin): a
@@ -73,16 +74,21 @@ func (e *unsendableError) Unwrap() error { return e.err }
 
 // failedNotice replaces a file that cannot be sent, like nanobot's.
 func failedNotice(p string) string {
-	return "[Failed to send: " + path.Base(filepath.ToSlash(p)) + "]"
+	return "[Failed to send: " + mediaName(p) + "]"
+}
+
+// mediaName is the file name of an outbound media path or URL.
+func mediaName(p string) string {
+	if security.IsHTTPURL(p) {
+		return security.URLName(p)
+	}
+	return path.Base(filepath.ToSlash(p))
 }
 
 // mediaPath resolves p against the workspace. The message tool already
 // resolves attachments to absolute workspace paths, so absolute paths are
 // taken as they are (like Telegram).
 func (c *Channel) mediaPath(p string) (string, error) {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return "", errors.New("remote media URLs are not supported")
-	}
 	if filepath.IsAbs(p) {
 		return p, nil
 	}
@@ -92,29 +98,51 @@ func (c *Channel) mediaPath(p string) (string, error) {
 	return filepath.Join(c.workspace, filepath.FromSlash(p)), nil
 }
 
+// readMedia returns the contents and file name of an outbound file: a
+// workspace file, or an http(s) URL downloaded through the SSRF policy
+// (nanobot sends local files only). Errors are *unsendableError unless
+// ctx ended.
+func (c *Channel) readMedia(ctx context.Context, p string) ([]byte, string, error) {
+	if security.IsHTTPURL(p) {
+		data, err := c.ssrf.Download(ctx, p, maxUploadBytes)
+		if err != nil {
+			if ctx.Err() != nil {
+				return nil, "", ctx.Err()
+			}
+			return nil, "", &unsendableError{err}
+		}
+		return data, security.URLName(p), nil
+	}
+	full, err := c.mediaPath(p)
+	if err != nil {
+		return nil, "", &unsendableError{err}
+	}
+	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
+	if err != nil {
+		return nil, "", &unsendableError{err}
+	}
+	if len(data) > maxUploadBytes {
+		return nil, "", &unsendableError{fmt.Errorf("file too large (limit %d bytes)", maxUploadBytes)}
+	}
+	return data, filepath.Base(full), nil
+}
+
 // sendMedia uploads part's file to the CDN and sends it to to. The upload
 // keeps part's AES key and a file key derived from clientID, so a retry
 // uploads the same thing. Errors about the file itself, and business
 // errors other than the context token's and the bot token's, are
 // *unsendableError.
 func (c *Channel) sendMedia(ctx context.Context, to string, p *part, ctxToken, clientID string) error {
-	full, err := c.mediaPath(p.media)
+	data, name, err := c.readMedia(ctx, p.media)
 	if err != nil {
-		return &unsendableError{err}
-	}
-	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
-	if err != nil {
-		return &unsendableError{err}
-	}
-	if len(data) > maxUploadBytes {
-		return &unsendableError{fmt.Errorf("file too large (limit %d bytes)", maxUploadBytes)}
+		return err
 	}
 	if p.aesKey == nil {
 		p.aesKey = make([]byte, 16)
 		rand.Read(p.aesKey)
 	}
 	uploadType, itemType := uploadMediaFile, itemFile
-	switch ext := strings.ToLower(filepath.Ext(full)); {
+	switch ext := strings.ToLower(path.Ext(name)); {
 	case imageExts[ext]:
 		uploadType, itemType = uploadMediaImage, itemImage
 	case videoExts[ext]:
@@ -166,7 +194,7 @@ func (c *Channel) sendMedia(ctx context.Context, to string, p *part, ctxToken, c
 	case itemVoice:
 		item.VoiceItem = &voiceItem{Media: media}
 	default:
-		item.FileItem = &fileItem{Media: media, FileName: filepath.Base(full), Len: strconv.Itoa(len(data))}
+		item.FileItem = &fileItem{Media: media, FileName: name, Len: strconv.Itoa(len(data))}
 	}
 	return mediaAPIError(c.sendItem(ctx, to, item, ctxToken, clientID))
 }

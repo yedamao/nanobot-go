@@ -2,7 +2,9 @@
 // it sends a separate chat message, optionally with file attachments and
 // choice buttons, through the bus. Channels deliver OutboundMessage.Media as they would a
 // reply's (Telegram uploads photos and documents, WeChat uploads them to
-// its CDN, the WebUI shows media frames). Buttons become a Telegram inline
+// its CDN, the WebUI shows media frames). Attachments may be http(s) URLs,
+// which channels check against the SSRF policy (tools.ssrfWhitelist)
+// before Telegram fetches them or WeChat downloads them. Buttons become a Telegram inline
 // keyboard when channels.telegram.inlineKeyboards is on, and text such as
 // "[Yes] [No]" under the content everywhere else.
 package message
@@ -13,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"strings"
 
@@ -51,7 +54,7 @@ func (t *Tool) Description() string {
 	return "Send separate messages requested by the user or task, optionally with attachments. " +
 		"For normal replies, including scheduled reminders and reports, answer directly; " +
 		"the final reply is delivered to the current chat automatically. " +
-		"Use this tool to deliver files or images from the workspace via media. " +
+		"Use this tool to deliver files or images via media: workspace paths or http(s) URLs. " +
 		"Optional buttons offer choices as an inline keyboard (rows of labels); " +
 		"a tapped button comes back as a message with its label."
 }
@@ -60,7 +63,7 @@ func (t *Tool) Parameters() map[string]any {
 	media := map[string]any{
 		"type":        "array",
 		"items":       map[string]any{"type": "string"},
-		"description": fmt.Sprintf("Optional list of existing workspace file paths to attach (at most %d).", MaxMedia),
+		"description": fmt.Sprintf("Optional list of attachments (at most %d): existing workspace file paths or http(s) URLs.", MaxMedia),
 	}
 	buttons := map[string]any{
 		"type": "array",
@@ -176,7 +179,7 @@ func countButtons(rows [][]string) int {
 
 // resolveMedia resolves attachment paths to existing files in the
 // workspace, whether or not the workspace restricts the other tools:
-// an attachment leaves the machine.
+// an attachment leaves the machine. http(s) URLs are kept as they are.
 func (t *Tool) resolveMedia(paths []string) ([]string, error) {
 	if len(paths) > MaxMedia {
 		return nil, fmt.Errorf("too many attachments: %d (at most %d)", len(paths), MaxMedia)
@@ -187,8 +190,16 @@ func (t *Tool) resolveMedia(paths []string) ([]string, error) {
 		switch {
 		case p == "":
 			return nil, fmt.Errorf("media[%d] is empty", i)
-		case strings.HasPrefix(p, "http://"), strings.HasPrefix(p, "https://"):
-			return nil, fmt.Errorf("media path is not allowed: %s: remote URLs are not supported; save the file to the workspace first", p)
+		case security.IsHTTPURL(p):
+			// Sent as they are, like nanobot: each channel checks the
+			// URL against the SSRF policy when it sends or fetches it.
+			if u, err := url.Parse(p); err != nil || u.Host == "" {
+				return nil, fmt.Errorf("media URL is not valid: %s", p)
+			}
+			out = append(out, p)
+			continue
+		case strings.Contains(p, "://"):
+			return nil, fmt.Errorf("media path is not allowed: %s: only http and https URLs are supported", p)
 		}
 		abs, err := t.ws.ResolveRead(p)
 		if err == nil && !t.ws.Contains(abs) {

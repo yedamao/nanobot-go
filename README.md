@@ -19,7 +19,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - Agent: model/tool loop with an iteration cap, concurrent read-only tools,
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
-  `web_fetch`, `message` (send a message with workspace files attached).
+  `web_fetch`, `message` (send a message with workspace files or http(s)
+  URLs attached).
   `exec` can run commands in an OS sandbox (phase 4): bubblewrap on Linux,
   Seatbelt on macOS.
 - Persistent sessions (SQLite, one database per workspace, conflict
@@ -261,16 +262,23 @@ Normal replies need no tool: the turn's final answer goes to the chat.
 To deliver a file, such as a chart the agent wrote to the workspace, the
 agent calls `message` with `content` and `media`, a list of up to 10
 workspace paths (relative to the workspace or absolute; files outside it
-are refused, whatever `restrictToWorkspace` says). Telegram uploads them
-(`sendPhoto` for images, `sendDocument` otherwise) and the WebUI shows
-them in the message. `channel` and `chat_id` default to the current chat,
+are refused, whatever `restrictToWorkspace` says) or `http://` /
+`https://` URLs. Telegram uploads files (`sendPhoto` for images,
+`sendDocument` otherwise) and the WebUI shows them in the message.
+URLs are checked by the channel when it sends them, with the same SSRF
+rules as `web_fetch` (loopback, private, link-local, CGNAT and metadata
+addresses are refused unless in `tools.ssrfWhitelist`; a refused URL
+becomes `[Failed to send: name]`): Telegram passes the URL to the Bot
+API, which fetches it; WeChat downloads it (every redirect re-checked,
+50 MB cap) and uploads it like a file; the WebUI shows it as a link
+under the message (its CSP keeps remote images from loading). `channel` and `chat_id` default to the current chat,
 whose thread and reply target the message keeps; a message to another
 chat carries none of them. When the tool has answered the current chat,
 chat apps do not get the turn's final reply as a second message; the
 same holds for a cron job that used the tool to answer its chat. The
 tool only works under `nanobot gateway`; heartbeat runs acknowledge its
 sends without delivering them, so only replies that pass the heartbeat
-check reach you. Remote URLs are not supported yet.
+check reach you.
 
 `buttons` offers choices: rows of labels, such as
 `[["Yes", "No"], ["Cancel"]]`. On Telegram with `inlineKeyboards: true`
@@ -756,7 +764,8 @@ replaced exactly that token.
   message has no media of its own, the media it quotes is downloaded
   instead. A file that cannot be downloaded leaves only its placeholder.
   Voice is not transcribed beyond WeChat's own transcript. Files a reply attaches (for example through the
-  message tool) are encrypted, uploaded to the WeChat CDN and sent before
+  message tool; http(s) URLs are downloaded first, through the SSRF
+  check) are encrypted, uploaded to the WeChat CDN and sent before
   the text, as images, videos, voice messages or files by extension; at
   most 10 files of up to 50 MB each, and one that cannot be sent is
   replaced by `[Failed to send: name]`. Each file counts as one message
@@ -1108,7 +1117,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   and URLs are left as written (so they stay links). An outbound
   message's `Media` paths inside the workspace come as the `message`
   frame's `media` list and show under the bubble as thumbnails (images)
-  or download chips (other files). Your own messages show the workspace
+  or download chips (other files); http(s) URLs come as `kind: "link"`
+  and show as chips opening the URL in a new tab (never loaded by the
+  page or fetched by the gateway). Your own messages show the workspace
   images their markdown names under the text.
   - **Confinement.** Files are opened through an `os.Root` on the
     workspace, whatever `tools.restrictToWorkspace` says: `..`, absolute
@@ -1501,9 +1512,10 @@ behalf. Treat it like giving someone a shell.
   example without unprivileged user namespaces), nanobot-go refuses to
   start instead of running commands unsandboxed. `nanobot status` shows
   whether the configured sandbox is usable.
-- `web_fetch` and MCP HTTP/SSE clients refuse loopback, private,
-  link-local, CGNAT and cloud-metadata addresses unless they are in
-  `tools.ssrfWhitelist`. Each host is resolved once per request and only
+- `web_fetch`, MCP HTTP/SSE clients and remote media URLs (Telegram's
+  check before the Bot API fetches them, WeChat's download) refuse
+  loopback, private, link-local, CGNAT and cloud-metadata addresses
+  unless they are in `tools.ssrfWhitelist`. Each host is resolved once per request and only
   the validated addresses are dialled, so DNS rebinding cannot slip past
   the check; every redirect hop is re-checked before it is followed.
   Fetched content is marked as untrusted data for the model.

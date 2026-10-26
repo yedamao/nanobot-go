@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 const (
@@ -44,12 +46,19 @@ var inlineMediaTypes = map[string]string{
 
 // MediaRef is one file attached to a message frame.
 type MediaRef struct {
-	// URL is the file's same-origin MediaPath URL.
+	// URL is the file's same-origin MediaPath URL, or for KindLink the
+	// remote http(s) URL itself.
 	URL  string `json:"url"`
 	Name string `json:"name"`
-	// Kind is "image" for a file the page previews inline, else "file".
+	// Kind is "image" for a file the page previews inline, KindLink for a
+	// remote URL, else "file".
 	Kind string `json:"kind"`
 }
+
+// KindLink marks a MediaRef to a remote http(s) URL. The page shows it as
+// a link, not an image: its CSP (img-src 'self') keeps it from loading
+// remote images, and the gateway does not fetch them.
+const KindLink = "link"
 
 // mediaKind returns "image" for a name in the inline allowlist, else
 // "file".
@@ -180,10 +189,17 @@ func (c *Channel) workspaceRel(p string) (string, bool) {
 }
 
 // mediaRefs returns the MediaRefs of an outbound message's media paths
-// that are workspace files; others (URLs, files elsewhere) are left out.
+// that are workspace files or http(s) URLs (passed through as KindLink);
+// files elsewhere are left out.
 func (c *Channel) mediaRefs(paths []string) []MediaRef {
 	var out []MediaRef
 	for _, p := range paths {
+		if security.IsHTTPURL(p) {
+			if u, err := url.Parse(strings.TrimSpace(p)); err == nil && u.Host != "" {
+				out = append(out, MediaRef{URL: u.String(), Name: security.URLName(p), Kind: KindLink})
+			}
+			continue
+		}
 		rel, ok := c.workspaceRel(p)
 		if !ok {
 			c.log.Debug("websocket: media outside the workspace not attached", "path", p)

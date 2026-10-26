@@ -135,7 +135,9 @@ func TestMediaErrors(t *testing.T) {
 		{`["../escape.png"]`, "media path is not allowed"},
 		{`["out"]`, "media path is not a file"},
 		{`["out/cat.png", " "]`, "media[1] is empty"},
-		{`["https://example.com/a.png"]`, "remote URLs are not supported"},
+		{`["ftp://example.com/a.png"]`, "only http and https URLs are supported"},
+		{`["file:///etc/passwd"]`, "only http and https URLs are supported"},
+		{`["https:///a.png"]`, "media URL is not valid"},
 		{`[` + many + `]`, "too many attachments"},
 	}
 	for _, tt := range tests {
@@ -146,6 +148,21 @@ func TestMediaErrors(t *testing.T) {
 	}
 	if b.OutboundLen() != 0 {
 		t.Errorf("%d messages published", b.OutboundLen())
+	}
+}
+
+func TestSendRemoteMediaURLs(t *testing.T) {
+	reg, b, ws := newHarness(t, true)
+	ctx := tools.WithTurn(context.Background(), chatTurn)
+
+	res := run(reg, ctx, `{"content":"look","media":[" https://example.com/a.png ","out/cat.png","HTTP://example.com/r.pdf"]}`)
+	if res.IsError || res.Content != "Message sent to telegram:42 with 3 attachments" {
+		t.Fatalf("result = %+v", res)
+	}
+	msg := consume(t, b)
+	want := []string{"https://example.com/a.png", filepath.Join(ws.Root, "out", "cat.png"), "HTTP://example.com/r.pdf"}
+	if strings.Join(msg.Media, "|") != strings.Join(want, "|") {
+		t.Errorf("media = %q, want %q", msg.Media, want)
 	}
 }
 

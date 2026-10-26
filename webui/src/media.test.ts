@@ -24,19 +24,26 @@ test("isMediaURL", () => {
   assert.equal(isMediaImage("/ui/media/a.pdf"), false);
 });
 
-test("mediaRefs keeps media URLs only", () => {
+test("mediaRefs keeps media URLs and remote links", () => {
   assert.deepEqual(
     mediaRefs([
       { url: "/ui/media/out/c.png", name: "c.png", kind: "file" },
       { url: "/ui/media/r%20s.pdf" },
-      { url: "https://evil.example/x.png", name: "x" },
+      { url: "https://cdn.example/x.png", name: "x", kind: "image" },
+      { url: "http://cdn.example/a%20b.pdf?sig=1" },
+      { url: "https://cdn.example/" },
       { url: "javascript:alert(1)" },
+      { url: "data:image/png;base64,AAAA" },
+      { url: "/ui/chats" },
       null,
       "str",
     ]),
     [
       { url: "/ui/media/out/c.png", name: "c.png", kind: "image" },
       { url: "/ui/media/r%20s.pdf", name: "r s.pdf", kind: "file" },
+      { url: "https://cdn.example/x.png", name: "x", kind: "link" },
+      { url: "http://cdn.example/a%20b.pdf?sig=1", name: "a b.pdf", kind: "link" },
+      { url: "https://cdn.example/", name: "cdn.example", kind: "link" },
     ],
   );
   assert.deepEqual(mediaRefs(undefined), []);

@@ -150,7 +150,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.ssrf, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
 	if err != nil {
 		return err
 	}
@@ -373,7 +373,9 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // config file, and so does the WeChat login (state/weixin). host is the
 // gateway's listen address, which the websocket channel requires to be
 // loopback unless it has a token or tokenIssueSecret; ws is the agent's
-// workspace, whose files the WebUI previews (GET /ui/media/); sessions is the agent loop's session manager, which it loads
+// workspace, whose files the WebUI previews (GET /ui/media/); ssrf is
+// the SSRF policy Telegram and WeChat check remote media URLs with (nil
+// is the default policy); sessions is the agent loop's session manager, which it loads
 // chats from (fresh copies, not the cached ones) and renames and deletes
 // them through, keeping the agent's cache in step; status is the source
 // of its GET /ui/status (see webStatus), settings is the store of its
@@ -387,7 +389,7 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // leaves it unmounted), channelConfig backs /ui/channels/config (see
 // webChannels; nil leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, ssrf *security.Policy, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -395,6 +397,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 			Getenv:    a.getenv,
 			Pairing:   store,
 			Workspace: ws.Root,
+			SSRF:      ssrf,
 		}),
 		weixin.Name: weixin.Factory(weixin.Options{
 			Getenv:          a.getenv,
@@ -402,6 +405,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 			DefaultStateDir: weixin.DefaultStateDir(configPath),
 			Version:         version,
 			Workspace:       ws.Root,
+			SSRF:            ssrf,
 		}),
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,

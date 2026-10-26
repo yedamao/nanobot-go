@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/http"
 	"path"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/fsutil"
 	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 const (
@@ -114,29 +116,15 @@ const (
 	maxUploadBytes      = 50 << 20
 )
 
-// sendFile uploads one local file of an outbound message: an image
-// (by extension, like nanobot's _get_media_type) through sendPhoto, and
+// sendFile sends one file of an outbound message: an image (by
+// extension, like nanobot's _get_media_type) through sendPhoto, and
 // anything else, or a photo Telegram refuses (dimensions, size), through
-// sendDocument. Relative paths resolve against the workspace. URLs are
-// not fetched. markup, when set, is the inline keyboard of the upload.
+// sendDocument. Local files are uploaded; relative paths resolve against
+// the workspace. An http(s) URL is checked against the SSRF policy and
+// handed to the Bot API, which fetches it (nanobot's
+// validate_url_target, then send_photo(url)). markup, when set, is the
+// inline keyboard of the message.
 func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, p, caption string) error {
-	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
-		return errors.New("remote media URLs are not supported")
-	}
-	full := p
-	if !filepath.IsAbs(full) {
-		if c.workspace == "" {
-			return errors.New("no workspace to resolve a relative path against")
-		}
-		full = filepath.Join(c.workspace, filepath.FromSlash(p))
-	}
-	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
-	if err != nil {
-		return err
-	}
-	if len(data) > maxUploadBytes {
-		return fmt.Errorf("%w (limit %d bytes)", errTooLarge, maxUploadBytes)
-	}
 	fields := map[string]string{"chat_id": strconv.FormatInt(chatID, 10)}
 	if threadID != 0 {
 		fields["message_thread_id"] = strconv.FormatInt(threadID, 10)
@@ -158,10 +146,60 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 	if caption != "" {
 		fields["caption"] = caption
 	}
+	if security.IsHTTPURL(p) {
+		return c.sendRemoteFile(ctx, chatID, fields, strings.TrimSpace(p))
+	}
+	full := p
+	if !filepath.IsAbs(full) {
+		if c.workspace == "" {
+			return errors.New("no workspace to resolve a relative path against")
+		}
+		full = filepath.Join(c.workspace, filepath.FromSlash(p))
+	}
+	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
+	if err != nil {
+		return err
+	}
+	if len(data) > maxUploadBytes {
+		return fmt.Errorf("%w (limit %d bytes)", errTooLarge, maxUploadBytes)
+	}
 	name := filepath.Base(full)
-	if providers.IsImagePath(p) && len(data) <= maxUploadPhotoBytes {
+	return c.sendPhotoOrDocument(ctx, chatID, providers.IsImagePath(p) && len(data) <= maxUploadPhotoBytes,
+		func(ctx context.Context, method, field string) error {
+			return c.api.upload(ctx, method, fields, field, name, data, nil)
+		})
+}
+
+// mediaName is the file name of an outbound media path or URL.
+func mediaName(p string) string {
+	if security.IsHTTPURL(p) {
+		return security.URLName(p)
+	}
+	return path.Base(filepath.ToSlash(p))
+}
+
+// sendRemoteFile sends the file at the http(s) URL u by reference: the
+// photo or document field is the URL itself.
+func (c *Channel) sendRemoteFile(ctx context.Context, chatID int64, fields map[string]string, u string) error {
+	if err := security.CheckURL(ctx, u, c.ssrf); err != nil {
+		return err
+	}
+	return c.sendPhotoOrDocument(ctx, chatID, providers.IsImagePath(security.URLName(u)),
+		func(ctx context.Context, method, field string) error {
+			f := maps.Clone(fields)
+			f[field] = u
+			return c.api.upload(ctx, method, f, "", "", nil, nil)
+		})
+}
+
+// sendPhotoOrDocument sends through sendPhoto when photo is set, falling
+// back to sendDocument when Telegram refuses the photo (400), and through
+// sendDocument otherwise. send makes one attempt with the method and its
+// file field.
+func (c *Channel) sendPhotoOrDocument(ctx context.Context, chatID int64, photo bool, send func(ctx context.Context, method, field string) error) error {
+	if photo {
 		err := c.retrySend(ctx, chatID, func(ctx context.Context) error {
-			return c.api.upload(ctx, "sendPhoto", fields, "photo", name, data, nil)
+			return send(ctx, "sendPhoto", "photo")
 		})
 		var ae *apiError
 		if !errors.As(err, &ae) || ae.Code != http.StatusBadRequest {
@@ -170,6 +208,6 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 		c.log.Info("telegram: photo refused; sending it as a file", "chat_id", chatID, "error", err)
 	}
 	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
-		return c.api.upload(ctx, "sendDocument", fields, "document", name, data, nil)
+		return send(ctx, "sendDocument", "document")
 	})
 }

@@ -2,7 +2,8 @@
 // weixin). It talks to Tencent's iLink bot API
 // (https://ilinkai.weixin.qq.com) over net/http: getupdates long-polls
 // for messages with an opaque cursor, sendmessage delivers replies as
-// text in chunks of at most 1800 characters, after their files (uploaded
+// text in chunks of at most 1800 characters, after their files (workspace
+// files, or http(s) URLs downloaded through the SSRF policy, uploaded
 // encrypted to the WeChat CDN, see sendMedia). Inbound images, voice,
 // files and video are downloaded from the CDN into the workspace (see
 // downloadMedia). The bot token comes from a
@@ -38,6 +39,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/pairing"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 // Runtime constants, from nanobot's runtime.py (and the reference
@@ -99,6 +101,10 @@ type Options struct {
 	// Workspace is the agent's workspace directory; relative media paths
 	// of outbound messages are resolved against it.
 	Workspace string
+	// SSRF checks the http(s) media URLs of outbound messages, which are
+	// downloaded and uploaded to the CDN (tools.ssrfWhitelist); nil
+	// blocks private, loopback, link-local and metadata addresses.
+	SSRF *security.Policy
 }
 
 // Factory returns the channels.Factory for WeChat.
@@ -127,6 +133,8 @@ type Channel struct {
 	// without a full URL (replaced in tests).
 	workspace  string
 	cdnBaseURL string
+	// ssrf is Options.SSRF.
+	ssrf *security.Policy
 
 	// sleep waits between attempts (replaced in tests); it returns
 	// ctx.Err() if ctx ends first.
@@ -241,6 +249,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		pairing:        opts.Pairing,
 		allow:          map[string]bool{},
 		workspace:      opts.Workspace,
+		ssrf:           opts.SSRF,
 		cdnBaseURL:     defaultCDNBaseURL,
 		sleep:          sleepCtx,
 		now:            time.Now,

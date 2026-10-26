@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -222,7 +223,8 @@ func TestMessageFrameMedia(t *testing.T) {
 	err := h.ch.Send(testCtx(t), bus.OutboundMessage{
 		Channel: Name, ChatID: chatID,
 		Content: "here ![c](out/chart.png)",
-		Media:   []string{"out/chart.png", filepath.Join(ws.Root, "report.pdf"), outside, "https://example.com/x.png"},
+		Media: []string{"out/chart.png", filepath.Join(ws.Root, "report.pdf"), outside, "https://example.com/a.png",
+			"ftp://example.com/y.png", "https:///nohost.png"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,8 +236,9 @@ func TestMessageFrameMedia(t *testing.T) {
 	want := []MediaRef{
 		{URL: "/ui/media/out/chart.png", Name: "chart.png", Kind: "image"},
 		{URL: "/ui/media/report.pdf", Name: "report.pdf", Kind: "file"},
+		{URL: "https://example.com/a.png", Name: "a.png", Kind: KindLink},
 	}
-	if len(f.Media) != len(want) || f.Media[0] != want[0] || f.Media[1] != want[1] {
+	if !slices.Equal(f.Media, want) {
 		t.Errorf("media = %+v, want %+v", f.Media, want)
 	}
 }

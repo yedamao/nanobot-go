@@ -131,6 +131,9 @@ type runtimeOptions struct {
 // service.
 type agentRuntime struct {
 	*setup
+	// ssrf is the SSRF policy of web_fetch (tools.ssrfWhitelist), which
+	// the channels apply to remote media URLs too.
+	ssrf     *security.Policy
 	loop     *agent.Loop
 	sessions *session.Manager
 	// mcp is not connected yet: the command connects it before the first
@@ -240,7 +243,7 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	if err != nil {
 		return nil, err
 	}
-	rt := &agentRuntime{setup: s}
+	rt := &agentRuntime{setup: s, ssrf: ssrf}
 	rt.cron, err = cron.NewService(cron.ServiceConfig{Store: cron.NewStore(ws.Root), Run: rt.runCronJob, Logger: logger})
 	if err != nil {
 		return nil, err

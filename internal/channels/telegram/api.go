@@ -77,7 +77,8 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 
 // upload posts fields and one file (field name, file name, contents) as
 // multipart/form-data to method, the way the Bot API takes local files
-// (sendPhoto, sendDocument). Errors never contain the token.
+// (sendPhoto, sendDocument). An empty field sends the fields alone.
+// Errors never contain the token.
 func (c *client) upload(ctx context.Context, method string, fields map[string]string, field, name string, data []byte, out any) error {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
@@ -91,9 +92,12 @@ func (c *client) upload(ctx context.Context, method string, fields map[string]st
 			return fmt.Errorf("telegram %s: %w", method, err)
 		}
 	}
-	part, err := w.CreateFormFile(field, name)
-	if err == nil {
-		_, err = part.Write(data)
+	var err error
+	if field != "" {
+		var part io.Writer
+		if part, err = w.CreateFormFile(field, name); err == nil {
+			_, err = part.Write(data)
+		}
 	}
 	if err == nil {
 		err = w.Close()

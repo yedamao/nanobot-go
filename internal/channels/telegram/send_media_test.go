@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 var pngFixture = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfixture")
@@ -95,7 +98,7 @@ func TestSendDocumentsAndFailures(t *testing.T) {
 	writeWS(t, h, "abs.png", pngFixture)
 	h.start(t)
 	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "files",
-		Media: []string{"gone.png", "notes.txt", abs, "https://example.com/x.png"}})
+		Media: []string{"gone.png", "notes.txt", abs, "http://127.0.0.1/x.png"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -263,5 +266,68 @@ func TestReplyToPhotoNotFetchedWhenIgnored(t *testing.T) {
 	h.noInbound(t)
 	if n := len(h.f.callsOf("getFile")); n != 0 {
 		t.Errorf("getFile calls = %d, want 0", n)
+	}
+}
+
+// staticResolver answers localhost with loopback and every other host
+// with a public address, so remote media URLs are checked without real
+// DNS.
+type staticResolver struct{}
+
+func (staticResolver) LookupNetIP(_ context.Context, _, host string) ([]netip.Addr, error) {
+	if host == "localhost" {
+		return []netip.Addr{netip.MustParseAddr("127.0.0.1")}, nil
+	}
+	return []netip.Addr{netip.MustParseAddr("93.184.216.34")}, nil
+}
+
+func TestSendRemoteMediaURLs(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.InlineKeyboards = true })
+	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
+	h.f.reply = func(method string, n int) (int, string, bool) {
+		if method == "sendPhoto" && n == 2 { // the second photo is refused
+			return http.StatusBadRequest, `{"ok":false,"error_code":400,"description":"Bad Request: wrong type of the web page content"}`, true
+		}
+		return 0, "", false
+	}
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "look",
+		Media: []string{"https://cdn.example/img/cat.png?sig=1", "https://cdn.example/odd.jpg",
+			"https://cdn.example/report.pdf", "http://169.254.169.254/latest/meta.png", "http://localhost/x.png"},
+		Buttons:  [][]string{{"OK"}},
+		Metadata: map[string]any{"message_thread_id": int64(7)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	photos, docs := h.f.callsOf("sendPhoto"), h.f.callsOf("sendDocument")
+	if len(photos) != 2 || photos[0].Body["photo"] != "https://cdn.example/img/cat.png?sig=1" || photos[0].File != nil ||
+		photos[0].Body["caption"] != "look" || photos[0].Body["chat_id"] != "42" || photos[0].Body["message_thread_id"] != "7" {
+		t.Errorf("sendPhoto = %+v", photos)
+	}
+	if photos[1].Body["photo"] != "https://cdn.example/odd.jpg" || photos[1].Body["caption"] != nil {
+		t.Errorf("second sendPhoto = %+v", photos[1])
+	}
+	// The refused photo goes as a document, then the PDF.
+	if len(docs) != 2 || docs[0].Body["document"] != "https://cdn.example/odd.jpg" ||
+		docs[1].Body["document"] != "https://cdn.example/report.pdf" || docs[1].File != nil {
+		t.Fatalf("sendDocument = %+v", docs)
+	}
+	for _, c := range append(photos, docs...) {
+		if _, ok := c.Body["reply_markup"]; ok {
+			t.Errorf("%s has the keyboard before the last message: %v", c.Method, c.Body)
+		}
+	}
+	// Blocked targets are never handed to Telegram; their notices go out,
+	// the last one with the keyboard.
+	var texts []string
+	for _, c := range h.f.callsOf("sendMessage") {
+		texts = append(texts, c.Body["text"].(string))
+	}
+	want := []string{"[Failed to send: meta.png]", "[Failed to send: x.png]"}
+	if !reflect.DeepEqual(texts, want) {
+		t.Errorf("messages = %q, want %q", texts, want)
+	}
+	if msgs := h.f.callsOf("sendMessage"); msgs[1].Body["reply_markup"] == nil {
+		t.Errorf("keyboard not on the last message: %v", msgs[1].Body)
 	}
 }
