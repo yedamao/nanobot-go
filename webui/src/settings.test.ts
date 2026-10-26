@@ -7,7 +7,19 @@ const saved: Settings = {
   model: "deepseek-chat",
   provider: "auto",
   fallbackModels: [{ provider: "openai", model: "gpt-4o" }],
-  tools: { exec: true, web_fetch: true, exec_sandbox: "" },
+  tools: {
+    exec: true,
+    web_fetch: true,
+    exec_sandbox: "",
+    image_generation: {
+      enabled: false,
+      provider: "openrouter",
+      model: "openai/gpt-5.4-image-2",
+      default_aspect_ratio: "1:1",
+      default_image_size: "1K",
+      max_images_per_turn: 4,
+    },
+  },
   channels: { websocket: { enabled: true }, telegram: { enabled: false } },
 };
 
@@ -32,8 +44,25 @@ test("only changed fields are patched", () => {
   });
 });
 
+test("image generation fields are patched trimmed and on their own", () => {
+  const draft = clone(saved);
+  draft.tools.image_generation.enabled = true;
+  draft.tools.image_generation.provider = "openai";
+  draft.tools.image_generation.model = " gpt-image-1 ";
+  draft.tools.image_generation.default_image_size = " 1K ";
+  draft.tools.image_generation.max_images_per_turn = 2;
+  assert.deepEqual(diffSettings(saved, draft), {
+    tools: { image_generation: { enabled: true, provider: "openai", model: "gpt-image-1", max_images_per_turn: 2 } },
+  });
+});
+
 test("pendingText tolerates null lists", () => {
-  const view = { settings: saved, restart_required: null, env_overrides: ["model"], choices: { provider: null, exec_sandbox: null } };
+  const view = {
+    settings: saved,
+    restart_required: null,
+    env_overrides: ["model"],
+    choices: { provider: null, exec_sandbox: null, image_generation_provider: null },
+  };
   assert.equal(pendingText(view), "Set by an environment variable, which wins over the saved value: model.");
 });
 

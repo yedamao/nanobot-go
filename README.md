@@ -299,8 +299,11 @@ Proceed?
 
 ### Image generation
 
-`generate_image` is off by default. Set `tools.imageGeneration.enabled`
-and a key for its provider (`openrouter` by default, or `openai`):
+`generate_image` is off by default. Enable it in the WebUI's Status
+dialog (tick **generate_image tool**, pick provider and model, Save,
+restart the gateway; the key goes on the Providers page), or set
+`tools.imageGeneration.enabled` and a key for its provider (`openrouter`
+by default, or `openai`):
 
 ```json
 {
@@ -1062,10 +1065,15 @@ and press Enter. Each reply is a full agent turn, tools included.
   | `tools.exec` | `tools.exec.enable` | true / false |
   | `tools.web_fetch` | `tools.web.enable` | true / false |
   | `tools.exec_sandbox` | `tools.exec.sandbox` | `""` (none) or this OS's backend (`seatbelt` on macOS, `bwrap` on Linux) |
+  | `tools.image_generation.enabled` | `tools.imageGeneration.enabled` | true / false |
+  | `tools.image_generation.provider` | `tools.imageGeneration.provider` | `openrouter` or `openai` |
+  | `tools.image_generation.model` | `tools.imageGeneration.model` | as `model`; required when enabled |
+  | `tools.image_generation.default_aspect_ratio` / `default_image_size` | `tools.imageGeneration.defaultAspectRatio` / `defaultImageSize` | non-empty, no spaces, at most 32 bytes |
+  | `tools.image_generation.max_images_per_turn` | `tools.imageGeneration.maxImagesPerTurn` | 1–8 |
   | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
 
   `GET /ui/settings` reads the file and answers
-  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"]}}`.
+  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":"","image_generation":{"enabled":false,"provider":"openrouter","model":"openai/gpt-5.4-image-2","default_aspect_ratio":"1:1","default_image_size":"1K","max_images_per_turn":4}},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"],"image_generation_provider":["openrouter","openai"]}}`.
   `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings

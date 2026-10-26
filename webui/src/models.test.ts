@@ -10,7 +10,19 @@ const saved: Settings = {
     { provider: "openai", model: "gpt-4o" },
     { provider: "auto", model: "deepseek-chat" },
   ],
-  tools: { exec: true, web_fetch: true, exec_sandbox: "" },
+  tools: {
+    exec: true,
+    web_fetch: true,
+    exec_sandbox: "",
+    image_generation: {
+      enabled: false,
+      provider: "openrouter",
+      model: "openai/gpt-5.4-image-2",
+      default_aspect_ratio: "1:1",
+      default_image_size: "1K",
+      max_images_per_turn: 4,
+    },
+  },
   channels: {},
 };
 

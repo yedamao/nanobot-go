@@ -350,8 +350,9 @@ Phase 2 is complete; phase 3 is in progress.
   - Done: a safe settings whitelist. `GET`/`PATCH /ui/settings`
     (auth-gated, PATCH same-origin only, mounted only when
     `websocket.Options.Settings` is set) read and save `model`,
-    `provider`, `tools.exec`, `tools.web_fetch`, `tools.exec_sandbox`
-    and `channels.<name>.enabled` (configured telegram/weixin/websocket
+    `provider`, `tools.exec`, `tools.web_fetch`, `tools.exec_sandbox`,
+    `tools.image_generation` (enabled, provider, model, default aspect
+    ratio and size, max images per turn) and `channels.<name>.enabled` (configured telegram/weixin/websocket
     sections only). The channel checks the body against an exact key
     schema and refuses secret-looking key names at any depth; the
     gateway's `webSettings` loads the config file afresh, mutates only
@@ -1180,6 +1181,12 @@ Phase 2 is complete; phase 3 is in progress.
   `.json` as `img_<12 hex>.<ext>` under a day directory; the result is
   `{artifacts, next_step}` with nanobot's guidance to deliver via
   `message`. Not attached to the final reply, like nanobot.
+- **Done (simplified): WebUI toggle.** The Status dialog's settings form
+  edits `tools.image_generation` (enabled, provider, model, default
+  aspect ratio/size, max per turn) through `/ui/settings`, like the
+  exec/web_fetch switches; changes are `restart_required` (nanobot's
+  Capabilities page reloads the tool live). Keys stay on the Providers
+  page.
 - **Deviation: saved in the workspace.** nanobot writes under its
   runtime media directory; nanobot-go writes to
   `<workspace>/media/<saveDir>/`, next to `media/telegram` and
@@ -1193,9 +1200,9 @@ Phase 2 is complete; phase 3 is in progress.
   when the tool is enabled (nanobot errors at call time).
 - **Not ported:** the `openai_codex`, `custom` (use `openai` with
   `apiBase`), `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`,
-  `zhipu` and `modelscope` clients; the WebUI Settings → Capabilities
-  toggle and `reload_image_generation_tool` hot reload (restart the
-  gateway after editing the config); the WebUI's own rendering of
+  `zhipu` and `modelscope` clients; `reload_image_generation_tool` hot
+  reload (restart the gateway after a change); editing `saveDir`,
+  `extraHeaders` and `extraBody` from the WebUI; the WebUI's own rendering of
   generated media without a `message` call.
 
 ### Cron

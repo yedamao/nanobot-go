@@ -93,15 +93,31 @@ export interface Settings {
   provider: string;
   /** Tried in order when the primary provider fails. */
   fallbackModels: FallbackModel[] | null;
-  tools: { exec: boolean; web_fetch: boolean; exec_sandbox: string };
+  tools: { exec: boolean; web_fetch: boolean; exec_sandbox: string; image_generation: ImageGenerationSettings };
   channels: Record<string, { enabled: boolean }>;
+}
+
+/** tools.imageGeneration as the settings show it; the key stays on the Providers page. */
+export interface ImageGenerationSettings {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  default_aspect_ratio: string;
+  default_image_size: string;
+  max_images_per_turn: number;
+}
+
+export interface SettingsChoices {
+  provider: string[] | null;
+  exec_sandbox: string[] | null;
+  image_generation_provider: string[] | null;
 }
 
 export interface SettingsView {
   settings: Settings;
   restart_required: string[] | null;
   env_overrides: string[] | null;
-  choices: { provider: string[] | null; exec_sandbox: string[] | null };
+  choices: SettingsChoices;
 }
 
 export interface SettingsPatch {
@@ -109,7 +125,9 @@ export interface SettingsPatch {
   provider?: string;
   /** Replaces the whole list; [] clears it. */
   fallbackModels?: FallbackModel[];
-  tools?: Partial<Settings["tools"]>;
+  tools?: Partial<Omit<Settings["tools"], "image_generation">> & {
+    image_generation?: Partial<ImageGenerationSettings>;
+  };
   channels?: Record<string, { enabled: boolean }>;
 }
 

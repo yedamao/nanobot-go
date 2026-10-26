@@ -55,6 +55,15 @@ func TestParseSettingsPatch(t *testing.T) {
 		!slices.Equal(*p.FallbackModels, []FallbackModel{{Provider: "openai", Model: "gpt-x"}, {Model: "m2"}}) {
 		t.Errorf("fallback patch = %+v, %v", p, err)
 	}
+	p, err = ParseSettingsPatch([]byte(`{"tools":{"image_generation":{"enabled":true,"provider":"openai","model":"gpt-image-1",` +
+		`"default_aspect_ratio":"16:9","default_image_size":"2K","max_images_per_turn":2}}}`))
+	if err != nil || p.Tools == nil || p.Tools.ImageGeneration == nil {
+		t.Fatalf("image generation patch = %+v, %v", p, err)
+	}
+	if ig := p.Tools.ImageGeneration; !*ig.Enabled || *ig.Provider != "openai" || *ig.Model != "gpt-image-1" ||
+		*ig.DefaultAspectRatio != "16:9" || *ig.DefaultImageSize != "2K" || *ig.MaxImagesPerTurn != 2 {
+		t.Errorf("image generation patch = %+v", ig)
+	}
 	if p, err := ParseSettingsPatch([]byte(`{"fallbackModels":[]}`)); err != nil || p.FallbackModels == nil || len(*p.FallbackModels) != 0 {
 		t.Errorf("clearing fallback patch = %+v, %v", p, err)
 	}
@@ -78,6 +87,15 @@ func TestParseSettingsPatch(t *testing.T) {
 		`{"tools":{"mcpServers":{}}}`,
 		`{"tools":{"ssrfWhitelist":[]}}`,
 		`{"tools":{"exec_sandbox":null}}`,
+		`{"tools":{"image_generation":true}}`,
+		`{"tools":{"image_generation":{"enabled":"yes"}}}`,
+		`{"tools":{"image_generation":{"max_images_per_turn":1.5}}}`,
+		`{"tools":{"image_generation":{"model":null}}}`,
+		`{"tools":{"image_generation":{"apiKey":"x"}}}`,
+		`{"tools":{"image_generation":{"extraHeaders":{}}}}`,
+		`{"tools":{"image_generation":{"extra_body":{}}}}`,
+		`{"tools":{"image_generation":{"saveDir":"x"}}}`,
+		`{"tools":{"imageGeneration":{"enabled":true}}}`,
 		`{"channels":{"telegram":{"token":"x"}}}`,
 		`{"channels":{"telegram":{"allowFrom":["1"]}}}`,
 		`{"channels":{"telegram":{"enabled":true,"token":"x"}}}`,
@@ -137,8 +155,9 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 
 	code, body := do(http.MethodGet, "", "", "")
-	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":""},"channels":{}},` +
-		`"restart_required":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[]}}` + "\n"
+	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":"",` +
+		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0}},"channels":{}},` +
+		`"restart_required":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[]}}` + "\n"
 	if code != http.StatusOK || body != want {
 		t.Errorf("GET = %d\n%s\nwant\n%s", code, body, want)
 	}

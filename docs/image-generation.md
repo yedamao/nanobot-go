@@ -8,8 +8,13 @@ WeChat (CDN upload) and the WebUI like any other attachment.
 
 ## Quick setup
 
-Add the provider's key and enable the tool in `~/.nanobot-go/config.json`,
-then restart the gateway (there is no live reload or WebUI toggle yet):
+Add the provider's key on the WebUI's Providers page (or in
+`~/.nanobot-go/config.json`), then enable the tool in the WebUI's Status
+dialog: tick **generate_image tool**, pick the provider and model (and
+optionally the default aspect ratio, image size and max images per turn),
+Save, and restart the gateway — there is no live reload, so the dialog
+lists the changed fields as waiting for a restart. Or set it in
+`config.json` and restart:
 
 ```json
 {
@@ -60,6 +65,22 @@ me".
 | `tools.imageGeneration.extraHeaders` | none | Extra request headers |
 | `tools.imageGeneration.extraBody` | none | Extra request body keys (each replaces the whole value; `null` removes a default such as `response_format`) |
 
+## WebUI settings
+
+`GET`/`PATCH /ui/settings` carry the tool's settings as
+`tools.image_generation`:
+
+```json
+{"tools": {"image_generation": {"enabled": true, "provider": "openai", "model": "gpt-image-1",
+  "default_aspect_ratio": "1:1", "default_image_size": "1K", "max_images_per_turn": 4}}}
+```
+
+`choices.image_generation_provider` lists `openrouter` and `openai`. A
+changed field is reported as `tools.image_generation.<field>` in
+`restart_required` until the gateway restarts. The provider's key,
+`saveDir`, `extraHeaders` and `extraBody` are never shown or accepted
+here; edit them in `config.json` (keys also on the Providers page).
+
 ## How it works
 
 The tool takes `prompt` (required), `reference_images` (workspace image
@@ -93,5 +114,6 @@ provider.
 
 nanobot's other image providers (`openai_codex`, `custom` named
 connections, `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`, `zhipu`,
-`modelscope`), the WebUI Settings → Capabilities toggle with hot reload,
-and per-provider `extraHeaders`/`extraBody`/proxy settings.
+`modelscope`), hot reload of the tool without a gateway restart (nanobot's
+Settings → Capabilities page), editing `saveDir`/`extraHeaders`/`extraBody`
+from the WebUI, and per-provider `extraHeaders`/`extraBody`/proxy settings.

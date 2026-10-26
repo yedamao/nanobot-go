@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { getSettings, getStatus, saveSettings, type Settings, type Status } from "./api";
+import { getSettings, getStatus, saveSettings, type ImageGenerationSettings, type Settings, type SettingsChoices, type Status } from "./api";
 import { RestartGateway } from "./RestartGateway";
 import { diffSettings, duration, pendingText, withCurrent } from "./settings";
 import { useT } from "./i18n";
@@ -52,9 +52,10 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
   const [statusError, setStatusError] = useState("");
   const [saved, setSaved] = useState<Settings | null>(null); // last loaded or saved
   const [draft, setDraft] = useState<Settings | null>(null);
-  const [choices, setChoices] = useState<{ provider: string[] | null; exec_sandbox: string[] | null }>({
+  const [choices, setChoices] = useState<SettingsChoices>({
     provider: null,
     exec_sandbox: null,
+    image_generation_provider: null,
   });
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<Note>({ kind: "", text: "" });
@@ -123,7 +124,10 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
   const edit = (change: (d: Settings) => Settings) => setDraft((d) => (d ? change(d) : d));
   const tool = (key: "exec" | "web_fetch" | "exec_sandbox", value: boolean | string) =>
     edit((d) => ({ ...d, tools: { ...d.tools, [key]: value } }));
+  const image = <K extends keyof ImageGenerationSettings>(key: K, value: ImageGenerationSettings[K]) =>
+    edit((d) => ({ ...d, tools: { ...d.tools, image_generation: { ...d.tools.image_generation, [key]: value } } }));
   const disabled = !draft || saving;
+  const ig = draft?.tools.image_generation;
 
   return (
     <dialog id="status-panel" ref={dialog} aria-labelledby="status-title" onClose={onClose}>
@@ -167,6 +171,70 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
                 ))}
             </select>
           </label>
+          <label className="check">
+            <input type="checkbox" checked={ig?.enabled ?? false} onChange={(ev) => image("enabled", ev.target.checked)} />{" "}
+            {t("status.imageGeneration")}
+          </label>
+          {ig?.enabled && (
+            <div id="set-image-generation">
+              <label>
+                {t("status.imageProvider")}
+                <select id="set-image-provider" value={ig.provider} onChange={(ev) => image("provider", ev.target.value)}>
+                  {withCurrent(choices.image_generation_provider, ig.provider).map((v) => (
+                    <option key={v} value={v}>
+                      {v || t("common.none")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                {t("status.imageModel")}
+                <input id="set-image-model" type="text" required value={ig.model} onChange={(ev) => image("model", ev.target.value)} />
+              </label>
+              <label>
+                {t("status.imageAspectRatio")}
+                <input
+                  id="set-image-aspect"
+                  type="text"
+                  required
+                  placeholder="1:1"
+                  value={ig.default_aspect_ratio}
+                  onChange={(ev) => image("default_aspect_ratio", ev.target.value)}
+                />
+              </label>
+              <label>
+                {t("status.imageSize")}
+                <input
+                  id="set-image-size"
+                  type="text"
+                  required
+                  placeholder="1K"
+                  value={ig.default_image_size}
+                  onChange={(ev) => image("default_image_size", ev.target.value)}
+                />
+              </label>
+              <label>
+                {t("status.imageMax")}
+                <input
+                  id="set-image-max"
+                  type="number"
+                  required
+                  min={1}
+                  max={8}
+                  step={1}
+                  value={ig.max_images_per_turn}
+                  onChange={(ev) => image("max_images_per_turn", ev.target.valueAsNumber)}
+                />
+              </label>
+              <p className="status-note">
+                {t("status.imageKeyBefore")}{" "}
+                <a href="#/providers" onClick={() => dialog.current?.close()}>
+                  {t("status.imageKeyLink")}
+                </a>
+                {t("status.imageKeyAfter")}
+              </p>
+            </div>
+          )}
           <div id="set-channels">
             {draft &&
               Object.keys(draft.channels)

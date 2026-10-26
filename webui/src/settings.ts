@@ -1,4 +1,4 @@
-import type { Settings, SettingsPatch, SettingsView } from "./api";
+import type { ImageGenerationSettings, Settings, SettingsPatch, SettingsView } from "./api";
 import { enT, type Translator } from "./i18n/translate.ts";
 
 // diffSettings returns the fields of draft that differ from saved, as a
@@ -12,12 +12,27 @@ export function diffSettings(saved: Settings, draft: Settings): SettingsPatch {
   if (draft.tools.exec !== saved.tools.exec) tools.exec = draft.tools.exec;
   if (draft.tools.web_fetch !== saved.tools.web_fetch) tools.web_fetch = draft.tools.web_fetch;
   if (draft.tools.exec_sandbox !== saved.tools.exec_sandbox) tools.exec_sandbox = draft.tools.exec_sandbox;
+  const image = diffImageGeneration(saved.tools.image_generation, draft.tools.image_generation);
+  if (Object.keys(image).length) tools.image_generation = image;
   if (Object.keys(tools).length) patch.tools = tools;
   const channels: Record<string, { enabled: boolean }> = {};
   for (const [name, ch] of Object.entries(draft.channels)) {
     if (saved.channels[name] && ch.enabled !== saved.channels[name].enabled) channels[name] = { enabled: ch.enabled };
   }
   if (Object.keys(channels).length) patch.channels = channels;
+  return patch;
+}
+
+// diffImageGeneration returns the image generation fields of draft that
+// differ from saved; text fields are compared trimmed.
+function diffImageGeneration(saved: ImageGenerationSettings, draft: ImageGenerationSettings): Partial<ImageGenerationSettings> {
+  const patch: Partial<ImageGenerationSettings> = {};
+  if (draft.enabled !== saved.enabled) patch.enabled = draft.enabled;
+  for (const key of ["provider", "model", "default_aspect_ratio", "default_image_size"] as const) {
+    const v = draft[key].trim();
+    if (v !== saved[key]) patch[key] = v;
+  }
+  if (draft.max_images_per_turn !== saved.max_images_per_turn) patch.max_images_per_turn = draft.max_images_per_turn;
   return patch;
 }
 

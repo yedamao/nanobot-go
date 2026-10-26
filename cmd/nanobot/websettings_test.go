@@ -83,11 +83,17 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 	want := websocket.Settings{
 		Model: "claude-test", Provider: "anthropic",
 		FallbackModels: []websocket.FallbackModel{},
-		Tools:          websocket.ToolSettings{Exec: true, WebFetch: true},
-		Channels:       map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
+		Tools: websocket.ToolSettings{Exec: true, WebFetch: true, ImageGeneration: websocket.ImageGenerationSettings{
+			Provider: config.DefaultImageProvider, Model: config.DefaultImageModel, DefaultAspectRatio: config.DefaultImageAspectRatio,
+			DefaultImageSize: config.DefaultImageSize, MaxImagesPerTurn: config.DefaultMaxImagesPerTurn,
+		}},
+		Channels: map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
 	}
 	if !reflect.DeepEqual(v.Settings, want) || len(v.RestartRequired) != 0 || len(v.EnvOverrides) != 0 {
 		t.Errorf("view = %+v, want settings %+v", v, want)
+	}
+	if !slices.Equal(v.Choices.ImageGenerationProvider, config.ImageProviders) {
+		t.Errorf("image generation choices = %v", v.Choices.ImageGenerationProvider)
 	}
 	if !slices.Contains(v.Choices.Provider, "auto") || !slices.Contains(v.Choices.Provider, "anthropic") || v.Choices.ExecSandbox[0] != "" {
 		t.Errorf("choices = %+v", v.Choices)
@@ -193,6 +199,15 @@ func TestWebSettingsRefusals(t *testing.T) {
 		{"fallback unknown provider", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Provider: "acme", Model: "m"}}}},
 		{"fallback empty model", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Provider: "openai", Model: " "}}}},
 		{"fallback model with spaces", websocket.SettingsPatch{FallbackModels: &[]websocket.FallbackModel{{Model: "a b"}}}},
+		{"image unknown provider", imagePatch(websocket.ImageGenerationPatch{Provider: ptr("gemini")})},
+		{"image auto provider", imagePatch(websocket.ImageGenerationPatch{Provider: ptr("auto")})},
+		{"image empty model", imagePatch(websocket.ImageGenerationPatch{Model: ptr(" ")})},
+		{"image model with spaces", imagePatch(websocket.ImageGenerationPatch{Model: ptr("a b")})},
+		{"image max 0", imagePatch(websocket.ImageGenerationPatch{MaxImagesPerTurn: ptr(0)})},
+		{"image max 9", imagePatch(websocket.ImageGenerationPatch{MaxImagesPerTurn: ptr(config.MaxImagesPerTurnLimit + 1)})},
+		{"image empty aspect", imagePatch(websocket.ImageGenerationPatch{DefaultAspectRatio: ptr("")})},
+		{"image long size", imagePatch(websocket.ImageGenerationPatch{DefaultImageSize: ptr(strings.Repeat("k", maxImageOptionLen+1))})},
+		{"image size with spaces", imagePatch(websocket.ImageGenerationPatch{DefaultImageSize: ptr("1 K")})},
 		{"too many fallbacks", websocket.SettingsPatch{FallbackModels: ptr(slices.Repeat([]websocket.FallbackModel{{Model: "m"}}, maxFallbackModels+1))}},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -209,6 +224,63 @@ func TestWebSettingsRefusals(t *testing.T) {
 				t.Error("a refused change rewrote the config file")
 			}
 		})
+	}
+}
+
+func imagePatch(p websocket.ImageGenerationPatch) websocket.SettingsPatch {
+	return websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{ImageGeneration: &p}}
+}
+
+func TestWebSettingsImageGeneration(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, map[string]string{"NANOBOT_GO_OPENAI_API_KEY": envSecret})
+
+	v, err := s.UpdateSettings(imagePatch(websocket.ImageGenerationPatch{
+		Enabled: ptr(true), Provider: ptr(" openai "), Model: ptr(" gpt-image-1 "),
+		DefaultAspectRatio: ptr("16:9"), DefaultImageSize: ptr(" 2K"), MaxImagesPerTurn: ptr(2),
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := websocket.ImageGenerationSettings{Enabled: true, Provider: "openai", Model: "gpt-image-1",
+		DefaultAspectRatio: "16:9", DefaultImageSize: "2K", MaxImagesPerTurn: 2}
+	wantDiff := []string{"tools.image_generation.enabled", "tools.image_generation.provider", "tools.image_generation.model",
+		"tools.image_generation.default_aspect_ratio", "tools.image_generation.default_image_size", "tools.image_generation.max_images_per_turn"}
+	if v.Settings.Tools.ImageGeneration != want || !slices.Equal(v.RestartRequired, wantDiff) {
+		t.Errorf("after update: %+v, restart %v", v.Settings.Tools.ImageGeneration, v.RestartRequired)
+	}
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ig := cfg.Tools.ImageGeneration
+	if !ig.Enabled || ig.Provider != "openai" || ig.Model != "gpt-image-1" || ig.DefaultAspectRatio != "16:9" ||
+		ig.DefaultImageSize != "2K" || ig.MaxImagesPerTurn != 2 || ig.SaveDir != config.DefaultImageSaveDir {
+		t.Errorf("saved imageGeneration = %+v", ig)
+	}
+	if cfg.Providers.OpenAI.APIKey != fileSecret+"-openai" {
+		t.Error("the provider's key was not kept")
+	}
+	data, _ := os.ReadFile(path)
+	if strings.Contains(string(data), envSecret) {
+		t.Error("the saved file holds a key from the environment")
+	}
+	body, _ := json.Marshal(v)
+	for _, leak := range []string{fileSecret, envSecret, "apiKey", "extraHeaders", "extraBody", "saveDir"} {
+		if strings.Contains(string(body), leak) {
+			t.Errorf("settings JSON holds %q: %s", leak, body)
+		}
+	}
+
+	// Setting the running values back leaves nothing to restart for.
+	v, err = s.UpdateSettings(imagePatch(websocket.ImageGenerationPatch{
+		Enabled: ptr(false), Provider: ptr(config.DefaultImageProvider), Model: ptr(config.DefaultImageModel),
+		DefaultAspectRatio: ptr(config.DefaultImageAspectRatio), DefaultImageSize: ptr(config.DefaultImageSize),
+		MaxImagesPerTurn: ptr(config.DefaultMaxImagesPerTurn),
+	}))
+	if err != nil || len(v.RestartRequired) != 0 {
+		t.Errorf("revert = %+v, %v", v.RestartRequired, err)
 	}
 }
 

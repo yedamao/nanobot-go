@@ -20,6 +20,10 @@ import (
 // maxModelLen caps a model name set from the WebUI.
 const maxModelLen = 200
 
+// maxImageOptionLen caps tools.imageGeneration's default aspect ratio
+// and image size set from the WebUI.
+const maxImageOptionLen = 32
+
 // maxFallbackModels caps agents.defaults.fallbackModels set from the
 // WebUI.
 const maxFallbackModels = 16
@@ -109,7 +113,8 @@ func (s *webSettings) view(cfg *config.Config) websocket.SettingsView {
 		Settings:        saved,
 		RestartRequired: settingsDiff(saved, s.running),
 		EnvOverrides:    slices.Clone(s.envSet),
-		Choices:         websocket.SettingsChoices{Provider: providerChoices(), ExecSandbox: sandboxChoices()},
+		Choices: websocket.SettingsChoices{Provider: providerChoices(), ExecSandbox: sandboxChoices(),
+			ImageGenerationProvider: slices.Clone(config.ImageProviders)},
 	}
 }
 
@@ -117,6 +122,7 @@ func (s *webSettings) view(cfg *config.Config) websocket.SettingsView {
 // read for their "enabled" flag only.
 func settingsOf(cfg *config.Config) websocket.Settings {
 	d := cfg.Agents.Defaults
+	ig := cfg.Tools.ImageGeneration
 	st := websocket.Settings{
 		Model:          d.Model,
 		Provider:       d.Provider,
@@ -125,6 +131,14 @@ func settingsOf(cfg *config.Config) websocket.Settings {
 			Exec:        cfg.Tools.Exec.Enable,
 			WebFetch:    cfg.Tools.Web.Enable,
 			ExecSandbox: cfg.Tools.Exec.Sandbox,
+			ImageGeneration: websocket.ImageGenerationSettings{
+				Enabled:            ig.Enabled,
+				Provider:           ig.Provider,
+				Model:              ig.Model,
+				DefaultAspectRatio: ig.DefaultAspectRatio,
+				DefaultImageSize:   ig.DefaultImageSize,
+				MaxImagesPerTurn:   ig.MaxImagesPerTurn,
+			},
 		},
 		Channels: map[string]websocket.ChannelSettings{},
 	}
@@ -160,6 +174,13 @@ func settingsDiff(saved, running websocket.Settings) []string {
 	add("tools.exec", saved.Tools.Exec != running.Tools.Exec)
 	add("tools.web_fetch", saved.Tools.WebFetch != running.Tools.WebFetch)
 	add("tools.exec_sandbox", saved.Tools.ExecSandbox != running.Tools.ExecSandbox)
+	si, ri := saved.Tools.ImageGeneration, running.Tools.ImageGeneration
+	add("tools.image_generation.enabled", si.Enabled != ri.Enabled)
+	add("tools.image_generation.provider", si.Provider != ri.Provider)
+	add("tools.image_generation.model", si.Model != ri.Model)
+	add("tools.image_generation.default_aspect_ratio", si.DefaultAspectRatio != ri.DefaultAspectRatio)
+	add("tools.image_generation.default_image_size", si.DefaultImageSize != ri.DefaultImageSize)
+	add("tools.image_generation.max_images_per_turn", si.MaxImagesPerTurn != ri.MaxImagesPerTurn)
 	names := slices.Sorted(maps.Keys(saved.Channels))
 	for name := range running.Channels {
 		if _, ok := saved.Channels[name]; !ok {
@@ -224,6 +245,11 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 			}
 			cfg.Tools.Exec.Sandbox = name
 		}
+		if t.ImageGeneration != nil {
+			if err := applyImageGeneration(&cfg.Tools.ImageGeneration, *t.ImageGeneration); err != nil {
+				return err
+			}
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(p.Channels)) {
 		on := p.Channels[name].Enabled
@@ -246,19 +272,73 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 	return nil
 }
 
+// applyImageGeneration sets p's fields on ig. Validate checks that an
+// enabled tool has a provider and model.
+func applyImageGeneration(ig *config.ImageGenerationConfig, p websocket.ImageGenerationPatch) error {
+	const at = "tools.image_generation."
+	if p.Enabled != nil {
+		ig.Enabled = *p.Enabled
+	}
+	if p.Provider != nil {
+		name := strings.TrimSpace(*p.Provider)
+		if !slices.Contains(config.ImageProviders, name) {
+			return fmt.Errorf("%sprovider %q is not one of %s", at, name, strings.Join(config.ImageProviders, ", "))
+		}
+		ig.Provider = name
+	}
+	if p.Model != nil {
+		m, err := checkModel(at+"model", *p.Model)
+		if err != nil {
+			return err
+		}
+		ig.Model = m
+	}
+	for _, f := range []struct {
+		name string
+		val  *string
+		dst  *string
+	}{
+		{"default_aspect_ratio", p.DefaultAspectRatio, &ig.DefaultAspectRatio},
+		{"default_image_size", p.DefaultImageSize, &ig.DefaultImageSize},
+	} {
+		if f.val == nil {
+			continue
+		}
+		v, err := checkWord(at+f.name, *f.val, maxImageOptionLen)
+		if err != nil {
+			return err
+		}
+		*f.dst = v
+	}
+	if p.MaxImagesPerTurn != nil {
+		n := *p.MaxImagesPerTurn
+		if n < 1 || n > config.MaxImagesPerTurnLimit {
+			return fmt.Errorf("%smax_images_per_turn must be in [1, %d], got %d", at, config.MaxImagesPerTurnLimit, n)
+		}
+		ig.MaxImagesPerTurn = n
+	}
+	return nil
+}
+
 // checkModel returns the model name m, trimmed, or an error naming it
 // as field.
 func checkModel(field, m string) (string, error) {
-	m = strings.TrimSpace(m)
+	return checkWord(field, m, maxModelLen)
+}
+
+// checkWord returns s, trimmed, or an error naming it as field when it
+// is empty, longer than max bytes or holds spaces or control characters.
+func checkWord(field, s string, max int) (string, error) {
+	s = strings.TrimSpace(s)
 	switch {
-	case m == "":
+	case s == "":
 		return "", fmt.Errorf("%s must not be empty", field)
-	case len(m) > maxModelLen:
-		return "", fmt.Errorf("%s must be at most %d bytes", field, maxModelLen)
-	case strings.ContainsFunc(m, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }):
+	case len(s) > max:
+		return "", fmt.Errorf("%s must be at most %d bytes", field, max)
+	case strings.ContainsFunc(s, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }):
 		return "", fmt.Errorf("%s must not contain spaces or control characters", field)
 	}
-	return m, nil
+	return s, nil
 }
 
 // checkProvider returns the provider setting name, trimmed, with empty

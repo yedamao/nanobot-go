@@ -60,6 +60,21 @@ type ToolSettings struct {
 	Exec        bool   `json:"exec"`
 	WebFetch    bool   `json:"web_fetch"`
 	ExecSandbox string `json:"exec_sandbox"`
+	// ImageGeneration is the generate_image tool's setting; its
+	// provider's key stays in providers.<provider>.apiKey.
+	ImageGeneration ImageGenerationSettings `json:"image_generation"`
+}
+
+// ImageGenerationSettings are the editable fields of
+// tools.imageGeneration. saveDir, extraHeaders and extraBody are edited
+// in config.json only.
+type ImageGenerationSettings struct {
+	Enabled            bool   `json:"enabled"`
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	DefaultAspectRatio string `json:"default_aspect_ratio"`
+	DefaultImageSize   string `json:"default_image_size"`
+	MaxImagesPerTurn   int    `json:"max_images_per_turn"`
 }
 
 // ChannelSettings is one channel's editable setting.
@@ -85,6 +100,9 @@ type SettingsView struct {
 type SettingsChoices struct {
 	Provider    []string `json:"provider"`
 	ExecSandbox []string `json:"exec_sandbox"`
+	// ImageGenerationProvider names the providers generate_image
+	// supports.
+	ImageGenerationProvider []string `json:"image_generation_provider"`
 }
 
 // SettingsPatch is a decoded PATCH /ui/settings body: nil fields are left
@@ -101,9 +119,20 @@ type SettingsPatch struct {
 
 // ToolSettingsPatch changes ToolSettings.
 type ToolSettingsPatch struct {
-	Exec        *bool   `json:"exec"`
-	WebFetch    *bool   `json:"web_fetch"`
-	ExecSandbox *string `json:"exec_sandbox"`
+	Exec            *bool                 `json:"exec"`
+	WebFetch        *bool                 `json:"web_fetch"`
+	ExecSandbox     *string               `json:"exec_sandbox"`
+	ImageGeneration *ImageGenerationPatch `json:"image_generation"`
+}
+
+// ImageGenerationPatch changes ImageGenerationSettings.
+type ImageGenerationPatch struct {
+	Enabled            *bool   `json:"enabled"`
+	Provider           *string `json:"provider"`
+	Model              *string `json:"model"`
+	DefaultAspectRatio *string `json:"default_aspect_ratio"`
+	DefaultImageSize   *string `json:"default_image_size"`
+	MaxImagesPerTurn   *int    `json:"max_images_per_turn"`
 }
 
 // ChannelPatch changes one channel's ChannelSettings.
@@ -118,8 +147,10 @@ var patchSchema = map[string]any{
 	"model":          nil,
 	"provider":       nil,
 	"fallbackModels": []any{map[string]any{"provider": nil, "model": nil}},
-	"tools":          map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil},
-	"channels":       map[string]any{"*": map[string]any{"enabled": nil}},
+	"tools": map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil, "image_generation": map[string]any{
+		"enabled": nil, "provider": nil, "model": nil, "default_aspect_ratio": nil, "default_image_size": nil, "max_images_per_turn": nil,
+	}},
+	"channels": map[string]any{"*": map[string]any{"enabled": nil}},
 }
 
 // secretKeyRE matches key names that look like they hold a secret. They
@@ -253,7 +284,7 @@ func fillSettings(v SettingsView) SettingsView {
 	if v.Settings.Channels == nil {
 		v.Settings.Channels = map[string]ChannelSettings{}
 	}
-	for _, l := range []*[]string{&v.RestartRequired, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox} {
+	for _, l := range []*[]string{&v.RestartRequired, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox, &v.Choices.ImageGenerationProvider} {
 		if *l == nil {
 			*l = []string{}
 		}
