@@ -264,6 +264,8 @@ type message struct {
 	VideoNote      *videoNote `json:"video_note"`
 	Sticker        *sticker   `json:"sticker"`
 	ReplyToMessage *message   `json:"reply_to_message"`
+	// MediaGroupID is shared by the messages of one album.
+	MediaGroupID string `json:"media_group_id"`
 }
 
 // sticker has no MIME type: a static one is WebP, an animated one

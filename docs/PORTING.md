@@ -210,11 +210,24 @@ Phase 2 is complete; phase 3 is in progress.
     Media, with `[sticker: <path>]` (after the caption, should one come);
     not transcribed. Commands, failures, size and replies behave like
     videos.
+    Inbound media groups (albums, `msg.media_group_id`): like nanobot's
+    `_media_group_buffers`, each message of an album is handled as usual
+    (downloads, `[video: ...]`/`[file: ...]` parts, reply context) but
+    buffered under `<chat_id>:<media_group_id>`; the first one starts
+    typing and schedules a flush 600ms later, which publishes one turn
+    with the first message's metadata and topic session, the non-empty
+    contents joined by newlines (the caption usually sits on the first
+    item only) and all Media, order-preserving and without duplicates.
+    An item whose file cannot be fetched adds only its caption; an album
+    of which nothing came through is dropped (nanobot would send
+    `[empty message]`). A command caption is not buffered. Stop drops
+    pending albums, like nanobot's `stop`.
   - Not ported (Telegram): webhook mode, other inbound media
-    (animations as such, locations, media groups), nanobot's transcription config (`transcription.*`, the
+    (animations as such, locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
-    sendAudio (sent as documents), media groups (albums), Markdown to
+    sendAudio (sent as documents), outbound media groups
+    (`sendMediaGroup`), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,

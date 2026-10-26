@@ -8,7 +8,9 @@
 // so vision models see them; voice notes and audio files are saved there
 // too and stand in the text as their transcript (with a Transcriber) or
 // as "[voice: <path>]", and videos, video notes and stickers as
-// "[video: <path>]", "[video_note: <path>]" and "[sticker: <path>]". With inlineKeyboards, the message tool's
+// "[video: <path>]", "[video_note: <path>]" and "[sticker: <path>]". The
+// messages of an album (media group) are collected for 600ms and go out
+// as one turn. With inlineKeyboards, the message tool's
 // buttons become an inline keyboard and a tap comes back as a message
 // with the button's label. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
@@ -50,6 +52,9 @@ const (
 	emptyMessage = "[empty message]"
 	// replyContextMax caps the quoted text of a replied-to message.
 	replyContextMax = 4000
+	// mediaGroupDelay is how long the messages of an album are collected
+	// after its first one before they go out as one turn (nanobot: 0.6s).
+	mediaGroupDelay = 600 * time.Millisecond
 )
 
 // Options are the channel's dependencies besides its config section.
@@ -115,6 +120,8 @@ type Channel struct {
 	minBackoff     time.Duration
 	maxBackoff     time.Duration
 	typingInterval time.Duration
+	// mediaGroupDelay is the constant (shortened in tests).
+	mediaGroupDelay time.Duration
 
 	// botID and botUsername are set by Start before polling begins.
 	botID       int64
@@ -126,11 +133,23 @@ type Channel struct {
 	runCtx  context.Context
 	cancel  context.CancelFunc
 	typing  map[int64]*typingTask
-	// wg tracks the poller and the typing indicators.
+	// albums buffers media groups by "chat_id:media_group_id".
+	albums map[string]*album
+	// wg tracks the poller, the typing indicators and pending album
+	// flushes.
 	wg sync.WaitGroup
 }
 
 type typingTask struct{ cancel context.CancelFunc }
+
+// album collects the messages of a media group until its flush: the
+// first message's turn, with the contents and media of all of them.
+type album struct {
+	in       bus.InboundMessage
+	contents []string
+	media    []string
+	timer    *time.Timer
+}
 
 // New returns a channel for a parsed config (see ParseConfig).
 func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
@@ -152,20 +171,22 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		log = slog.New(slog.DiscardHandler)
 	}
 	c := &Channel{
-		cfg:            cfg,
-		api:            &client{base: cfg.APIBase, token: cfg.Token, http: hc},
-		bus:            deps.Bus,
-		log:            log,
-		pairing:        opts.Pairing,
-		workspace:      opts.Workspace,
-		ssrf:           opts.SSRF,
-		transcriber:    opts.Transcriber,
-		allow:          map[string]bool{},
-		sleep:          sleepCtx,
-		minBackoff:     minBackoff,
-		maxBackoff:     maxBackoff,
-		typingInterval: typingInterval,
-		typing:         map[int64]*typingTask{},
+		cfg:             cfg,
+		api:             &client{base: cfg.APIBase, token: cfg.Token, http: hc},
+		bus:             deps.Bus,
+		log:             log,
+		pairing:         opts.Pairing,
+		workspace:       opts.Workspace,
+		ssrf:            opts.SSRF,
+		transcriber:     opts.Transcriber,
+		allow:           map[string]bool{},
+		sleep:           sleepCtx,
+		minBackoff:      minBackoff,
+		maxBackoff:      maxBackoff,
+		typingInterval:  typingInterval,
+		mediaGroupDelay: mediaGroupDelay,
+		typing:          map[int64]*typingTask{},
+		albums:          map[string]*album{},
 	}
 	for _, a := range cfg.AllowFrom {
 		a = strings.TrimSpace(a)
@@ -313,7 +334,8 @@ func rejected(err error) bool {
 }
 
 // Stop stops polling and the typing indicators and waits for them. An
-// in-flight getUpdates is canceled, so it returns promptly.
+// in-flight getUpdates is canceled, so it returns promptly. Albums still
+// being collected are dropped, like nanobot's.
 func (c *Channel) Stop(ctx context.Context) error {
 	c.mu.Lock()
 	if !c.started || c.stopped {
@@ -322,6 +344,12 @@ func (c *Channel) Stop(ctx context.Context) error {
 	}
 	c.stopped = true
 	c.cancel()
+	for key, a := range c.albums {
+		if a.timer.Stop() {
+			c.wg.Done()
+		}
+		delete(c.albums, key)
+	}
 	c.mu.Unlock()
 	done := make(chan struct{})
 	go func() {
@@ -436,12 +464,14 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		return
 	}
 	// A photo that cannot be fetched leaves its caption, if any, to
-	// answer; a photo alone is dropped.
+	// answer; a photo alone is dropped (in an album, at the flush, if
+	// nothing else of it came through).
+	inAlbum := m.MediaGroupID != "" && !isCommand
 	var media []string
 	if hasPhoto {
 		if p, err := c.downloadPhoto(ctx, m.Photo); err != nil {
 			c.log.Warn("telegram: could not download a photo", "chat_id", chatID, "sender", senderID, "error", err)
-			if strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "" && !inAlbum {
 				return
 			}
 		} else {
@@ -454,7 +484,7 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 	if hasClip {
 		if p, part, err := c.downloadClip(ctx, k); err != nil {
 			c.log.Warn("telegram: could not download a "+k.kind+" message", "chat_id", chatID, "sender", senderID, "error", err)
-			if strings.TrimSpace(text) == "" {
+			if strings.TrimSpace(text) == "" && !inAlbum {
 				return
 			}
 		} else {
@@ -502,11 +532,85 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 	if t := topicID(m); t != 0 {
 		in.SessionKeyOverride = fmt.Sprintf("%s:%s:topic:%d", Name, chatID, t)
 	}
-	c.startTyping(m.Chat.ID, topicID(m))
-	if err := c.bus.PublishInbound(ctx, in); err != nil {
-		c.stopTyping(m.Chat.ID)
-		c.log.Warn("telegram: drop inbound message", "chat_id", chatID, "error", err)
+	if inAlbum {
+		c.addToAlbum(m, in)
+		return
 	}
+	c.startTyping(m.Chat.ID, topicID(m))
+	c.publish(ctx, m.Chat.ID, in)
+}
+
+// publish puts in on the bus, stopping the typing indicator of chatID
+// when it cannot.
+func (c *Channel) publish(ctx context.Context, chatID int64, in bus.InboundMessage) {
+	if err := c.bus.PublishInbound(ctx, in); err != nil {
+		c.stopTyping(chatID)
+		c.log.Warn("telegram: drop inbound message", "chat_id", in.ChatID, "error", err)
+	}
+}
+
+// addToAlbum buffers in, one message of a media group, like nanobot's
+// _media_group_buffers: the first message of the group starts typing and
+// schedules the flush mediaGroupDelay later; every message adds its
+// content and media.
+func (c *Channel) addToAlbum(m *message, in bus.InboundMessage) {
+	key := in.ChatID + ":" + m.MediaGroupID
+	c.mu.Lock()
+	if c.stopped || c.runCtx == nil {
+		c.mu.Unlock()
+		return
+	}
+	a := c.albums[key]
+	first := a == nil
+	if first {
+		a = &album{in: in}
+		a.in.Content, a.in.Media = "", nil
+		c.albums[key] = a
+		c.wg.Add(1)
+		a.timer = time.AfterFunc(c.mediaGroupDelay, func() {
+			defer c.wg.Done()
+			c.flushAlbum(key, m.Chat.ID)
+		})
+	}
+	if strings.TrimSpace(in.Content) != "" {
+		a.contents = append(a.contents, in.Content)
+	}
+	a.media = append(a.media, in.Media...)
+	c.mu.Unlock()
+	if first {
+		c.startTyping(m.Chat.ID, topicID(m))
+	}
+}
+
+// flushAlbum publishes the album under key as one turn: the contents
+// joined by newlines and the media without duplicates. An album of which
+// nothing came through is dropped, like a photo alone that could not be
+// fetched.
+func (c *Channel) flushAlbum(key string, chatID int64) {
+	c.mu.Lock()
+	a := c.albums[key]
+	delete(c.albums, key)
+	ctx := c.runCtx
+	c.mu.Unlock()
+	if a == nil {
+		return
+	}
+	in := a.in
+	in.Content = strings.Join(a.contents, "\n")
+	seen := map[string]bool{}
+	for _, p := range a.media {
+		if !seen[p] {
+			seen[p] = true
+			in.Media = append(in.Media, p)
+		}
+	}
+	if strings.TrimSpace(in.Content) == "" && len(in.Media) == 0 {
+		c.stopTyping(chatID)
+		c.log.Debug("telegram: dropping an album of which nothing came through", "chat_id", in.ChatID, "sender", in.SenderID)
+		return
+	}
+	in.Timestamp = time.Now()
+	c.publish(ctx, chatID, in)
 }
 
 // joinLines joins two parts of a message's content with a newline,
