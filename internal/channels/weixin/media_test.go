@@ -3,7 +3,6 @@ package weixin
 import (
 	"bytes"
 	"context"
-	"crypto/aes"
 	"crypto/md5"
 	"encoding/base64"
 	"encoding/hex"
@@ -60,24 +59,14 @@ func itemKinds(t *testing.T, calls []apiCall) string {
 	return strings.Join(kinds, ",")
 }
 
-func decryptECB(t *testing.T, data, key []byte) []byte {
+// mustDecrypt decrypts an upload with key.
+func mustDecrypt(t *testing.T, data, key []byte) []byte {
 	t.Helper()
-	block, err := aes.NewCipher(key)
+	out, err := decryptECB(data, key)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) == 0 || len(data)%aes.BlockSize != 0 {
-		t.Fatalf("ciphertext length %d", len(data))
-	}
-	out := make([]byte, len(data))
-	for i := 0; i < len(data); i += aes.BlockSize {
-		block.Decrypt(out[i:i+aes.BlockSize], data[i:i+aes.BlockSize])
-	}
-	pad := int(out[len(out)-1])
-	if pad < 1 || pad > aes.BlockSize || !bytes.Equal(out[len(out)-pad:], bytes.Repeat([]byte{byte(pad)}, pad)) {
-		t.Fatalf("bad PKCS7 padding %d", pad)
-	}
-	return out[:len(out)-pad]
+	return out
 }
 
 func TestEncryptECB(t *testing.T) {
@@ -100,7 +89,7 @@ func TestEncryptECB(t *testing.T) {
 		if len(out) != paddedSize(n) {
 			t.Errorf("%d bytes: ciphertext %d, paddedSize %d", n, len(out), paddedSize(n))
 		}
-		if !bytes.Equal(decryptECB(t, out, key), data) {
+		if !bytes.Equal(mustDecrypt(t, out, key), data) {
 			t.Errorf("%d bytes: roundtrip differs", n)
 		}
 	}
@@ -156,7 +145,7 @@ func TestSendMediaThenText(t *testing.T) {
 	if cdn[0].Header.Get("Authorization") != "" {
 		t.Error("the bot token went to the CDN")
 	}
-	if len(cdn[0].Raw) != paddedSize(len(png)) || !bytes.Equal(decryptECB(t, cdn[0].Raw, key), png) {
+	if len(cdn[0].Raw) != paddedSize(len(png)) || !bytes.Equal(mustDecrypt(t, cdn[0].Raw, key), png) {
 		t.Errorf("CDN body: %d bytes", len(cdn[0].Raw))
 	}
 	img := sentItem(t, calls[0])

@@ -401,12 +401,16 @@ type cdnMedia struct {
 	EncryptQueryParam string `json:"encrypt_query_param,omitempty"`
 	AESKey            string `json:"aes_key,omitempty"`
 	EncryptType       int    `json:"encrypt_type,omitempty"`
+	// FullURL is a ready download URL some inbound items carry.
+	FullURL string `json:"full_url,omitempty"`
 }
 
-// imageItem is only sent: inbound images are placeholders.
 type imageItem struct {
 	Media   *cdnMedia `json:"media,omitempty"`
 	MidSize int       `json:"mid_size,omitempty"`
+	// AESKey is an inbound image's key as 32 hex characters; it takes
+	// precedence over Media.AESKey.
+	AESKey string `json:"aeskey,omitempty"`
 }
 
 type videoItem struct {

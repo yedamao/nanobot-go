@@ -170,7 +170,16 @@ Phase 2 is complete; phase 3 is in progress.
     MB, a file that cannot be sent becomes a `[Failed to send: name]`
     notice, each file counts against the context-token budget and is held
     with the rest of the reply when the budget runs out, a retry reuses
-    the upload key and `client_id`),
+    the upload key and `client_id`), inbound media (image, voice, file
+    and video items downloaded from `full_url`, falling back to the CDN's
+    `download?encrypted_query_param=`, AES-128-ECB decrypted with
+    `image_item.aeskey` or `media.aes_key` in either encoding, unencrypted
+    images allowed, saved to `media/weixin/` in the workspace and passed
+    as `InboundMessage.Media` with workspace-relative paths, the quoted
+    message's media when the message has none; unlike nanobot, the
+    content keeps only the `[image]`-style placeholders instead of
+    `[Image: source: path]` lines, file names get a random prefix, and
+    voice with a WeChat transcript is downloaded too),
     `account.json` state (nanobot's layout, 0600, file lock,
     never overwriting a newer login), allowFrom + pairing; the QR login
     (`nanobot channels login weixin [--force]`: `get_bot_qrcode` with
@@ -179,9 +188,8 @@ Phase 2 is complete; phase 3 is in progress.
     `channels.weixin` (`token` or `NANOBOT_GO_WEIXIN_TOKEN`, `allowFrom`,
     `baseUrl`, `routeTag`, `stateDir`, `pollTimeout`) and a `status` login
     row.
-  - Not ported (WeChat): inbound media (CDN download and decryption;
-    images, files, video and voice still arrive as placeholders), voice
-    transcription, the `cdnBaseUrl` config option, progress/tool-hint
+  - Not ported (WeChat): voice transcription (only WeChat's own
+    transcript is used), the `cdnBaseUrl` config option, progress/tool-hint
     messages and structured progress items, block streaming, the WebUI
     connect flow, typing tickets in `account.json`, terminal QR rendering.
     WeCom (`nanobot/channels/wecom`, the enterprise WebSocket SDK) is a
@@ -477,7 +485,7 @@ Phase 2 is complete; phase 3 is in progress.
     text only, replayed history keeps its images, within a per-request
     budget (newest first). Not ported: `prepare_inline_images`' PIL
     shrinking (over-cap images become a text note instead), PDF/Office
-    text extraction, inbound photos from Telegram/WeChat, MCP image
+    text extraction, MCP image
     results as image parts, image generation.
   - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
     webuicmd.go`) plus managed gateway lifecycle (`internal/gatewayruntime`).

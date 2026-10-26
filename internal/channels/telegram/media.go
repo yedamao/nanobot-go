@@ -2,12 +2,10 @@ package telegram
 
 import (
 	"context"
-	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"path"
 	"path/filepath"
 	"strconv"
@@ -83,39 +81,10 @@ func (c *Channel) downloadPhoto(ctx context.Context, sizes []photoSize) (string,
 		return "", errors.New("not a supported image format")
 	}
 	rel := path.Join(MediaDir, p.FileUniqueID+ext)
-	if err := writeWorkspaceFile(c.workspace, rel, data); err != nil {
+	if err := fsutil.WriteInRoot(c.workspace, rel, data); err != nil {
 		return "", err
 	}
 	return rel, nil
-}
-
-// writeWorkspaceFile writes data to rel inside the workspace dir through
-// an os.Root, via a temporary file renamed into place.
-func writeWorkspaceFile(dir, rel string, data []byte) error {
-	root, err := os.OpenRoot(dir)
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	if err := root.MkdirAll(path.Dir(rel), 0o700); err != nil {
-		return err
-	}
-	tmp := rel + ".tmp-" + strings.ToLower(rand.Text()[:8])
-	f, err := root.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if cerr := f.Close(); err == nil {
-		err = cerr
-	}
-	if err == nil {
-		err = root.Rename(tmp, rel)
-	}
-	if err != nil {
-		root.Remove(tmp)
-	}
-	return err
 }
 
 // safeID reports whether a file_unique_id can be used as a file name:

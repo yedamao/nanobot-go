@@ -673,9 +673,14 @@ replaced exactly that token.
 - **Sessions.** Each user is a session `weixin:<user id>`.
 - **Messages.** Text is handled, with quoted messages prefixed as
   `[引用: ...]` like nanobot; voice messages pass WeChat's own transcript
-  (`[voice] ...`). Images, files, video and voice without a transcript
-  arrive as placeholders (`[image]`, `[file: name]`, ...): inbound media
-  are not downloaded. Files a reply attaches (for example through the
+  (`[voice] ...`). Images, files, video and voice arrive as placeholders
+  (`[image]`, `[file: name]`, ...) and are downloaded from the WeChat CDN,
+  decrypted and saved to `media/weixin/` in the workspace (mode `0600`;
+  images up to the size the model accepts, other files up to 50 MB), so
+  images reach the model and other files are named for its tools. When a
+  message has no media of its own, the media it quotes is downloaded
+  instead. A file that cannot be downloaded leaves only its placeholder.
+  Voice is not transcribed beyond WeChat's own transcript. Files a reply attaches (for example through the
   message tool) are encrypted, uploaded to the WeChat CDN and sent before
   the text, as images, videos, voice messages or files by extension; at
   most 10 files of up to 50 MB each, and one that cannot be sent is

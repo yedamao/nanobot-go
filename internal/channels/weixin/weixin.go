@@ -3,7 +3,9 @@
 // (https://ilinkai.weixin.qq.com) over net/http: getupdates long-polls
 // for messages with an opaque cursor, sendmessage delivers replies as
 // text in chunks of at most 1800 characters, after their files (uploaded
-// encrypted to the WeChat CDN, see sendMedia). The bot token comes from a
+// encrypted to the WeChat CDN, see sendMedia). Inbound images, voice,
+// files and video are downloaded from the CDN into the workspace (see
+// downloadMedia). The bot token comes from a
 // QR-code login (`nanobot channels login weixin`, see Login), saved in
 // account.json, or from the config.
 //
@@ -504,17 +506,23 @@ func (c *Channel) handle(ctx context.Context, m wireMessage) {
 		c.retryDeferred(ctx, from)
 	}
 	content := messageText(m.ItemList)
-	if content == "" {
+	media, quote := c.downloadMedia(ctx, m.ItemList)
+	if quote != "" {
+		content = strings.TrimPrefix(content+"\n"+quote, "\n")
+	}
+	if content == "" && len(media) == 0 {
 		c.log.Debug("weixin: skipping a message without text", "sender", from)
 		return
 	}
-	c.log.Info("weixin: inbound", "sender", from, "items", itemTypes(m.ItemList), "len", len([]rune(content)))
+	c.log.Info("weixin: inbound", "sender", from, "items", itemTypes(m.ItemList), "len", len([]rune(content)),
+		"media", len(media))
 	c.startTyping(from, m.ContextToken)
 	in := bus.InboundMessage{
 		Channel:   Name,
 		SenderID:  from,
 		ChatID:    from,
 		Content:   content,
+		Media:     media,
 		Timestamp: time.Now(),
 		Metadata:  map[string]any{"message_id": id},
 	}
@@ -1025,37 +1033,47 @@ func (c *Channel) saveState() {
 }
 
 // messageText renders a message's items as text (nanobot:
-// _process_message). Inbound media are not downloaded; they appear as
-// placeholders such as "[image]", like nanobot's when a download fails.
+// _process_message). Media items appear as placeholders such as
+// "[image]" (see mediaLabel); the files themselves, when they could be
+// downloaded, go in the inbound message's Media (see downloadMedia).
 func messageText(items []wireItem) string {
 	var parts []string
 	for _, it := range items {
-		switch it.Type {
-		case itemText:
+		switch {
+		case it.Type == itemText:
 			if it.TextItem == nil || it.TextItem.Text == "" {
 				continue
 			}
 			parts = append(parts, quoted(it.RefMsg, it.TextItem.Text))
-		case itemImage:
-			parts = append(parts, "[image]")
-		case itemVoice:
-			// WeChat's own speech-to-text, when it has one.
-			if it.VoiceItem != nil && it.VoiceItem.Text != "" {
-				parts = append(parts, "[voice] "+it.VoiceItem.Text)
-			} else {
-				parts = append(parts, "[voice]")
-			}
-		case itemFile:
-			name := "unknown"
-			if it.FileItem != nil && it.FileItem.FileName != "" {
-				name = it.FileItem.FileName
-			}
-			parts = append(parts, "[file: "+name+"]")
-		case itemVideo:
-			parts = append(parts, "[video]")
+		case isMedia(it.Type):
+			parts = append(parts, mediaLabel(it))
 		}
 	}
 	return strings.Join(parts, "\n")
+}
+
+// mediaLabel is the placeholder of a media item: "[image]", "[voice]"
+// with WeChat's own speech-to-text when it has one, "[file: name]" or
+// "[video]".
+func mediaLabel(it wireItem) string {
+	switch it.Type {
+	case itemImage:
+		return "[image]"
+	case itemVoice:
+		if it.VoiceItem != nil && it.VoiceItem.Text != "" {
+			return "[voice] " + it.VoiceItem.Text
+		}
+		return "[voice]"
+	case itemFile:
+		name := "unknown"
+		if it.FileItem != nil && it.FileItem.FileName != "" {
+			name = it.FileItem.FileName
+		}
+		return "[file: " + name + "]"
+	case itemVideo:
+		return "[video]"
+	}
+	return ""
 }
 
 // quoted prefixes text with the message it quotes, as
