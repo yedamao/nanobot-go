@@ -55,8 +55,8 @@ export function MCPPage() {
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const built = buildMCPInput(form);
-    if (typeof built === "string") {
-      setNote(t("mcp.cannotAdd", { message: built }));
+    if ("error" in built) {
+      setNote(t("mcp.cannotAdd", { message: t(built.error.key, built.error.vars) }));
       return;
     }
     if (list?.servers.some((s) => s.name === built.name && !s.removed)) {

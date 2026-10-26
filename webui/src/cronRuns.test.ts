@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { formatDuration, runReply, runStatusState } from "./cronRuns.ts";
+import { translate, type MessageKey } from "./i18n/translate.ts";
+import { formatDuration, runReply, runStatusState, runStatusText } from "./cronRuns.ts";
 
 test("formatDuration", () => {
   assert.equal(formatDuration(undefined), "—");
@@ -22,4 +23,13 @@ test("runReply trims and defaults to empty", () => {
   assert.equal(runReply({}), "");
   assert.equal(runReply({ reply: "  \n " }), "");
   assert.equal(runReply({ reply: "\nTime to stretch!\n" }), "Time to stretch!");
+});
+
+test("runStatusText translates known statuses", () => {
+  const zh = (key: MessageKey) => translate("zh-CN", key);
+  assert.equal(runStatusText("ok"), "ok");
+  assert.deepEqual(["ok", "error", "skipped"].map((s) => runStatusText(s, zh)), ["成功", "失败", "跳过"]);
+  assert.equal(runStatusText("", zh), "—");
+  assert.equal(runStatusText(undefined, zh), "—");
+  assert.equal(runStatusText("weird", zh), "weird");
 });

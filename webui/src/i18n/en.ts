@@ -207,6 +207,18 @@ export const en = {
     clearToken: "Clear token",
     addToConfig: "Add to config",
     tokenWorks: "The token works.",
+    validation: {
+      tokenRedacted: "the token is a redacted placeholder; paste the real token",
+      tokenTooLong: "the token must be at most {max} characters",
+      tokenSpaces: "the token must not contain spaces",
+      telegramTokenShape: "the token must look like 123456:ABC… as issued by @BotFather",
+      telegramNeedsToken: "Telegram needs a bot token to be enabled",
+      pollTimeout: "the poll timeout must be a whole number of seconds up to {max}",
+      apiBaseUrl: "the API base must be an http:// or https:// URL",
+      apiBaseCredentials: "the API base must not hold credentials",
+      baseUrlUrl: "the base URL must be an http:// or https:// URL",
+      baseUrlCredentials: "the base URL must not hold credentials",
+    },
     login: {
       label: "WeChat login",
       status: "Login status:",
@@ -254,6 +266,15 @@ export const en = {
     addFallback: "Add fallback",
     help: "Saved to {path} in config.json and applied when the gateway restarts. API keys and endpoints are set per provider on the {link} page.",
     providersLink: "Providers",
+    validation: {
+      modelEmpty: "the model must not be empty",
+      modelTooLong: "the model must be at most {max} characters",
+      modelSpaces: "the model must not contain spaces",
+      tooManyFallbacks: "at most {max} fallbacks",
+      fallbackEmpty: "the fallback {n} model must not be empty",
+      fallbackTooLong: "the fallback {n} model must be at most {max} characters",
+      fallbackSpaces: "the fallback {n} model must not contain spaces",
+    },
     catalog: {
       loading: "Loading model suggestions…",
       error: "No model suggestions ({error}). Type a model ID.",
@@ -278,6 +299,14 @@ export const en = {
     keepKey: "Keep key",
     clearKey: "Clear key",
     credentialWorks: "The credential works.",
+    validation: {
+      keyRedacted: "the API key is a redacted placeholder; paste the real key",
+      keyTooLong: "the API key must be at most {max} characters",
+      keySpaces: "the API key must not contain spaces",
+      baseTooLong: "the API base must be at most {max} characters",
+      baseUrl: "the API base must be an http:// or https:// URL",
+      baseCredentials: "the API base must not hold credentials; set the API key instead",
+    },
   },
   skills: {
     heading: "Skills",
@@ -343,6 +372,14 @@ export const en = {
     badges: {
       removed: "removed",
     },
+    validation: {
+      name: "the name must be 1-64 letters, digits, _ or -",
+      commandRequired: "the command is required",
+      url: "the URL must start with http:// or https://",
+      envLine: 'env line "{line}…" needs KEY=VALUE',
+      headerLine: 'header line "{line}…" needs Name: value',
+      toolTimeout: "the tool timeout must be a whole number of seconds",
+    },
     states: {
       pending: "pending",
       connected: "connected",
@@ -389,6 +426,11 @@ export const en = {
       createFailed: "Create failed: {error}",
       updated: "Updated {name}",
       updateFailed: "Update failed: {error}",
+    },
+    status: {
+      ok: "ok",
+      error: "error",
+      skipped: "skipped",
     },
     validation: {
       messageRequired: "message is required",

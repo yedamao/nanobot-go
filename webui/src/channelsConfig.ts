@@ -1,5 +1,5 @@
 import type { ChannelConfig, ChannelConfigPatch, ChannelTestResult, WeixinLogin } from "./api.ts";
-import { enT, type Translator } from "./i18n/translate.ts";
+import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** One channel's form. token is a new token typed in, never the saved one
  * (the page is never sent it); "" keeps the saved token. allowFrom is
@@ -76,51 +76,52 @@ export function diffChannel(saved: ChannelConfig, d: ChannelDraft): ChannelConfi
   return patch;
 }
 
-/** checkToken returns why a typed token cannot be used, or "". */
-export function checkToken(name: string, raw: string): string {
+/** checkToken returns why a typed token cannot be used, or null. */
+export function checkToken(name: string, raw: string): Invalid | null {
   const token = raw.trim();
-  if (!token) return "";
-  if (token.includes("***") || token.includes("•")) return "token is a redacted placeholder; paste the real token";
-  if (token.length > maxTokenLen) return "token must be at most " + maxTokenLen + " characters";
-  if (/[\s\p{Cc}]/u.test(token)) return "token must not contain spaces";
-  if (name === "telegram" && !telegramToken.test(token)) return "token must look like 123456:ABC… as issued by @BotFather";
-  return "";
+  if (!token) return null;
+  if (token.includes("***") || token.includes("•")) return { key: "channels.validation.tokenRedacted" };
+  if (token.length > maxTokenLen) return { key: "channels.validation.tokenTooLong", vars: { max: maxTokenLen } };
+  if (/[\s\p{Cc}]/u.test(token)) return { key: "channels.validation.tokenSpaces" };
+  if (name === "telegram" && !telegramToken.test(token)) return { key: "channels.validation.telegramTokenShape" };
+  return null;
 }
 
-function checkURL(label: string, raw: string): string {
+/** urlProblem says what is wrong with an optional http(s) URL field. */
+function urlProblem(raw: string): "" | "scheme" | "credentials" {
   const s = raw.trim();
   if (!s) return "";
   let u: URL;
   try {
     u = new URL(s);
   } catch {
-    return label + " must be an http:// or https:// URL";
+    return "scheme";
   }
-  if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.host || /\s/.test(s)) {
-    return label + " must be an http:// or https:// URL";
-  }
-  if (u.username || u.password) return label + " must not hold credentials";
+  if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.host || /\s/.test(s)) return "scheme";
+  if (u.username || u.password) return "credentials";
   return "";
 }
 
-/** checkChannel returns why draft cannot be saved, or "". */
-export function checkChannel(saved: ChannelConfig, d: ChannelDraft): string {
+/** checkChannel returns why draft cannot be saved, or null. */
+export function checkChannel(saved: ChannelConfig, d: ChannelDraft): Invalid | null {
   if (!d.clearToken) {
     const bad = checkToken(saved.name, d.token);
     if (bad) return bad;
   }
   const poll = d.pollTimeout.trim();
-  if (poll && !(/^\d+$/.test(poll) && Number(poll) <= 3600)) return "poll timeout must be a whole number of seconds up to 3600";
+  if (poll && !(/^\d+$/.test(poll) && Number(poll) <= 3600)) return { key: "channels.validation.pollTimeout", vars: { max: 3600 } };
   if (saved.name === "telegram") {
-    const bad = checkURL("API base", d.apiBase);
-    if (bad) return bad;
-    if (d.enabled && !hasTokenAfter(saved, d)) return "Telegram needs a bot token to be enabled";
+    const bad = urlProblem(d.apiBase);
+    if (bad === "scheme") return { key: "channels.validation.apiBaseUrl" };
+    if (bad === "credentials") return { key: "channels.validation.apiBaseCredentials" };
+    if (d.enabled && !hasTokenAfter(saved, d)) return { key: "channels.validation.telegramNeedsToken" };
   }
   if (saved.name === "weixin") {
-    const bad = checkURL("base URL", d.baseUrl);
-    if (bad) return bad;
+    const bad = urlProblem(d.baseUrl);
+    if (bad === "scheme") return { key: "channels.validation.baseUrlUrl" };
+    if (bad === "credentials") return { key: "channels.validation.baseUrlCredentials" };
   }
-  return "";
+  return null;
 }
 
 /** hasTokenAfter reports whether a token would be there after saving

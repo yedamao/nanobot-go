@@ -1,5 +1,5 @@
 import type { Provider, ProviderPatch, ProviderTest, ProviderTestResult } from "./api.ts";
-import { enT, type Translator } from "./i18n/translate.ts";
+import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** One provider's form. apiKey is a new key typed in, never the saved
  * one (the page is never sent it); "" keeps the saved key. */
@@ -31,29 +31,29 @@ export function diffProvider(saved: Provider, d: ProviderDraft): ProviderPatch {
   return patch;
 }
 
-/** checkProvider returns why draft cannot be saved, or "". */
-export function checkProvider(d: ProviderDraft): string {
+/** checkProvider returns why draft cannot be saved, or null. */
+export function checkProvider(d: ProviderDraft): Invalid | null {
   const key = d.apiKey.trim();
   if (!d.clearKey && key) {
-    if (key.includes("***") || key.includes("•")) return "API key is a redacted placeholder; paste the real key";
-    if (key.length > maxAPIKeyLen) return "API key must be at most " + maxAPIKeyLen + " characters";
-    if (/[\s\p{Cc}]/u.test(key)) return "API key must not contain spaces";
+    if (key.includes("***") || key.includes("•")) return { key: "providers.validation.keyRedacted" };
+    if (key.length > maxAPIKeyLen) return { key: "providers.validation.keyTooLong", vars: { max: maxAPIKeyLen } };
+    if (/[\s\p{Cc}]/u.test(key)) return { key: "providers.validation.keySpaces" };
   }
   const base = d.apiBase.trim();
   if (base) {
-    if (base.length > maxAPIBaseLen) return "API base must be at most " + maxAPIBaseLen + " characters";
+    if (base.length > maxAPIBaseLen) return { key: "providers.validation.baseTooLong", vars: { max: maxAPIBaseLen } };
     let u: URL;
     try {
       u = new URL(base);
     } catch {
-      return "API base must be an http:// or https:// URL";
+      return { key: "providers.validation.baseUrl" };
     }
     if ((u.protocol !== "http:" && u.protocol !== "https:") || !u.host || /\s/.test(base)) {
-      return "API base must be an http:// or https:// URL";
+      return { key: "providers.validation.baseUrl" };
     }
-    if (u.username || u.password) return "API base must not hold credentials; set the API key instead";
+    if (u.username || u.password) return { key: "providers.validation.baseCredentials" };
   }
-  return "";
+  return null;
 }
 
 /** keyStatus describes the saved key without revealing it. */

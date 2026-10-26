@@ -76,7 +76,7 @@ export function ModelsPage() {
     if (saving || !view || !draft) return;
     const bad = checkModels(draft);
     if (bad) {
-      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: bad }) });
+      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: t(bad.key, bad.vars) }) });
       return;
     }
     const patch = diffModels(view.settings, draft);

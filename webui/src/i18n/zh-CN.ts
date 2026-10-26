@@ -207,6 +207,18 @@ export const zhCN: Messages = {
     clearToken: "清除令牌",
     addToConfig: "添加到配置",
     tokenWorks: "令牌可用。",
+    validation: {
+      tokenRedacted: "令牌是打码后的占位符，请粘贴真实令牌",
+      tokenTooLong: "令牌最多 {max} 个字符",
+      tokenSpaces: "令牌不能包含空格",
+      telegramTokenShape: "令牌格式应为 @BotFather 签发的 123456:ABC…",
+      telegramNeedsToken: "启用 Telegram 需要机器人令牌",
+      pollTimeout: "轮询超时必须是不超过 {max} 的整数秒",
+      apiBaseUrl: "API 地址必须是 http:// 或 https:// 开头的 URL",
+      apiBaseCredentials: "API 地址不能包含账号密码",
+      baseUrlUrl: "基础 URL 必须是 http:// 或 https:// 开头的 URL",
+      baseUrlCredentials: "基础 URL 不能包含账号密码",
+    },
     login: {
       label: "微信登录",
       status: "登录状态：",
@@ -254,6 +266,15 @@ export const zhCN: Messages = {
     addFallback: "添加备用模型",
     help: "保存到 config.json 的 {path}，网关重启后生效。API 密钥和端点在{link}页面按提供商设置。",
     providersLink: "提供商",
+    validation: {
+      modelEmpty: "模型不能为空",
+      modelTooLong: "模型最多 {max} 个字符",
+      modelSpaces: "模型不能包含空格",
+      tooManyFallbacks: "备用模型最多 {max} 个",
+      fallbackEmpty: "备用模型 {n} 不能为空",
+      fallbackTooLong: "备用模型 {n} 最多 {max} 个字符",
+      fallbackSpaces: "备用模型 {n} 不能包含空格",
+    },
     catalog: {
       loading: "正在加载模型建议…",
       error: "没有模型建议（{error}）。请输入模型 ID。",
@@ -277,6 +298,14 @@ export const zhCN: Messages = {
     keepKey: "保留密钥",
     clearKey: "清除密钥",
     credentialWorks: "凭据可用。",
+    validation: {
+      keyRedacted: "API 密钥是打码后的占位符，请粘贴真实密钥",
+      keyTooLong: "API 密钥最多 {max} 个字符",
+      keySpaces: "API 密钥不能包含空格",
+      baseTooLong: "API 地址最多 {max} 个字符",
+      baseUrl: "API 地址必须是 http:// 或 https:// 开头的 URL",
+      baseCredentials: "API 地址不能包含账号密码，请改为设置 API 密钥",
+    },
   },
   skills: {
     heading: "技能",
@@ -342,6 +371,14 @@ export const zhCN: Messages = {
     badges: {
       removed: "已删除",
     },
+    validation: {
+      name: "名称必须为 1-64 个字母、数字、_ 或 -",
+      commandRequired: "请填写命令",
+      url: "URL 必须以 http:// 或 https:// 开头",
+      envLine: "环境变量行“{line}…”应为 KEY=VALUE 格式",
+      headerLine: "请求头行“{line}…”应为 Name: value 格式",
+      toolTimeout: "工具超时必须是整数秒",
+    },
     states: {
       pending: "等待中",
       connected: "已连接",
@@ -388,6 +425,11 @@ export const zhCN: Messages = {
       createFailed: "创建失败：{error}",
       updated: "已更新 {name}",
       updateFailed: "更新失败：{error}",
+    },
+    status: {
+      ok: "成功",
+      error: "失败",
+      skipped: "跳过",
     },
     validation: {
       messageRequired: "请填写消息",

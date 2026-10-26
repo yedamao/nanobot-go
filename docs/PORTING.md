@@ -545,13 +545,14 @@ Phase 2 is complete; phase 3 is in progress.
     cards, WeChat login), Models, Providers, Skills and MCP pages. Dates
     (Cron, pairing expiry, chat list) use the selected locale. Display
     helpers (`keyStatus`, `tokenStatus`, `pendingText`, badges, …) take
-    an optional translator that defaults to English. Gaps: text sent by
-    the gateway (API errors, test results, the restart-unavailable
-    reason, model catalog notes) and the client-side form validation
-    messages of Channels, Models, Providers and MCP stay English; cron
-    status tokens are not translated; no zh-TW/ja/fr/… yet.
-  - Next WebUI slices: translated form validation (return message keys
-    as Cron does), a richer layout and components (nanobot's
+    an optional translator that defaults to English. Client-side form
+    validators return message keys (`Invalid` = `{ key, vars }`, under
+    `channels/models/providers/mcp.validation.*`; Cron's `buildWrite`
+    returns a key) and cron run statuses are translated. Gaps: text
+    sent by the gateway (API errors, test results, the
+    restart-unavailable reason, model catalog notes) stays English; no
+    zh-TW/ja/fr/… yet.
+  - Next WebUI slices: a richer layout and components (nanobot's
     Radix/Tailwind UI), a model catalog/picker, provider OAuth and
     custom providers, MCP presets/OAuth/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,

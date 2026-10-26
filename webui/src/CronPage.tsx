@@ -10,7 +10,7 @@ import {
   type CronRun,
   type CronWrite,
 } from "./api";
-import { formatDuration, runReply, runStatusState } from "./cronRuns";
+import { formatDuration, runReply, runStatusState, runStatusText } from "./cronRuns";
 import { useFormatDate, useT, type MessageKey } from "./i18n";
 
 type Kind = "every" | "cron" | "at";
@@ -290,7 +290,7 @@ export function CronPage() {
                 <td>{fmt(j.state.nextRun)}</td>
                 <td>{fmt(j.state.lastRun)}</td>
                 <td>
-                  {j.state.lastStatus || "—"}
+                  {runStatusText(j.state.lastStatus, t)}
                   {j.state.lastError ? " (" + j.state.lastError + ")" : ""}
                 </td>
                 <td className="page-actions">
@@ -342,7 +342,7 @@ export function CronPage() {
                           <td>{fmt(r.runAt)}</td>
                           <td>
                             <span className="badge" data-state={runStatusState(r.status)}>
-                              {r.status}
+                              {runStatusText(r.status, t)}
                             </span>
                           </td>
                           <td>{formatDuration(r.durationMs)}</td>

@@ -91,25 +91,25 @@ test("parseAllowFrom", () => {
 });
 
 test("checkToken", () => {
-  assert.equal(checkToken("telegram", ""), "");
-  assert.equal(checkToken("telegram", "123456:AA_b-c"), "");
-  assert.equal(checkToken("telegram", "***"), "token is a redacted placeholder; paste the real token");
-  assert.equal(checkToken("telegram", telegram.tokenHint), "token is a redacted placeholder; paste the real token");
-  assert.equal(checkToken("telegram", "a b"), "token must not contain spaces");
-  assert.equal(checkToken("telegram", "nocolon"), "token must look like 123456:ABC… as issued by @BotFather");
-  assert.equal(checkToken("weixin", "nocolon"), "");
+  assert.deepEqual(checkToken("telegram", ""), null);
+  assert.deepEqual(checkToken("telegram", "123456:AA_b-c"), null);
+  assert.deepEqual(checkToken("telegram", "***"), { key: "channels.validation.tokenRedacted" });
+  assert.deepEqual(checkToken("telegram", telegram.tokenHint), { key: "channels.validation.tokenRedacted" });
+  assert.deepEqual(checkToken("telegram", "a b"), { key: "channels.validation.tokenSpaces" });
+  assert.deepEqual(checkToken("telegram", "nocolon"), { key: "channels.validation.telegramTokenShape" });
+  assert.deepEqual(checkToken("weixin", "nocolon"), null);
 });
 
 test("checkChannel", () => {
   const d = channelDraft(telegram);
-  assert.equal(checkChannel(telegram, d), "");
-  assert.equal(checkChannel(telegram, { ...d, clearToken: true }), "Telegram needs a bot token to be enabled");
-  assert.equal(checkChannel(telegram, { ...d, clearToken: true, enabled: false }), "");
-  assert.equal(checkChannel({ ...telegram, env_overrides: ["token"] }, { ...d, clearToken: true }), "");
-  assert.equal(checkChannel(telegram, { ...d, apiBase: "ftp://x" }), "API base must be an http:// or https:// URL");
-  assert.equal(checkChannel(telegram, { ...d, pollTimeout: "-1" }), "poll timeout must be a whole number of seconds up to 3600");
-  assert.equal(checkChannel(weixin, { ...channelDraft(weixin), enabled: true }), "");
-  assert.equal(checkChannel(weixin, { ...channelDraft(weixin), baseUrl: "https://u:p@x.test" }), "base URL must not hold credentials");
+  assert.deepEqual(checkChannel(telegram, d), null);
+  assert.deepEqual(checkChannel(telegram, { ...d, clearToken: true }), { key: "channels.validation.telegramNeedsToken" });
+  assert.deepEqual(checkChannel(telegram, { ...d, clearToken: true, enabled: false }), null);
+  assert.deepEqual(checkChannel({ ...telegram, env_overrides: ["token"] }, { ...d, clearToken: true }), null);
+  assert.deepEqual(checkChannel(telegram, { ...d, apiBase: "ftp://x" }), { key: "channels.validation.apiBaseUrl" });
+  assert.deepEqual(checkChannel(telegram, { ...d, pollTimeout: "-1" }), { key: "channels.validation.pollTimeout", vars: { max: 3600 } });
+  assert.deepEqual(checkChannel(weixin, { ...channelDraft(weixin), enabled: true }), null);
+  assert.deepEqual(checkChannel(weixin, { ...channelDraft(weixin), baseUrl: "https://u:p@x.test" }), { key: "channels.validation.baseUrlCredentials" });
 });
 
 test("tokenStatus and channelState", () => {

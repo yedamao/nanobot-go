@@ -1,5 +1,5 @@
 import type { MCPServer, MCPServerInput } from "./api.ts";
-import { enT, type Translator } from "./i18n/translate.ts";
+import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** The MCP page's add form. */
 export interface MCPForm {
@@ -38,8 +38,8 @@ export const emptyMCPForm: MCPForm = {
 const nameRE = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** parsePairs reads "KEY=VALUE" (or, with colon, "Name: value") lines. */
-export function parsePairs(text: string, colon = false): Record<string, string> | string {
-  const out: Record<string, string> = {};
+export function parsePairs(text: string, colon = false): { pairs: Record<string, string> } | { error: Invalid } {
+  const pairs: Record<string, string> = {};
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     if (!line) continue;
@@ -48,38 +48,41 @@ export function parsePairs(text: string, colon = false): Record<string, string> 
       const c = line.indexOf(":");
       if (c >= 0 && (i < 0 || c < i)) i = c;
     }
-    if (i <= 0) return 'line "' + line.split(/[=:]/)[0] + '…" needs ' + (colon ? "Name: value" : "KEY=VALUE");
-    out[line.slice(0, i).trim()] = line.slice(i + 1).trim();
+    if (i <= 0) {
+      const vars = { line: line.split(/[=:]/)[0] };
+      return { error: { key: colon ? "mcp.validation.headerLine" : "mcp.validation.envLine", vars } };
+    }
+    pairs[line.slice(0, i).trim()] = line.slice(i + 1).trim();
   }
-  return out;
+  return { pairs };
 }
 
-/** buildMCPInput turns the form into a PUT body, or an error message. */
-export function buildMCPInput(form: MCPForm): { name: string; input: MCPServerInput } | string {
+/** buildMCPInput turns the form into a PUT body, or why it cannot. */
+export function buildMCPInput(form: MCPForm): { name: string; input: MCPServerInput } | { error: Invalid } {
   const name = form.name.trim();
-  if (!nameRE.test(name)) return "name must be 1-64 letters, digits, _ or -";
+  if (!nameRE.test(name)) return { error: { key: "mcp.validation.name" } };
   const input: MCPServerInput = { enabled: form.enabled };
   if (form.kind === "stdio") {
     const command = form.command.trim();
-    if (!command) return "command is required";
+    if (!command) return { error: { key: "mcp.validation.commandRequired" } };
     input.command = command;
     const args = form.args.split("\n").map((a) => a.trim()).filter(Boolean);
     if (args.length) input.args = args;
     const env = parsePairs(form.env);
-    if (typeof env === "string") return "env: " + env;
-    if (Object.keys(env).length) input.env = env;
+    if ("error" in env) return env;
+    if (Object.keys(env.pairs).length) input.env = env.pairs;
   } else {
     const url = form.url.trim();
-    if (!/^https?:\/\/./.test(url)) return "url must start with http:// or https://";
+    if (!/^https?:\/\/./.test(url)) return { error: { key: "mcp.validation.url" } };
     input.url = url;
     if (form.type) input.type = form.type;
     const headers = parsePairs(form.headers, true);
-    if (typeof headers === "string") return "headers: " + headers;
-    if (Object.keys(headers).length) input.headers = headers;
+    if ("error" in headers) return headers;
+    if (Object.keys(headers.pairs).length) input.headers = headers.pairs;
   }
   if (form.toolTimeout.trim()) {
     const n = Number(form.toolTimeout);
-    if (!Number.isInteger(n) || n < 0) return "tool timeout must be a whole number of seconds";
+    if (!Number.isInteger(n) || n < 0) return { error: { key: "mcp.validation.toolTimeout" } };
     if (n > 0) input.toolTimeout = n;
   }
   const tools = form.enabledTools.split(",").map((t) => t.trim()).filter(Boolean);

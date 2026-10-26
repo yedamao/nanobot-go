@@ -51,5 +51,12 @@ export function messageKeys(tree: unknown, prefix = ""): string[] {
 /** Translator is t(): a message for key with its placeholders filled. */
 export type Translator = (key: MessageKey, vars?: Vars) => string;
 
+/** Invalid is why a form cannot be used: a message key and the values
+ * of its placeholders, translated by the page with t(key, vars). */
+export interface Invalid {
+  key: MessageKey;
+  vars?: Vars;
+}
+
 /** enT is the English Translator, the default of helpers that take one. */
 export const enT: Translator = (key, vars) => translate("en", key, vars);

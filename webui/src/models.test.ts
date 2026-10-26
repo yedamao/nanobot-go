@@ -40,10 +40,14 @@ test("fallbacks are sent whole on any change, trimmed", () => {
 
 test("checkModels", () => {
   const d = modelsDraft(saved);
-  assert.equal(checkModels(d), "");
-  assert.equal(checkModels({ ...d, model: " " }), "Model must not be empty");
-  assert.equal(checkModels({ ...d, fallbacks: [{ provider: "auto", model: "a b" }] }), "Fallback 1 model must not contain spaces");
-  assert.equal(checkModels({ ...d, fallbacks: Array(maxFallbacks + 1).fill({ provider: "auto", model: "m" }) }), "at most 16 fallbacks");
+  assert.deepEqual(checkModels(d), null);
+  assert.deepEqual(checkModels({ ...d, model: " " }), { key: "models.validation.modelEmpty" });
+  assert.deepEqual(checkModels({ ...d, fallbacks: [{ provider: "auto", model: "a b" }] }), { key: "models.validation.fallbackSpaces", vars: { n: 1 } });
+  assert.deepEqual(checkModels({ ...d, fallbacks: Array(maxFallbacks + 1).fill({ provider: "auto", model: "m" }) }), { key: "models.validation.tooManyFallbacks", vars: { max: 16 } });
+  assert.deepEqual(checkModels({ ...d, fallbacks: [{ provider: "auto", model: "ok" }, { provider: "auto", model: "x".repeat(201) }] }), {
+    key: "models.validation.fallbackTooLong",
+    vars: { n: 2, max: 200 },
+  });
 });
 
 test("moveItem", () => {

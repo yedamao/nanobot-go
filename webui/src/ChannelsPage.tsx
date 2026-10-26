@@ -244,7 +244,7 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
     if (saving) return;
     const bad = checkChannel(c, draft);
     if (bad) {
-      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: bad }) });
+      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: t(bad.key, bad.vars) }) });
       return;
     }
     const patch = diffChannel(c, draft);
@@ -269,7 +269,7 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
     const token = draft.token.trim();
     const bad = checkToken(c.name, token);
     if (bad) {
-      setNote({ kind: "error", text: t("common.notTestedInvalid", { message: bad }) });
+      setNote({ kind: "error", text: t("common.notTestedInvalid", { message: t(bad.key, bad.vars) }) });
       return;
     }
     setTesting(true);

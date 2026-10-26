@@ -1,5 +1,5 @@
 import type { FallbackModel, ProviderModels, Settings, SettingsPatch } from "./api.ts";
-import { enT, type Translator } from "./i18n/translate.ts";
+import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** The Models page's form: the primary model and the ordered fallbacks. */
 export interface ModelsDraft {
@@ -35,24 +35,39 @@ export function diffModels(saved: Settings, draft: ModelsDraft): SettingsPatch {
   return patch;
 }
 
-function modelError(name: string, m: string): string {
+/** modelProblem says what is wrong with a model ID field. */
+function modelProblem(m: string): "" | "empty" | "tooLong" | "spaces" {
   const v = m.trim();
-  if (!v) return name + " must not be empty";
-  if (v.length > maxModelLen) return name + " must be at most " + maxModelLen + " characters";
-  if (/\s/.test(v)) return name + " must not contain spaces";
+  if (!v) return "empty";
+  if (v.length > maxModelLen) return "tooLong";
+  if (/\s/.test(v)) return "spaces";
   return "";
 }
 
-/** checkModels returns why draft cannot be saved, or "". */
-export function checkModels(draft: ModelsDraft): string {
-  const err = modelError("Model", draft.model);
-  if (err) return err;
-  if (draft.fallbacks.length > maxFallbacks) return "at most " + maxFallbacks + " fallbacks";
-  for (const [i, f] of draft.fallbacks.entries()) {
-    const e = modelError("Fallback " + (i + 1) + " model", f.model);
-    if (e) return e;
+/** checkModels returns why draft cannot be saved, or null. */
+export function checkModels(draft: ModelsDraft): Invalid | null {
+  const max = maxModelLen;
+  switch (modelProblem(draft.model)) {
+    case "empty":
+      return { key: "models.validation.modelEmpty" };
+    case "tooLong":
+      return { key: "models.validation.modelTooLong", vars: { max } };
+    case "spaces":
+      return { key: "models.validation.modelSpaces" };
   }
-  return "";
+  if (draft.fallbacks.length > maxFallbacks) return { key: "models.validation.tooManyFallbacks", vars: { max: maxFallbacks } };
+  for (const [i, f] of draft.fallbacks.entries()) {
+    const n = i + 1;
+    switch (modelProblem(f.model)) {
+      case "empty":
+        return { key: "models.validation.fallbackEmpty", vars: { n } };
+      case "tooLong":
+        return { key: "models.validation.fallbackTooLong", vars: { n, max } };
+      case "spaces":
+        return { key: "models.validation.fallbackSpaces", vars: { n } };
+    }
+  }
+  return null;
 }
 
 /** moveItem returns list with item i moved by delta places; out of range

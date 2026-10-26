@@ -123,3 +123,26 @@ test("display helpers localize with a zh-CN translator and default to English", 
   const s = { transport: "stdio", enabled: false, restart_required: true } as unknown as Parameters<typeof mcpBadges>[0];
   assert.deepEqual(mcpBadges(s, zh), ["stdio", "已停用", "需要重启"]);
 });
+
+test("validation keys are translated, fully Chinese in zh-CN", async () => {
+  const { checkToken } = await import("./channelsConfig.ts");
+  const { checkModels } = await import("./models.ts");
+  const { checkProvider } = await import("./providers.ts");
+  const { buildMCPInput, emptyMCPForm } = await import("./mcp.ts");
+  const keys = messageKeys(en).filter((k) => /^(channels|models|providers|mcp)\.validation\./.test(k));
+  assert.ok(keys.length >= 25, String(keys.length));
+  for (const key of keys) {
+    const zh = translate("zh-CN", key);
+    assert.match(zh, /\p{Script=Han}/u, key);
+    assert.doesNotMatch(zh, /\bmust\b|\bneeds?\b/, key);
+  }
+  const bad = checkToken("telegram", "a b")!;
+  assert.equal(translate("zh-CN", "common.notSavedInvalid", { message: translate("zh-CN", bad.key, bad.vars) }), "未保存：令牌不能包含空格。");
+  const m = checkModels({ model: "m", provider: "auto", fallbacks: [{ provider: "auto", model: "" }] })!;
+  assert.equal(translate("zh-CN", m.key, m.vars), "备用模型 1 不能为空");
+  const p = checkProvider({ apiKey: "", clearKey: false, apiBase: "ftp://x" })!;
+  assert.equal(translate("en", p.key, p.vars), "the API base must be an http:// or https:// URL");
+  const built = buildMCPInput({ ...emptyMCPForm, name: "x", command: "c", env: "NOPE" });
+  assert.ok("error" in built);
+  assert.equal(translate("zh-CN", built.error.key, built.error.vars), "环境变量行“NOPE…”应为 KEY=VALUE 格式");
+});

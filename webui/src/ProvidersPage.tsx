@@ -70,7 +70,7 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
     if (saving) return;
     const bad = checkProvider(draft);
     if (bad) {
-      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: bad }) });
+      setNote({ kind: "error", text: t("common.notSavedInvalid", { message: t(bad.key, bad.vars) }) });
       return;
     }
     const patch = diffProvider(p, draft);
@@ -95,7 +95,7 @@ function ProviderForm({ provider: p, onSaved }: { provider: Provider; onSaved: (
     const body = testBody(p, draft);
     const bad = checkProvider({ apiKey: body.apiKey ?? "", clearKey: false, apiBase: body.apiBase ?? "" });
     if (bad) {
-      setNote({ kind: "error", text: t("common.notTestedInvalid", { message: bad }) });
+      setNote({ kind: "error", text: t("common.notTestedInvalid", { message: t(bad.key, bad.vars) }) });
       return;
     }
     setTesting(true);

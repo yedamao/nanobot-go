@@ -4,9 +4,10 @@ import type { MCPServer } from "./api.ts";
 import { buildMCPInput, emptyMCPForm, mcpBadges, mcpTarget, parsePairs } from "./mcp.ts";
 
 test("parsePairs reads env and header lines", () => {
-  assert.deepEqual(parsePairs("A=1\n\n B = x=y \n"), { A: "1", B: "x=y" });
-  assert.deepEqual(parsePairs("Authorization: Bearer abc\nX-Key=v", true), { Authorization: "Bearer abc", "X-Key": "v" });
-  assert.equal(typeof parsePairs("novalue"), "string");
+  assert.deepEqual(parsePairs("A=1\n\n B = x=y \n"), { pairs: { A: "1", B: "x=y" } });
+  assert.deepEqual(parsePairs("Authorization: Bearer abc\nX-Key=v", true), { pairs: { Authorization: "Bearer abc", "X-Key": "v" } });
+  assert.deepEqual(parsePairs("novalue"), { error: { key: "mcp.validation.envLine", vars: { line: "novalue" } } });
+  assert.deepEqual(parsePairs("Bad", true), { error: { key: "mcp.validation.headerLine", vars: { line: "Bad" } } });
 });
 
 test("buildMCPInput builds stdio and http bodies", () => {
@@ -18,10 +19,11 @@ test("buildMCPInput builds stdio and http bodies", () => {
     buildMCPInput({ ...emptyMCPForm, name: "web", kind: "http", url: "https://h.test/sse", type: "sse", toolTimeout: "10", enabled: false, command: "ignored" }),
     { name: "web", input: { enabled: false, url: "https://h.test/sse", type: "sse", toolTimeout: 10 } },
   );
-  assert.equal(buildMCPInput({ ...emptyMCPForm, name: "bad name", command: "x" }), "name must be 1-64 letters, digits, _ or -");
-  assert.equal(buildMCPInput({ ...emptyMCPForm, name: "x" }), "command is required");
-  assert.equal(buildMCPInput({ ...emptyMCPForm, name: "x", kind: "http", url: "ftp://a" }), "url must start with http:// or https://");
-  assert.equal(buildMCPInput({ ...emptyMCPForm, name: "x", command: "c", toolTimeout: "1.5" }), "tool timeout must be a whole number of seconds");
+  assert.deepEqual(buildMCPInput({ ...emptyMCPForm, name: "bad name", command: "x" }), { error: { key: "mcp.validation.name" } });
+  assert.deepEqual(buildMCPInput({ ...emptyMCPForm, name: "x" }), { error: { key: "mcp.validation.commandRequired" } });
+  assert.deepEqual(buildMCPInput({ ...emptyMCPForm, name: "x", kind: "http", url: "ftp://a" }), { error: { key: "mcp.validation.url" } });
+  assert.deepEqual(buildMCPInput({ ...emptyMCPForm, name: "x", command: "c", toolTimeout: "1.5" }), { error: { key: "mcp.validation.toolTimeout" } });
+  assert.deepEqual(buildMCPInput({ ...emptyMCPForm, name: "x", command: "c", env: "NOPE" }), { error: { key: "mcp.validation.envLine", vars: { line: "NOPE" } } });
 });
 
 test("target and badges describe a server", () => {

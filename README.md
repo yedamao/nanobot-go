@@ -1150,11 +1150,14 @@ and is remembered in `localStorage` under `nanobot.locale` (the key the
 Python WebUI uses); a first visit follows the browser's language. The
 whole page chrome is translated (chat list and messages, Status dialog,
 Cron, Channels, Models, Providers, Skills, MCP) and dates follow the
-chosen language. Left in English: messages from the gateway (API errors,
-test results, the restart-unavailable reason, model catalog notes),
-form validation messages on Channels, Models, Providers and MCP, cron
-status tokens (`ok`, `error`, `skipped`), and names such as channels,
-providers, config paths and environment variables. Messages live in
+chosen language. Client-side form validation (Cron, Channels, Models,
+Providers, MCP) is localized too: validators return message keys that
+the page translates, and cron run statuses (`ok`, `error`, `skipped`)
+are shown translated. Left in English: messages from the gateway (API
+errors, test results, the restart-unavailable reason, model catalog
+notes), shown inside a translated "Not saved: …" style wrapper, and
+names such as channels, providers, config paths and environment
+variables. Messages live in
 `webui/src/i18n/en.ts` and `zh-CN.ts` (same keys and placeholders;
 `npm test` checks).
 
