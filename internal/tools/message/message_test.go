@@ -185,3 +185,44 @@ func TestHeartbeatSendsAreNotDelivered(t *testing.T) {
 		t.Error("heartbeat send was delivered")
 	}
 }
+
+func TestSendWithButtons(t *testing.T) {
+	reg, b, _ := newHarness(t, false)
+	ctx := tools.WithTurn(context.Background(), chatTurn)
+
+	res := run(reg, ctx, `{"content":"Proceed?","buttons":[["Yes","No"],["Cancel"]]}`)
+	if res.IsError || res.Content != "Message sent to telegram:42 with 3 button(s)" {
+		t.Fatalf("result = %+v", res)
+	}
+	msg := consume(t, b)
+	if len(msg.Buttons) != 2 || strings.Join(msg.Buttons[0], ",") != "Yes,No" || strings.Join(msg.Buttons[1], ",") != "Cancel" {
+		t.Errorf("buttons = %v", msg.Buttons)
+	}
+
+	// No labels at all is no keyboard.
+	if res := run(reg, ctx, `{"content":"hi","buttons":[[]]}`); res.IsError || res.Content != "Message sent to telegram:42" {
+		t.Fatalf("result = %+v", res)
+	}
+	if msg := consume(t, b); msg.Buttons != nil {
+		t.Errorf("buttons = %v", msg.Buttons)
+	}
+}
+
+func TestSendRejectsMalformedButtons(t *testing.T) {
+	reg, b, _ := newHarness(t, false)
+	ctx := tools.WithTurn(context.Background(), chatTurn)
+	for _, buttons := range []string{`["Yes","No"]`, `[["Yes",1]]`, `[{"label":"Yes"}]`, `[[["Yes"]]]`} {
+		res := run(reg, ctx, `{"content":"Proceed?","buttons":`+buttons+`}`)
+		if !res.IsError || !strings.Contains(res.Content, "buttons must be a list of list of strings") {
+			t.Errorf("buttons %s: result = %+v", buttons, res)
+		}
+	}
+	if res := run(reg, ctx, `{"content":"Proceed?","buttons":"Yes"}`); !res.IsError || !strings.Contains(res.Content, "buttons") {
+		t.Errorf("string buttons: result = %+v", res)
+	}
+	ctx2, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	if msg, err := b.ConsumeOutbound(ctx2); err == nil {
+		t.Errorf("published %+v", msg)
+	}
+}

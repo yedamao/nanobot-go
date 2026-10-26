@@ -640,3 +640,17 @@ func TestRouteTagHeader(t *testing.T) {
 		t.Errorf("SKRouteTag = %q", got)
 	}
 }
+
+func TestSendButtonsAsText(t *testing.T) {
+	h := newHarness(t, nil)
+	h.start(t)
+	h.greet(t, "m1", "ctx-1")
+	h.f.waitFor("sendtyping", 1)
+	msg := bus.OutboundMessage{Channel: Name, ChatID: alice, Content: "Proceed?", Buttons: [][]string{{"Yes", "No"}, {"Cancel"}}}
+	if err := h.ch.Send(context.Background(), msg); err != nil {
+		t.Fatal(err)
+	}
+	if texts, _, _ := sentTexts(h.f.callsOf("sendmessage")); len(texts) != 1 || texts[0] != "Proceed?\n\n[Yes] [No]\n[Cancel]" {
+		t.Errorf("sent %q", texts)
+	}
+}

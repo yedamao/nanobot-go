@@ -270,7 +270,23 @@ chat apps do not get the turn's final reply as a second message; the
 same holds for a cron job that used the tool to answer its chat. The
 tool only works under `nanobot gateway`; heartbeat runs acknowledge its
 sends without delivering them, so only replies that pass the heartbeat
-check reach you. Remote URLs and buttons are not supported yet.
+check reach you. Remote URLs are not supported yet.
+
+`buttons` offers choices: rows of labels, such as
+`[["Yes", "No"], ["Cancel"]]`. On Telegram with `inlineKeyboards: true`
+they become an inline keyboard on the message (on its last part when it
+is split, or on the last file without text); a tap is answered, removes
+the keyboard and comes back to the agent as a message whose text is the
+label (labels over 64 bytes are cut to fit Telegram's callback data). On
+Telegram without the setting, on WeChat and in the WebUI the buttons are
+written under the text instead:
+
+```text
+Proceed?
+
+[Yes] [No]
+[Cancel]
+```
 
 ### Scheduled jobs (cron)
 
@@ -602,6 +618,7 @@ channel and run `nanobot gateway`:
       "allowFrom": ["123456789", "your_username"],
       "groupPolicy": "mention",
       "replyToMessage": false,
+      "inlineKeyboards": false,
       "pollTimeout": 30,
       "proxy": ""
     }
@@ -663,6 +680,11 @@ apply.
   text up to 1024 characters becomes the caption of the first one, longer
   text follows as messages. A file that cannot be sent is replaced by
   `[Failed to send: name]`. "typing…" shows while the agent works.
+- **Buttons.** `inlineKeyboards: true` shows the `message` tool's
+  `buttons` as an inline keyboard and has the bot receive taps on them
+  (`callback_query` updates); taps from senders who are not allowed are
+  ignored. Off (the default), the labels are appended to the text as
+  `[Yes] [No]`. See [Sending files](#sending-files-message-tool).
 - **Reliability.** The bot token is checked with `getMe` at startup (a
   rejected token keeps Telegram from starting; the gateway runs on
   without it; if Telegram cannot be reached yet, the channel keeps

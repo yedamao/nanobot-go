@@ -1,8 +1,10 @@
 // Package message is the agent's message tool (nanobot/agent/tools/message.py):
-// it sends a separate chat message, optionally with file attachments,
-// through the bus. Channels deliver OutboundMessage.Media as they would a
+// it sends a separate chat message, optionally with file attachments and
+// choice buttons, through the bus. Channels deliver OutboundMessage.Media as they would a
 // reply's (Telegram uploads photos and documents, WeChat uploads them to
-// its CDN, the WebUI shows media frames).
+// its CDN, the WebUI shows media frames). Buttons become a Telegram inline
+// keyboard when channels.telegram.inlineKeyboards is on, and text such as
+// "[Yes] [No]" under the content everywhere else.
 package message
 
 import (
@@ -49,7 +51,9 @@ func (t *Tool) Description() string {
 	return "Send separate messages requested by the user or task, optionally with attachments. " +
 		"For normal replies, including scheduled reminders and reports, answer directly; " +
 		"the final reply is delivered to the current chat automatically. " +
-		"Use this tool to deliver files or images from the workspace via media."
+		"Use this tool to deliver files or images from the workspace via media. " +
+		"Optional buttons offer choices as an inline keyboard (rows of labels); " +
+		"a tapped button comes back as a message with its label."
 }
 
 func (t *Tool) Parameters() map[string]any {
@@ -58,11 +62,20 @@ func (t *Tool) Parameters() map[string]any {
 		"items":       map[string]any{"type": "string"},
 		"description": fmt.Sprintf("Optional list of existing workspace file paths to attach (at most %d).", MaxMedia),
 	}
+	buttons := map[string]any{
+		"type": "array",
+		"items": map[string]any{
+			"type":  "array",
+			"items": map[string]any{"type": "string", "description": "Button label"},
+		},
+		"description": "Optional: inline keyboard buttons as list of rows, each row is list of button labels.",
+	}
 	return tools.Object(map[string]any{
 		"content": tools.String("Message content."),
 		"channel": tools.String("Target channel; defaults to the current channel."),
 		"chat_id": tools.String("Target chat/user ID; defaults to the current chat."),
 		"media":   media,
+		"buttons": buttons,
 	}, "content")
 }
 
@@ -73,6 +86,7 @@ type args struct {
 	Channel string   `json:"channel"`
 	ChatID  string   `json:"chat_id"`
 	Media   []string `json:"media"`
+	Buttons any      `json:"buttons"`
 }
 
 func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
@@ -89,6 +103,10 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
 	if t.bus == nil {
 		return tools.Errorf("Message sending not configured")
 	}
+	buttons, ok := buttonRows(a.Buttons)
+	if !ok {
+		return tools.Errorf("buttons must be a list of list of strings")
+	}
 	media, err := t.resolveMedia(a.Media)
 	if err != nil {
 		return tools.Errorf("%v", err)
@@ -101,7 +119,7 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
 	if turn.SessionKey == heartbeat.SessionKey {
 		return tools.Text(fmt.Sprintf("Message acknowledged for %s (not delivered)", target))
 	}
-	out := bus.OutboundMessage{Channel: channel, ChatID: chatID, Content: a.Content, Media: media, Metadata: meta}
+	out := bus.OutboundMessage{Channel: channel, ChatID: chatID, Content: a.Content, Media: media, Buttons: buttons, Metadata: meta}
 	if err := t.bus.PublishOutbound(ctx, out); err != nil {
 		return tools.Errorf("sending message: %v", err)
 	}
@@ -110,7 +128,50 @@ func (t *Tool) Execute(ctx context.Context, raw json.RawMessage) tools.Result {
 	if len(media) > 0 {
 		res += fmt.Sprintf(" with %d attachments", len(media))
 	}
+	if n := countButtons(buttons); n > 0 {
+		res += fmt.Sprintf(" with %d button(s)", n)
+	}
 	return tools.Text(res)
+}
+
+// buttonRows checks the buttons argument: absent (nil) or a list of
+// lists of strings, like nanobot's check.
+func buttonRows(v any) ([][]string, bool) {
+	if v == nil {
+		return nil, true
+	}
+	rows, ok := v.([]any)
+	if !ok {
+		return nil, false
+	}
+	out := make([][]string, 0, len(rows))
+	for _, r := range rows {
+		labels, ok := r.([]any)
+		if !ok {
+			return nil, false
+		}
+		row := make([]string, 0, len(labels))
+		for _, l := range labels {
+			s, ok := l.(string)
+			if !ok {
+				return nil, false
+			}
+			row = append(row, s)
+		}
+		out = append(out, row)
+	}
+	if countButtons(out) == 0 {
+		return nil, true
+	}
+	return out, true
+}
+
+func countButtons(rows [][]string) int {
+	n := 0
+	for _, r := range rows {
+		n += len(r)
+	}
+	return n
 }
 
 // resolveMedia resolves attachment paths to existing files in the

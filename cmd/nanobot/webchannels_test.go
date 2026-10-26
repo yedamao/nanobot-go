@@ -175,6 +175,9 @@ func TestWebChannelsCreateWeixin(t *testing.T) {
 	if _, err := s.UpdateChannelConfig("weixin", websocket.ChannelConfigPatch{GroupPolicy: ptr("open")}); !errors.Is(err, websocket.ErrInvalidChannelConfig) {
 		t.Errorf("groupPolicy on weixin: %v", err)
 	}
+	if _, err := s.UpdateChannelConfig("weixin", websocket.ChannelConfigPatch{InlineKeyboards: ptr(true)}); !errors.Is(err, websocket.ErrInvalidChannelConfig) {
+		t.Errorf("inlineKeyboards on weixin: %v", err)
+	}
 	if _, err := s.UpdateChannelConfig("websocket", websocket.ChannelConfigPatch{Enabled: ptr(true)}); !errors.Is(err, websocket.ErrChannelNotConfigurable) {
 		t.Errorf("websocket: %v", err)
 	}
@@ -344,17 +347,17 @@ func TestWebChannelsTelegramToken(t *testing.T) {
 	}
 
 	v, err := s.UpdateChannelConfig("telegram", websocket.ChannelConfigPatch{
-		Token: ptr(" " + tgFixtureToken + " "), Enabled: ptr(true), GroupPolicy: ptr("open"), ReplyToMessage: ptr(true), AllowFrom: &[]string{"*"}, PollTimeout: ptr(20),
+		Token: ptr(" " + tgFixtureToken + " "), Enabled: ptr(true), GroupPolicy: ptr("open"), ReplyToMessage: ptr(true), InlineKeyboards: ptr(true), AllowFrom: &[]string{"*"}, PollTimeout: ptr(20),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertNoToken(t, v)
-	if !v.HasToken || v.TokenHint != "123456:••••abcd" || !v.Enabled || v.GroupPolicy != "open" || !v.ReplyToMessage || v.PollTimeout != 20 || !v.RestartRequired {
+	if !v.HasToken || v.TokenHint != "123456:••••abcd" || !v.Enabled || v.GroupPolicy != "open" || !v.ReplyToMessage || !v.InlineKeyboards || v.PollTimeout != 20 || !v.RestartRequired {
 		t.Errorf("view = %+v", v)
 	}
 	sec := fileSection(t, path, "telegram")
-	if sec["token"] != tgFixtureToken || sec["groupPolicy"] != "open" || sec["pollTimeout"] != float64(20) {
+	if sec["token"] != tgFixtureToken || sec["groupPolicy"] != "open" || sec["pollTimeout"] != float64(20) || sec["inlineKeyboards"] != true {
 		t.Errorf("section = %v", sec)
 	}
 

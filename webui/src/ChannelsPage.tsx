@@ -353,6 +353,15 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
               />{" "}
               {t("channels.replyToMessage")}
             </label>
+            <label htmlFor={id + "-keyboards"}>
+              <input
+                id={id + "-keyboards"}
+                type="checkbox"
+                checked={draft.inlineKeyboards}
+                onChange={(e) => set("inlineKeyboards", e.target.checked)}
+              />{" "}
+              {t("channels.inlineKeyboards")}
+            </label>
             <label htmlFor={id + "-base"}>
               {t("common.apiBase")}
               <input

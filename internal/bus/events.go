@@ -4,7 +4,10 @@
 // the agent loop does the reverse. It mirrors nanobot/bus.
 package bus
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // InboundMessage is a message received from a chat channel.
 type InboundMessage struct {
@@ -31,12 +34,47 @@ func (m InboundMessage) SessionKey() string {
 
 // OutboundMessage is a message to send to a chat channel.
 type OutboundMessage struct {
-	Channel  string
-	ChatID   string
-	Content  string
-	ReplyTo  string
-	Media    []string
+	Channel string
+	ChatID  string
+	Content string
+	ReplyTo string
+	Media   []string
+	// Buttons are rows of choice labels (the message tool's buttons).
+	// Telegram can show them as an inline keyboard; other channels show
+	// ButtonsText under the content.
+	Buttons  [][]string
 	Metadata map[string]any // channel routing context (message ids, threads, ...)
+}
+
+// ButtonsText renders button rows as text, one row per line ("[Yes]
+// [No]"), skipping empty rows, like nanobot's _buttons_as_text: the
+// choices stay visible where no keyboard can be shown.
+func ButtonsText(rows [][]string) string {
+	var lines []string
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		labels := make([]string, len(row))
+		for i, l := range row {
+			labels[i] = "[" + l + "]"
+		}
+		lines = append(lines, strings.Join(labels, " "))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// WithButtonsText returns content with ButtonsText(rows) appended after
+// a blank line, or content unchanged without buttons.
+func WithButtonsText(content string, rows [][]string) string {
+	t := ButtonsText(rows)
+	switch {
+	case t == "":
+		return content
+	case content == "":
+		return t
+	}
+	return content + "\n\n" + t
 }
 
 // MetaProgress is the Metadata key that marks an OutboundMessage as a

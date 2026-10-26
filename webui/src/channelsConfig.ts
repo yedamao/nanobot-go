@@ -13,6 +13,7 @@ export interface ChannelDraft {
   apiBase: string;
   groupPolicy: string;
   replyToMessage: boolean;
+  inlineKeyboards: boolean;
   baseUrl: string;
   routeTag: string;
 }
@@ -31,6 +32,7 @@ export function channelDraft(c: ChannelConfig): ChannelDraft {
     apiBase: c.apiBase ?? "",
     groupPolicy: c.groupPolicy ?? "",
     replyToMessage: c.replyToMessage ?? false,
+    inlineKeyboards: c.inlineKeyboards ?? false,
     baseUrl: c.baseUrl ?? "",
     routeTag: c.routeTag ?? "",
   };
@@ -69,6 +71,7 @@ export function diffChannel(saved: ChannelConfig, d: ChannelDraft): ChannelConfi
     if (d.apiBase.trim() !== (saved.apiBase ?? "")) patch.apiBase = d.apiBase.trim();
     if (d.groupPolicy !== (saved.groupPolicy ?? "")) patch.groupPolicy = d.groupPolicy;
     if (d.replyToMessage !== (saved.replyToMessage ?? false)) patch.replyToMessage = d.replyToMessage;
+    if (d.inlineKeyboards !== (saved.inlineKeyboards ?? false)) patch.inlineKeyboards = d.inlineKeyboards;
   } else if (saved.name === "weixin") {
     if (d.baseUrl.trim() !== (saved.baseUrl ?? "")) patch.baseUrl = d.baseUrl.trim();
     if (d.routeTag.trim() !== (saved.routeTag ?? "")) patch.routeTag = d.routeTag.trim();

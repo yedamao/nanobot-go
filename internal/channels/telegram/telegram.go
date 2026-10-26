@@ -5,7 +5,9 @@
 // characters; files of a reply go up through sendPhoto (images) or
 // sendDocument. Inbound photos, and the photo of a replied-to message,
 // are downloaded into the workspace (MediaDir) and attached to the turn,
-// so vision models see them. Senders are checked against allowFrom and the pairing
+// so vision models see them. With inlineKeyboards, the message tool's
+// buttons become an inline keyboard and a tap comes back as a message
+// with the button's label. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
 package telegram
 
@@ -324,7 +326,7 @@ func (c *Channel) poll(ctx context.Context) {
 		err := c.api.call(rctx, "getUpdates", getUpdatesParams{
 			Offset:         offset,
 			Timeout:        c.cfg.PollTimeout,
-			AllowedUpdates: []string{"message"},
+			AllowedUpdates: c.allowedUpdates(),
 		}, &updates)
 		cancel()
 		if err != nil {
@@ -347,11 +349,23 @@ func (c *Channel) poll(ctx context.Context) {
 		backoff = c.minBackoff
 		for _, u := range updates {
 			offset = max(offset, u.UpdateID+1)
-			if u.Message != nil {
+			switch {
+			case u.Message != nil:
 				c.handle(ctx, u.Message)
+			case u.CallbackQuery != nil && c.cfg.InlineKeyboards:
+				c.handleCallback(ctx, u.CallbackQuery)
 			}
 		}
 	}
+}
+
+// allowedUpdates are the update types getUpdates asks for: messages,
+// and taps on inline keyboard buttons when inlineKeyboards is on.
+func (c *Channel) allowedUpdates() []string {
+	if c.cfg.InlineKeyboards {
+		return []string{"message", "callback_query"}
+	}
+	return []string{"message"}
 }
 
 // handle turns one incoming message into an inbound bus message, or
@@ -592,7 +606,9 @@ func (c *Channel) replyContext(r *message) string {
 // characters. Text that fits in a caption (1024) rides on the first file
 // instead. A file that cannot be sent is replaced by a "[Failed to send:
 // name]" notice, like nanobot's, so a retry never repeats the files that
-// went through. With replyToMessage (or an explicit msg.ReplyTo) the
+// went through. Buttons (msg.Buttons) become an inline keyboard on the
+// last message sent when inlineKeyboards is on, and are written under
+// the text ("[Yes] [No]") otherwise. With replyToMessage (or an explicit msg.ReplyTo) the
 // messages reply to the inbound message. Progress updates, streamed
 // deltas, thinking and superseded replies (bus.IsStreamed) are dropped:
 // the final reply carries the whole text, thinking is never shown in a
@@ -616,8 +632,14 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 			"files", len(files), "limit", maxOutboundFiles)
 		files = files[:maxOutboundFiles]
 	}
+	kb := c.buildInlineKeyboard(msg.Buttons)
+	text = buttonsFallback(text, msg, kb)
 	if text == "" && len(files) == 0 {
-		return nil
+		if kb == nil {
+			return nil
+		}
+		// A keyboard needs a message to sit on.
+		text = bus.ButtonsText(msg.Buttons)
 	}
 	threadID, _ := metaInt(msg.Metadata, "message_thread_id")
 	var reply *replyParameters
@@ -630,8 +652,15 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if len(files) > 0 && text != "" && utf16Len(strings.Trim(text, " \n")) <= maxCaptionLen {
 		caption, text = strings.Trim(text, " \n"), ""
 	}
-	for _, p := range files {
-		err := c.sendFile(ctx, chatID, threadID, reply, p, caption)
+	// Without text after the files the keyboard goes on the last file
+	// (or the notice that replaces it).
+	fileKB := kb != nil && text == ""
+	for i, p := range files {
+		var markup *inlineKeyboardMarkup
+		if fileKB && i == len(files)-1 {
+			markup = kb
+		}
+		err := c.sendFile(ctx, chatID, threadID, reply, markup, p, caption)
 		if err == nil {
 			caption = ""
 			continue
@@ -640,15 +669,20 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 			return err
 		}
 		c.log.Warn("telegram: could not send a file", "chat_id", chatID, "file", p, "error", err)
-		if err := c.sendText(ctx, chatID, threadID, reply, "[Failed to send: "+path.Base(filepath.ToSlash(p))+"]"); err != nil {
+		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, "[Failed to send: "+path.Base(filepath.ToSlash(p))+"]"); err != nil {
 			return err
 		}
 	}
 	if caption != "" { // no file went through to carry it
 		text = caption
 	}
-	for _, chunk := range splitMessage(text, maxMessageLen) {
-		if err := c.sendText(ctx, chatID, threadID, reply, chunk); err != nil {
+	chunks := splitMessage(text, maxMessageLen)
+	for i, chunk := range chunks {
+		var markup *inlineKeyboardMarkup
+		if !fileKB && i == len(chunks)-1 {
+			markup = kb
+		}
+		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, chunk); err != nil {
 			return err
 		}
 	}
@@ -657,7 +691,12 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 
 // sendText sends one message, waiting out flood control (see retrySend).
 func (c *Channel) sendText(ctx context.Context, chatID, threadID int64, reply *replyParameters, text string) error {
-	p := sendMessageParams{ChatID: chatID, Text: text, MessageThreadID: threadID, ReplyParameters: reply}
+	return c.sendMarkup(ctx, chatID, threadID, reply, nil, text)
+}
+
+// sendMarkup is sendText with an inline keyboard (nil for none).
+func (c *Channel) sendMarkup(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, text string) error {
+	p := sendMessageParams{ChatID: chatID, Text: text, MessageThreadID: threadID, ReplyParameters: reply, ReplyMarkup: markup}
 	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
 		return c.api.call(ctx, "sendMessage", p, nil)
 	})

@@ -32,10 +32,10 @@ func TestParseConfig(t *testing.T) {
 		},
 		{
 			name: "env token wins; numbers in allowFrom",
-			raw:  `{"enabled": true, "token": "1:old", "allowFrom": [42, "alice", "*"], "apiBase": "http://127.0.0.1:9/", "pollTimeout": 5, "groupPolicy": "open", "replyToMessage": true, "proxy": "127.0.0.1:8080"}`,
+			raw:  `{"enabled": true, "token": "1:old", "allowFrom": [42, "alice", "*"], "apiBase": "http://127.0.0.1:9/", "pollTimeout": 5, "groupPolicy": "open", "replyToMessage": true, "inlineKeyboards": true, "proxy": "127.0.0.1:8080"}`,
 			env:  map[string]string{EnvToken: testToken},
 			want: Config{Enabled: true, Token: testToken, AllowFrom: allowList{"42", "alice", "*"}, APIBase: "http://127.0.0.1:9",
-				PollTimeout: 5, GroupPolicy: "open", ReplyToMessage: true, Proxy: "127.0.0.1:8080"},
+				PollTimeout: 5, GroupPolicy: "open", ReplyToMessage: true, InlineKeyboards: true, Proxy: "127.0.0.1:8080"},
 		},
 		{name: "no token", raw: `{"enabled": true}`, wantErr: "token is required"},
 		{name: "malformed token", raw: `{"token": "123456:abc/../../x"}`, wantErr: "token is malformed"},

@@ -196,6 +196,7 @@ export const zhCN: Messages = {
     groupMention: "提及和回复",
     groupOpen: "所有消息",
     replyToMessage: "以回复原消息的方式作答",
+    inlineKeyboards: "以内联键盘显示消息按钮",
     baseUrl: "基础 URL",
     routeTag: "路由标签",
     optional: "可选",

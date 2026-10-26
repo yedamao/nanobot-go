@@ -237,7 +237,10 @@ type entity struct {
 }
 
 type message struct {
-	MessageID       int64    `json:"message_id"`
+	MessageID int64 `json:"message_id"`
+	// Date is 0 for an InaccessibleMessage (a callback query's message
+	// the bot can no longer see).
+	Date            int64    `json:"date"`
 	MessageThreadID int64    `json:"message_thread_id"`
 	IsTopicMessage  bool     `json:"is_topic_message"`
 	From            *user    `json:"from"`
@@ -272,8 +275,38 @@ type getFileParams struct {
 }
 
 type update struct {
-	UpdateID int64    `json:"update_id"`
-	Message  *message `json:"message"`
+	UpdateID      int64          `json:"update_id"`
+	Message       *message       `json:"message"`
+	CallbackQuery *callbackQuery `json:"callback_query"`
+}
+
+// callbackQuery is a tap on an inline keyboard button. Message is the
+// message the keyboard is on, nil when it is unknown.
+type callbackQuery struct {
+	ID      string   `json:"id"`
+	From    *user    `json:"from"`
+	Message *message `json:"message"`
+	Data    string   `json:"data"`
+}
+
+type inlineKeyboardButton struct {
+	Text         string `json:"text"`
+	CallbackData string `json:"callback_data"`
+}
+
+type inlineKeyboardMarkup struct {
+	InlineKeyboard [][]inlineKeyboardButton `json:"inline_keyboard"`
+}
+
+type answerCallbackQueryParams struct {
+	CallbackQueryID string `json:"callback_query_id"`
+}
+
+// editMessageReplyMarkupParams without a reply_markup removes the
+// message's inline keyboard.
+type editMessageReplyMarkupParams struct {
+	ChatID    int64 `json:"chat_id"`
+	MessageID int64 `json:"message_id"`
 }
 
 // replyParameters makes a message a reply (sendMessage's
@@ -284,10 +317,11 @@ type replyParameters struct {
 }
 
 type sendMessageParams struct {
-	ChatID          int64            `json:"chat_id"`
-	Text            string           `json:"text"`
-	MessageThreadID int64            `json:"message_thread_id,omitempty"`
-	ReplyParameters *replyParameters `json:"reply_parameters,omitempty"`
+	ChatID          int64                 `json:"chat_id"`
+	Text            string                `json:"text"`
+	MessageThreadID int64                 `json:"message_thread_id,omitempty"`
+	ReplyParameters *replyParameters      `json:"reply_parameters,omitempty"`
+	ReplyMarkup     *inlineKeyboardMarkup `json:"reply_markup,omitempty"`
 }
 
 type chatActionParams struct {

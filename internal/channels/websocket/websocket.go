@@ -518,7 +518,9 @@ func (c *Channel) Stop(ctx context.Context) error {
 // superseded reply (bus.IsSuperseded) is a message frame as usual: it
 // settles the streamed text, though the message tool already sent. A
 // message frame's markdown images and media that name
-// workspace files point at the media route. A chat with no open connection (the tab was closed) is a
+// workspace files point at the media route; its buttons (msg.Buttons)
+// are written under the text ("[Yes] [No]"), as the page has no
+// keyboard. A chat with no open connection (the tab was closed) is a
 // Permanent error for a reply: it is dropped with a log line instead of
 // being retried, which would hold up the other chats' replies. A progress
 // update, delta or thinking for such a chat is dropped silently.
@@ -534,7 +536,8 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	case bus.IsThinkingEnd(msg):
 		frame = Frame{Type: TypeThinkingEnd}
 	default:
-		frame = Frame{Type: TypeMessage, Role: "assistant", Content: c.rewriteMarkdownImages(msg.Content), Media: c.mediaRefs(msg.Media)}
+		content := c.rewriteMarkdownImages(bus.WithButtonsText(msg.Content, msg.Buttons))
+		frame = Frame{Type: TypeMessage, Role: "assistant", Content: content, Media: c.mediaRefs(msg.Media)}
 	}
 	conns := c.connsFor(msg.ChatID)
 	if len(conns) == 0 {

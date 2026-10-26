@@ -1004,3 +1004,15 @@ func TestShorten(t *testing.T) {
 		}
 	}
 }
+
+func TestButtonsAsText(t *testing.T) {
+	h := newHarness(t, true)
+	conn, chatID := h.dial(t, "")
+	msg := bus.OutboundMessage{Channel: Name, ChatID: chatID, Content: "Proceed?", Buttons: [][]string{{"Yes", "No"}, {"Cancel"}}}
+	if err := h.ch.Send(testCtx(t), msg); err != nil {
+		t.Fatal(err)
+	}
+	if f := readFrame(t, conn); f.Type != TypeMessage || f.Content != "Proceed?\n\n[Yes] [No]\n[Cancel]" {
+		t.Errorf("message frame = %+v", f)
+	}
+}

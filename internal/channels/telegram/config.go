@@ -56,6 +56,10 @@ type Config struct {
 	GroupPolicy string `json:"groupPolicy"`
 	// ReplyToMessage sends answers as replies to the message they answer.
 	ReplyToMessage bool `json:"replyToMessage"`
+	// InlineKeyboards shows the message tool's buttons as an inline
+	// keyboard (nanobot: inline_keyboards) and receives taps on them;
+	// off, the buttons are written under the text ("[Yes] [No]").
+	InlineKeyboards bool `json:"inlineKeyboards"`
 }
 
 // allowList is a list of strings that also accepts JSON numbers, so a

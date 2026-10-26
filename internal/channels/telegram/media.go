@@ -118,8 +118,8 @@ const (
 // (by extension, like nanobot's _get_media_type) through sendPhoto, and
 // anything else, or a photo Telegram refuses (dimensions, size), through
 // sendDocument. Relative paths resolve against the workspace. URLs are
-// not fetched.
-func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, p, caption string) error {
+// not fetched. markup, when set, is the inline keyboard of the upload.
+func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, p, caption string) error {
 	if strings.HasPrefix(p, "http://") || strings.HasPrefix(p, "https://") {
 		return errors.New("remote media URLs are not supported")
 	}
@@ -147,6 +147,13 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 			return err
 		}
 		fields["reply_parameters"] = string(rp)
+	}
+	if markup != nil {
+		rm, err := json.Marshal(markup)
+		if err != nil {
+			return err
+		}
+		fields["reply_markup"] = string(rm)
 	}
 	if caption != "" {
 		fields["caption"] = caption

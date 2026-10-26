@@ -77,9 +77,10 @@ type ChannelConfigView struct {
 	PollTimeout int `json:"pollTimeout"`
 
 	// Telegram.
-	APIBase        string `json:"apiBase,omitempty"`
-	GroupPolicy    string `json:"groupPolicy,omitempty"`
-	ReplyToMessage bool   `json:"replyToMessage,omitempty"`
+	APIBase         string `json:"apiBase,omitempty"`
+	GroupPolicy     string `json:"groupPolicy,omitempty"`
+	ReplyToMessage  bool   `json:"replyToMessage,omitempty"`
+	InlineKeyboards bool   `json:"inlineKeyboards,omitempty"`
 	// HasProxy reports a proxy setting, which is not shown since it may
 	// hold credentials.
 	HasProxy bool `json:"hasProxy,omitempty"`
@@ -132,25 +133,26 @@ type WeixinLoginView struct {
 // missing field keeps the saved value; token sets the token and
 // clearToken removes it (token is then ignored). An empty apiBase,
 // baseUrl, groupPolicy or routeTag and a pollTimeout of 0 remove the
-// setting (the default applies). Telegram takes apiBase, groupPolicy and
-// replyToMessage; WeChat takes baseUrl and routeTag.
+// setting (the default applies). Telegram takes apiBase, groupPolicy,
+// replyToMessage and inlineKeyboards; WeChat takes baseUrl and routeTag.
 type ChannelConfigPatch struct {
-	Enabled        *bool     `json:"enabled"`
-	Token          *string   `json:"token"`
-	ClearToken     bool      `json:"clearToken"`
-	AllowFrom      *[]string `json:"allowFrom"`
-	PollTimeout    *int      `json:"pollTimeout"`
-	APIBase        *string   `json:"apiBase"`
-	GroupPolicy    *string   `json:"groupPolicy"`
-	ReplyToMessage *bool     `json:"replyToMessage"`
-	BaseURL        *string   `json:"baseUrl"`
-	RouteTag       *string   `json:"routeTag"`
+	Enabled         *bool     `json:"enabled"`
+	Token           *string   `json:"token"`
+	ClearToken      bool      `json:"clearToken"`
+	AllowFrom       *[]string `json:"allowFrom"`
+	PollTimeout     *int      `json:"pollTimeout"`
+	APIBase         *string   `json:"apiBase"`
+	GroupPolicy     *string   `json:"groupPolicy"`
+	ReplyToMessage  *bool     `json:"replyToMessage"`
+	InlineKeyboards *bool     `json:"inlineKeyboards"`
+	BaseURL         *string   `json:"baseUrl"`
+	RouteTag        *string   `json:"routeTag"`
 }
 
 // empty reports that p changes nothing.
 func (p ChannelConfigPatch) empty() bool {
 	return p.Enabled == nil && p.Token == nil && !p.ClearToken && p.AllowFrom == nil && p.PollTimeout == nil &&
-		p.APIBase == nil && p.GroupPolicy == nil && p.ReplyToMessage == nil && p.BaseURL == nil && p.RouteTag == nil
+		p.APIBase == nil && p.GroupPolicy == nil && p.ReplyToMessage == nil && p.InlineKeyboards == nil && p.BaseURL == nil && p.RouteTag == nil
 }
 
 // ChannelConfigTest is the body of POST /ui/channels/config/{name}/test.
@@ -183,7 +185,7 @@ func (c *Channel) serveChannelConfigs(w http.ResponseWriter, _ *http.Request) {
 func (c *Channel) patchChannelConfig(w http.ResponseWriter, r *http.Request) {
 	var p ChannelConfigPatch
 	if err := decodeJSONBody(r, &p, maxChannelConfigBody); err != nil {
-		http.Error(w, "body must be {enabled?, token?, clearToken?, allowFrom?, pollTimeout?, apiBase?, groupPolicy?, replyToMessage?, baseUrl?, routeTag?}", http.StatusBadRequest)
+		http.Error(w, "body must be {enabled?, token?, clearToken?, allowFrom?, pollTimeout?, apiBase?, groupPolicy?, replyToMessage?, inlineKeyboards?, baseUrl?, routeTag?}", http.StatusBadRequest)
 		return
 	}
 	if p.empty() {

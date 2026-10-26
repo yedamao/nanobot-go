@@ -195,6 +195,7 @@ export const en = {
     groupMention: "Mentions and replies",
     groupOpen: "Every message",
     replyToMessage: "Answer as a reply to the message",
+    inlineKeyboards: "Show message buttons as an inline keyboard",
     baseUrl: "Base URL",
     routeTag: "Route tag",
     optional: "Optional",

@@ -608,6 +608,7 @@ func (c *Channel) cacheContext(user, token string) {
 // messages of at most 1800 characters, using the user's cached
 // context_token (refreshed first when it is old). A file that cannot be
 // sent is replaced by a "[Failed to send: name]" notice, like nanobot's.
+// Buttons (msg.Buttons) are written under the text ("[Yes] [No]").
 // A reply that cannot be sent for lack of a usable context_token is held
 // back, up to three per user, from the part that was refused, and sent
 // when the user writes again; Send then returns nil.
@@ -629,7 +630,9 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 			"files", len(files), "limit", maxOutboundFiles)
 		files = files[:maxOutboundFiles]
 	}
-	chunks := splitMessage(msg.Content, maxMessageLen)
+	// No keyboards in WeChat: buttons are written under the text.
+	content := bus.WithButtonsText(msg.Content, msg.Buttons)
+	chunks := splitMessage(content, maxMessageLen)
 	if len(chunks) == 0 && len(files) == 0 {
 		c.cancelTyping(ctx, msg.ChatID)
 		return nil
@@ -641,7 +644,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	case token == "":
 		return errors.New("weixin: not started")
 	}
-	d := c.resume(msg.ChatID, msg.Content, files, replyParts(files, chunks))
+	d := c.resume(msg.ChatID, content, files, replyParts(files, chunks))
 	err := c.deliver(ctx, d)
 	c.cancelTyping(ctx, msg.ChatID)
 	var q *quotaError

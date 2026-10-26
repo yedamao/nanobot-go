@@ -314,6 +314,9 @@ func channelChanges(name string, p websocket.ChannelConfigPatch) (map[string]any
 		if p.ReplyToMessage != nil {
 			set["replyToMessage"] = *p.ReplyToMessage
 		}
+		if p.InlineKeyboards != nil {
+			set["inlineKeyboards"] = *p.InlineKeyboards
+		}
 	} else {
 		if p.APIBase != nil {
 			return nil, nil, other("apiBase")
@@ -323,6 +326,9 @@ func channelChanges(name string, p websocket.ChannelConfigPatch) (map[string]any
 		}
 		if p.ReplyToMessage != nil {
 			return nil, nil, other("replyToMessage")
+		}
+		if p.InlineKeyboards != nil {
+			return nil, nil, other("inlineKeyboards")
 		}
 		if p.BaseURL != nil {
 			b, err := checkAPIBase(*p.BaseURL)
@@ -439,17 +445,18 @@ func (s *webChannels) view(name string, raw json.RawMessage, present bool) webso
 	// The section as written, without defaults: lenient so a section the
 	// gateway rejects still shows what it holds.
 	var sec struct {
-		Enabled        bool            `json:"enabled"`
-		Token          string          `json:"token"`
-		AllowFrom      []any           `json:"allowFrom"`
-		PollTimeout    int             `json:"pollTimeout"`
-		APIBase        string          `json:"apiBase"`
-		GroupPolicy    string          `json:"groupPolicy"`
-		ReplyToMessage bool            `json:"replyToMessage"`
-		Proxy          string          `json:"proxy"`
-		BaseURL        string          `json:"baseUrl"`
-		RouteTag       json.RawMessage `json:"routeTag"`
-		StateDir       string          `json:"stateDir"`
+		Enabled         bool            `json:"enabled"`
+		Token           string          `json:"token"`
+		AllowFrom       []any           `json:"allowFrom"`
+		PollTimeout     int             `json:"pollTimeout"`
+		APIBase         string          `json:"apiBase"`
+		GroupPolicy     string          `json:"groupPolicy"`
+		ReplyToMessage  bool            `json:"replyToMessage"`
+		InlineKeyboards bool            `json:"inlineKeyboards"`
+		Proxy           string          `json:"proxy"`
+		BaseURL         string          `json:"baseUrl"`
+		RouteTag        json.RawMessage `json:"routeTag"`
+		StateDir        string          `json:"stateDir"`
 	}
 	json.Unmarshal(raw, &sec)
 	tok := strings.TrimSpace(sec.Token)
@@ -468,6 +475,7 @@ func (s *webChannels) view(name string, raw json.RawMessage, present bool) webso
 		v.APIBase = sec.APIBase
 		v.GroupPolicy = sec.GroupPolicy
 		v.ReplyToMessage = sec.ReplyToMessage
+		v.InlineKeyboards = sec.InlineKeyboards
 		v.HasProxy = sec.Proxy != ""
 		v.DefaultBase = telegram.DefaultAPIBase
 		v.TestSupported = true

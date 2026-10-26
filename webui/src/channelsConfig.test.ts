@@ -77,9 +77,10 @@ test("diffChannel sets, clears and edits", () => {
   assert.deepEqual(diffChannel({ ...telegram, hasToken: false }, { ...d, clearToken: true }), {});
   assert.deepEqual(diffChannel(telegram, { ...d, allowFrom: "123, @alice 123" }), { allowFrom: ["123", "@alice"] });
   assert.deepEqual(diffChannel(telegram, { ...d, allowFrom: "" }), { allowFrom: [] });
-  assert.deepEqual(diffChannel(telegram, { ...d, groupPolicy: "open", replyToMessage: true, pollTimeout: "20" }), {
+  assert.deepEqual(diffChannel(telegram, { ...d, groupPolicy: "open", replyToMessage: true, inlineKeyboards: true, pollTimeout: "20" }), {
     groupPolicy: "open",
     replyToMessage: true,
+    inlineKeyboards: true,
     pollTimeout: 20,
   });
   assert.deepEqual(diffChannel(telegram, { ...d, enabled: false, baseUrl: "https://ignored.test" }), { enabled: false });

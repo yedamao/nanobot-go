@@ -144,7 +144,8 @@ Phase 2 is complete; phase 3 is in progress.
     sessions, plain-text chunking at 4096 UTF-16 units, typing indicator,
     token redaction; config `channels.telegram` (`token` or
     `NANOBOT_GO_TELEGRAM_TOKEN`, `allowFrom`, `apiBase`, `pollTimeout`,
-    `proxy`, `groupPolicy`, `replyToMessage`), a `status` token row.
+    `proxy`, `groupPolicy`, `replyToMessage`, `inlineKeyboards`), a
+    `status` token row.
     `internal/pairing` (`pairing.json` next to the config, flock + atomic
     writes) and `nanobot pairing list|approve|deny|revoke`.
     Inbound photos (`_download_message_media` for `msg.photo[-1]`):
@@ -399,7 +400,8 @@ Phase 2 is complete; phase 3 is in progress.
     context tokens and the proxy are never returned. `PATCH /ui/channels/config/{name}` creates the section if
     missing and sets only whitelisted keys (`enabled`, `token` /
     `clearToken`, `allowFrom`, `pollTimeout`; telegram `apiBase`,
-    `groupPolicy`, `replyToMessage`; weixin `baseUrl`, `routeTag`),
+    `groupPolicy`, `replyToMessage`, `inlineKeyboards`; weixin `baseUrl`,
+    `routeTag`),
     refusing placeholders and malformed Telegram tokens, re-parsing with
     the channel's `ParseConfig` (a disabled Telegram section may lack its
     token) and saving under the settings' lock; errors are scrubbed of
@@ -1006,10 +1008,10 @@ Phase 2 is complete; phase 3 is in progress.
   allowed user could approve) and WebUI page are not ported, nor is
   `delivery_status` bookkeeping. The reply text points at the CLI.
 - **Config.** Ported keys: `enabled`, `token`, `allowFrom`, `proxy`,
-  `groupPolicy`, `replyToMessage`. New: `apiBase`, `pollTimeout`
-  (seconds; PTB's default is 10, nanobot-go's 30). Not ported: `mode`,
-  `webhook*`, `reactEmoji`, `connectionPoolSize`, `poolTimeout`,
-  `streaming`, `inlineKeyboards`, `richMessages`, `streamEditInterval`;
+  `groupPolicy`, `replyToMessage`, `inlineKeyboards`. New: `apiBase`,
+  `pollTimeout` (seconds; PTB's default is 10, nanobot-go's 30). Not
+  ported: `mode`, `webhook*`, `reactEmoji`, `connectionPoolSize`,
+  `poolTimeout`, `streaming`, `richMessages`, `streamEditInterval`;
   as everywhere, unknown keys are an error. Proxies are `http`, `https`
   or `socks5` (nanobot also takes `socks5h`).
 
@@ -1115,7 +1117,29 @@ Phase 2 is complete; phase 3 is in progress.
   never delivers from the `heartbeat` session, so `heartbeat.Config.Turn`
   keeps returning only the reply. nanobot's `had_injections` exception
   does not apply (no mid-turn injections).
-- **Not ported:** `buttons` (inline keyboards), remote `http(s)` media
+- **Buttons** (`buttons`, `OutboundMessage.Buttons`): rows of string
+  labels, checked like nanobot's ("buttons must be a list of list of
+  strings"); rows without labels are dropped and the result names the
+  button count. Telegram with `inlineKeyboards` (`keyboard.go`) builds
+  `_build_keyboard`'s `InlineKeyboardMarkup` with `_safe_callback_data`
+  (64 UTF-8 bytes at a rune boundary) and attaches it to the last text
+  chunk, like nanobot; unlike nanobot, a message without text after its
+  files puts it on the last file (or its failure notice), and one with
+  no text or files sends the `[label]` text to carry it (nanobot drops
+  the buttons). `getUpdates` asks for `callback_query` only with the
+  setting. A tap (`_on_callback_query`): no chat → dropped; sender
+  checked with `is_allowed` (no pairing code, no answer); then
+  `answerCallbackQuery`, `editMessageReplyMarkup` without markup
+  (skipped for an InaccessibleMessage, `date` 0), typing, and an
+  inbound message with the label as text and `callback_query_id`,
+  `button_label`, `user_id`, `username`, `first_name`, `is_callback`.
+  New: a tap in a forum topic keeps the topic's session and
+  `message_thread_id`. Without the setting, and on WeChat and the
+  websocket channel, `bus.WithButtonsText` appends `_buttons_as_text`
+  (`[Yes] [No]` per row, empty rows skipped) after a blank line, where
+  nanobot's WeChat and websocket channels drop the buttons. The WebUI
+  has no clickable buttons.
+- **Not ported:** remote `http(s)` media
   URLs (refused with an error), `generate_image` artifacts, the
   WebSocket chat_id mismatch check, `strip_think` on content, the
   `_record_channel_delivery` and session-generation metadata, and

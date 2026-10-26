@@ -554,6 +554,7 @@ export interface ChannelConfig {
   apiBase?: string;
   groupPolicy?: string;
   replyToMessage?: boolean;
+  inlineKeyboards?: boolean;
   hasProxy?: boolean;
   /** WeChat. */
   baseUrl?: string;
@@ -595,6 +596,7 @@ export interface ChannelConfigPatch {
   apiBase?: string;
   groupPolicy?: string;
   replyToMessage?: boolean;
+  inlineKeyboards?: boolean;
   baseUrl?: string;
   routeTag?: string;
 }

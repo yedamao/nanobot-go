@@ -193,3 +193,19 @@ func TestConcurrentProducers(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestButtonsText(t *testing.T) {
+	rows := [][]string{{"Yes", "No"}, {}, {"Cancel"}}
+	if got := ButtonsText(rows); got != "[Yes] [No]\n[Cancel]" {
+		t.Errorf("ButtonsText = %q", got)
+	}
+	if got := WithButtonsText("Proceed?", rows); got != "Proceed?\n\n[Yes] [No]\n[Cancel]" {
+		t.Errorf("WithButtonsText = %q", got)
+	}
+	if got := WithButtonsText("", rows); got != "[Yes] [No]\n[Cancel]" {
+		t.Errorf("WithButtonsText without content = %q", got)
+	}
+	if got := WithButtonsText("hi", [][]string{{}}); got != "hi" {
+		t.Errorf("WithButtonsText without labels = %q", got)
+	}
+}
