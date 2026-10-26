@@ -7,8 +7,8 @@
 // are downloaded into the workspace (MediaDir) and attached to the turn,
 // so vision models see them; voice notes and audio files are saved there
 // too and stand in the text as their transcript (with a Transcriber) or
-// as "[voice: <path>]", and videos and video notes as "[video: <path>]"
-// and "[video_note: <path>]". With inlineKeyboards, the message tool's
+// as "[voice: <path>]", and videos, video notes and stickers as
+// "[video: <path>]", "[video_note: <path>]" and "[sticker: <path>]". With inlineKeyboards, the message tool's
 // buttons become an inline keyboard and a tap comes back as a message
 // with the button's label. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
@@ -419,8 +419,8 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.deny(ctx, m, senderID)
 		return
 	}
-	// A photo, voice note, document or video whose caption is a command
-	// runs the command only.
+	// A photo, voice note, document, video or sticker whose caption is a
+	// command runs the command only.
 	hasPhoto := len(m.Photo) > 0 && !isCommand
 	k, hasClip := clipOf(m)
 	hasClip = hasClip && !isCommand
@@ -448,8 +448,9 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 			media = []string{p}
 		}
 	}
-	// A voice note, audio file, document or video adds its transcript
-	// (or path) after the caption, like nanobot's content_parts.
+	// A voice note, audio file, document, video or sticker adds its
+	// transcript (or path) after the caption, like nanobot's
+	// content_parts.
 	if hasClip {
 		if p, part, err := c.downloadClip(ctx, k); err != nil {
 			c.log.Warn("telegram: could not download a "+k.kind+" message", "chat_id", chatID, "sender", senderID, "error", err)

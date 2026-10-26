@@ -202,8 +202,16 @@ Phase 2 is complete; phase 3 is in progress.
     reach outside `media/telegram`. Commands, failures, size and replies
     behave like videos. As in nanobot, an animation (which Telegram also
     sends as a document) is saved as a file.
+    Inbound stickers (`msg.sticker`; new: nanobot's Telegram channel does
+    not register `filters.STICKER`, so it ignores them): static, animated
+    and video stickers are downloaded the same way under the same 20 MB
+    `getFile` cap to `media/telegram/<file_unique_id>.<ext>` (`.webp`,
+    `.tgs` for `is_animated`, `.webm` for `is_video`) and attached as
+    Media, with `[sticker: <path>]` (after the caption, should one come);
+    not transcribed. Commands, failures, size and replies behave like
+    videos.
   - Not ported (Telegram): webhook mode, other inbound media
-    (stickers, animations as such, locations, media groups), nanobot's transcription config (`transcription.*`, the
+    (animations as such, locations, media groups), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
     sendAudio (sent as documents), media groups (albums), Markdown to

@@ -262,7 +262,18 @@ type message struct {
 	Document       *document  `json:"document"`
 	Video          *video     `json:"video"`
 	VideoNote      *videoNote `json:"video_note"`
+	Sticker        *sticker   `json:"sticker"`
 	ReplyToMessage *message   `json:"reply_to_message"`
+}
+
+// sticker has no MIME type: a static one is WebP, an animated one
+// (IsAnimated) Lottie .tgs, a video one (IsVideo) WebM.
+type sticker struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	IsAnimated   bool   `json:"is_animated"`
+	IsVideo      bool   `json:"is_video"`
+	FileSize     int64  `json:"file_size"`
 }
 
 // document is a general file; FileName is the sender's, untrusted.

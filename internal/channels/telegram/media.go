@@ -26,7 +26,7 @@ const (
 	// a larger one could never reach the model.
 	maxPhotoBytes = providers.MaxImageBytes
 	// maxClipBytes caps a downloaded voice note, audio file, document,
-	// video or video note at the Bot API's getFile limit (20 MB; bots
+	// video, video note or sticker at the Bot API's getFile limit (20 MB; bots
 	// cannot download larger files, so nanobot has no cap of its own).
 	maxClipBytes = 20 << 20
 	// transcribeTimeout bounds the transcription of one clip; the poll
@@ -128,11 +128,11 @@ func (c *Channel) fetchFile(ctx context.Context, fileID string, limit int64) ([]
 	return c.api.download(ctx, f.FilePath, limit)
 }
 
-// clip is the voice note, audio file, document, video or video note of a
-// message.
+// clip is the voice note, audio file, document, video, video note or
+// sticker of a message.
 type clip struct {
 	// kind is "voice", "audio", "file" (a document, as nanobot tags it),
-	// "video" or "video_note", the tag of its content part.
+	// "video", "video_note" or "sticker", the tag of its content part.
 	kind     string
 	fileID   string
 	uniqueID string
@@ -140,11 +140,14 @@ type clip struct {
 	// fileName is the sender's name for a document, used only for its
 	// extension.
 	fileName string
-	size     int64
+	// stickerExt is the extension of a sticker, which has no MIME type.
+	stickerExt string
+	size       int64
 }
 
-// clipOf returns the voice note, audio file, document, video or video
-// note of m, if it has one, in nanobot's order.
+// clipOf returns the voice note, audio file, document, video, video note
+// or sticker of m, if it has one, in nanobot's order (stickers, which
+// nanobot does not handle, last).
 func clipOf(m *message) (clip, bool) {
 	switch {
 	case m.Voice != nil:
@@ -162,16 +165,29 @@ func clipOf(m *message) (clip, bool) {
 	case m.VideoNote != nil:
 		v := m.VideoNote
 		return clip{kind: "video_note", fileID: v.FileID, uniqueID: v.FileUniqueID, size: v.FileSize}, true
+	case m.Sticker != nil:
+		s := m.Sticker
+		ext := ".webp"
+		switch {
+		case s.IsVideo:
+			ext = ".webm"
+		case s.IsAnimated:
+			ext = ".tgs"
+		}
+		return clip{kind: "sticker", fileID: s.FileID, uniqueID: s.FileUniqueID, stickerExt: ext, size: s.FileSize}, true
 	}
 	return clip{}, false
 }
 
 // ext is the file extension of a clip: by MIME type, then by kind (like
 // nanobot's _get_extension); a document without a known MIME type takes
-// the suffixes of its file name, else none.
+// the suffixes of its file name, else none; a sticker's comes from its
+// type.
 func (k clip) ext() string {
 	mime := strings.ToLower(k.mimeType)
 	switch k.kind {
+	case "sticker":
+		return k.stickerExt
 	case "file":
 		for _, exts := range []map[string]string{photoExts, audioExts, videoExts} {
 			if ext, ok := exts[mime]; ok {
@@ -222,13 +238,13 @@ func (k clip) transcribable() bool {
 	return k.kind == "voice" || k.kind == "audio"
 }
 
-// downloadClip saves a voice note, audio file, document, video or video
-// note to MediaDir in the workspace as <file_unique_id>.<ext> (mode 0600)
+// downloadClip saves a voice note, audio file, document, video, video
+// note or sticker to MediaDir in the workspace as <file_unique_id>.<ext> (mode 0600)
 // and returns its workspace-relative path with the content part that
 // stands for it: for audio, the transcript as "[transcription: …]" when
 // a Transcriber is set and returns text; else "[<kind>: <path>]", e.g.
-// "[voice: <path>]", "[file: <path>]" or "[video_note: <path>]"
-// (nanobot's _download_message_media).
+// "[voice: <path>]", "[file: <path>]", "[video_note: <path>]" or
+// "[sticker: <path>]" (nanobot's _download_message_media).
 func (c *Channel) downloadClip(ctx context.Context, k clip) (rel, part string, err error) {
 	if c.workspace == "" {
 		return "", "", errors.New("no workspace to save it to")
