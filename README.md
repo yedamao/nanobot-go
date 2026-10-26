@@ -20,7 +20,8 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
   `web_fetch`, `message` (send a message with workspace files or http(s)
-  URLs attached).
+  URLs attached), `generate_image` (opt-in; OpenRouter or OpenAI images
+  saved to the workspace, see [docs/image-generation.md](docs/image-generation.md)).
   `exec` can run commands in an OS sandbox (phase 4): bubblewrap on Linux,
   Seatbelt on macOS.
 - Persistent sessions (SQLite, one database per workspace, conflict
@@ -295,6 +296,23 @@ Proceed?
 [Yes] [No]
 [Cancel]
 ```
+
+### Image generation
+
+`generate_image` is off by default. Set `tools.imageGeneration.enabled`
+and a key for its provider (`openrouter` by default, or `openai`):
+
+```json
+{
+  "providers": {"openrouter": {"apiKey": "sk-or-..."}},
+  "tools": {"imageGeneration": {"enabled": true}}
+}
+```
+
+Images are saved under `<workspace>/media/generated/<date>/` and the agent
+sends them with `message`'s `media`, so they arrive as photos on Telegram
+and WeChat and inline in the WebUI. See
+[docs/image-generation.md](docs/image-generation.md) for the options.
 
 ### Scheduled jobs (cron)
 

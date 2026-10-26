@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/yedamao/nanobot-go/internal/cron"
@@ -194,6 +195,42 @@ type ToolsConfig struct {
 	// MCPServers maps a server name to its connection settings. Each
 	// server's tools appear as mcp_<server>_<tool>.
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
+	// ImageGeneration configures the generate_image tool.
+	ImageGeneration ImageGenerationConfig `json:"imageGeneration"`
+}
+
+// Image generation defaults, like nanobot's ImageGenerationToolConfig.
+const (
+	DefaultImageProvider    = "openrouter"
+	DefaultImageModel       = "openai/gpt-5.4-image-2"
+	DefaultImageAspectRatio = "1:1"
+	DefaultImageSize        = "1K"
+	DefaultMaxImagesPerTurn = 4
+	MaxImagesPerTurnLimit   = 8
+	DefaultImageSaveDir     = "generated"
+)
+
+// ImageProviders are the providers generate_image supports.
+var ImageProviders = []string{"openrouter", "openai"}
+
+// ImageGenerationConfig configures the generate_image tool
+// (tools.imageGeneration). Credentials come from providers.<provider>.
+type ImageGenerationConfig struct {
+	// Enabled registers the tool.
+	Enabled bool `json:"enabled"`
+	// Provider is "openrouter" or "openai".
+	Provider           string `json:"provider"`
+	Model              string `json:"model"`
+	DefaultAspectRatio string `json:"defaultAspectRatio"`
+	DefaultImageSize   string `json:"defaultImageSize"`
+	// MaxImagesPerTurn caps the count of one call, 1 to 8.
+	MaxImagesPerTurn int `json:"maxImagesPerTurn"`
+	// SaveDir is the directory under <workspace>/media/ the images are
+	// saved in, one subdirectory per day.
+	SaveDir string `json:"saveDir"`
+	// ExtraHeaders and ExtraBody are added to every provider request.
+	ExtraHeaders map[string]string `json:"extraHeaders,omitempty"`
+	ExtraBody    map[string]any    `json:"extraBody,omitempty"`
 }
 
 // ExecToolConfig configures the exec tool.
@@ -247,6 +284,14 @@ func Default() *Config {
 			Web:           WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
 			SSRFWhitelist: []string{},
 			MCPServers:    map[string]MCPServerConfig{},
+			ImageGeneration: ImageGenerationConfig{
+				Provider:           DefaultImageProvider,
+				Model:              DefaultImageModel,
+				DefaultAspectRatio: DefaultImageAspectRatio,
+				DefaultImageSize:   DefaultImageSize,
+				MaxImagesPerTurn:   DefaultMaxImagesPerTurn,
+				SaveDir:            DefaultImageSaveDir,
+			},
 		},
 		Channels: map[string]json.RawMessage{},
 		Gateway:  defaultGateway(),
@@ -475,6 +520,7 @@ func (c *Config) Validate() error {
 		bad("tools.ssrfWhitelist%v", err)
 	}
 	validateMCP(c.Tools.MCPServers, bad)
+	validateImageGeneration(c.Tools.ImageGeneration, bad)
 	validateChannels(c.Channels, bad)
 	validateGateway(c.Gateway, bad)
 	validateAPI(c.API, bad)
@@ -495,4 +541,41 @@ func providerChoices() string {
 		names = append(names, p.Name)
 	}
 	return strings.Join(names, ", ")
+}
+
+func validateImageGeneration(ig ImageGenerationConfig, bad func(string, ...any)) {
+	if ig.MaxImagesPerTurn < 1 || ig.MaxImagesPerTurn > MaxImagesPerTurnLimit {
+		bad("tools.imageGeneration.maxImagesPerTurn must be in [1, %d], got %d", MaxImagesPerTurnLimit, ig.MaxImagesPerTurn)
+	}
+	if _, err := SafeRelDir(ig.SaveDir); err != nil {
+		bad("tools.imageGeneration.saveDir: %v", err)
+	}
+	if !ig.Enabled {
+		return
+	}
+	if !slices.Contains(ImageProviders, ig.Provider) {
+		bad("tools.imageGeneration.provider %q is not one of %s", ig.Provider, strings.Join(ImageProviders, ", "))
+	}
+	if strings.TrimSpace(ig.Model) == "" {
+		bad("tools.imageGeneration.model must not be empty")
+	}
+}
+
+// SafeRelDir checks that dir is a non-empty relative path without "." or
+// ".." components and returns it slash-separated, without leading or
+// trailing slashes.
+func SafeRelDir(dir string) (string, error) {
+	norm := strings.Trim(strings.ReplaceAll(dir, "\\", "/"), "/")
+	if norm == "" {
+		return "", errors.New("must not be empty")
+	}
+	if strings.HasPrefix(dir, "/") || strings.HasPrefix(dir, "\\") || filepath.IsAbs(dir) || filepath.VolumeName(dir) != "" {
+		return "", fmt.Errorf("must be a relative path, got %q", dir)
+	}
+	for part := range strings.SplitSeq(norm, "/") {
+		if part == "" || part == "." || part == ".." || strings.ContainsRune(part, 0) {
+			return "", fmt.Errorf("must be a safe relative path, got %q", dir)
+		}
+	}
+	return norm, nil
 }

@@ -433,3 +433,53 @@ func TestWorkspacePathAndSessionsDir(t *testing.T) {
 		t.Errorf("SessionsDir = %q, want %q", got, want)
 	}
 }
+
+func TestImageGenerationConfig(t *testing.T) {
+	ig := Default().Tools.ImageGeneration
+	if ig.Enabled || ig.Provider != "openrouter" || ig.Model != "openai/gpt-5.4-image-2" || ig.DefaultAspectRatio != "1:1" ||
+		ig.DefaultImageSize != "1K" || ig.MaxImagesPerTurn != 4 || ig.SaveDir != "generated" {
+		t.Errorf("defaults = %+v", ig)
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	data := `{"tools": {"imageGeneration": {"enabled": true, "provider": "openai", "model": "gpt-image-1",
+	  "maxImagesPerTurn": 2, "saveDir": "art/gen", "extraHeaders": {"X-A": "1"}, "extraBody": {"quality": "low"}}}}`
+	if err := os.WriteFile(path, []byte(data), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ig = cfg.Tools.ImageGeneration
+	if !ig.Enabled || ig.Provider != "openai" || ig.MaxImagesPerTurn != 2 || ig.SaveDir != "art/gen" ||
+		ig.DefaultAspectRatio != "1:1" || ig.ExtraHeaders["X-A"] != "1" || ig.ExtraBody["quality"] != "low" {
+		t.Errorf("loaded = %+v", ig)
+	}
+
+	for _, c := range []struct {
+		name string
+		mod  func(*ImageGenerationConfig)
+		want string
+	}{
+		{"max 0", func(c *ImageGenerationConfig) { c.MaxImagesPerTurn = 0 }, "maxImagesPerTurn"},
+		{"max 9", func(c *ImageGenerationConfig) { c.MaxImagesPerTurn = 9 }, "maxImagesPerTurn"},
+		{"empty saveDir", func(c *ImageGenerationConfig) { c.SaveDir = "" }, "saveDir"},
+		{"dotdot saveDir", func(c *ImageGenerationConfig) { c.SaveDir = "a/../.." }, "saveDir"},
+		{"abs saveDir", func(c *ImageGenerationConfig) { c.SaveDir = "/tmp/x" }, "saveDir"},
+		{"unknown provider", func(c *ImageGenerationConfig) { c.Enabled = true; c.Provider = "gemini" }, "provider"},
+		{"empty provider", func(c *ImageGenerationConfig) { c.Enabled = true; c.Provider = "" }, "provider"},
+		{"empty model", func(c *ImageGenerationConfig) { c.Enabled = true; c.Model = " " }, "model"},
+	} {
+		cfg := Default()
+		c.mod(&cfg.Tools.ImageGeneration)
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "tools.imageGeneration."+c.want) {
+			t.Errorf("%s: Validate = %v", c.name, err)
+		}
+	}
+	// A disabled tool's provider is not checked.
+	cfg = Default()
+	cfg.Tools.ImageGeneration.Provider = "gemini"
+	if err := cfg.Validate(); err != nil {
+		t.Errorf("disabled with unknown provider: %v", err)
+	}
+}

@@ -518,7 +518,7 @@ Phase 2 is complete; phase 3 is in progress.
     budget (newest first). Not ported: `prepare_inline_images`' PIL
     shrinking (over-cap images become a text note instead), PDF/Office
     text extraction, MCP image
-    results as image parts, image generation.
+    results as image parts. Image generation: see "Image generation".
   - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
     webuicmd.go`) plus managed gateway lifecycle (`internal/gatewayruntime`).
     It enables `channels.websocket` (confirming on a terminal, or `--yes`;
@@ -1155,10 +1155,48 @@ Phase 2 is complete; phase 3 is in progress.
   checks them against the SSRF policy at send time (Telegram, WeChat).
   Other `scheme://` entries are refused. Unlike nanobot, nanobot-go's
   WeChat and WebUI handle them too (see the channels).
-- **Not ported:** `generate_image` artifacts, the
+- **Generated images** (`generate_image`) are delivered through this
+  tool: its artifacts are workspace paths the tool accepts as `media`.
+- **Not ported:** the
   WebSocket chat_id mismatch check, `strip_think` on content, the
   `_record_channel_delivery` and session-generation metadata, and
   `message_id` as an argument.
+
+### Image generation
+
+- **Done (openrouter, openai):** `generate_image`
+  (`internal/tools/generateimage`), registered only when
+  `tools.imageGeneration.enabled`, with nanobot's parameters, config
+  fields and defaults (`provider` openrouter, `model`
+  `openai/gpt-5.4-image-2`, `1:1`, `1K`, `maxImagesPerTurn` 4 in [1, 8],
+  `saveDir` generated, `extraHeaders`, `extraBody`). Clients in
+  `internal/imagegen`: OpenRouter chat completions with
+  `modalities: ["image","text"]` and `image_config`; the OpenAI Images
+  API (`/images/generations`, `/images/edits` multipart for GPT Image
+  models with references, `_openai_size`'s size mapping, `openai/`
+  prefix stripped, `url` results downloaded with the SSRF policy).
+  Artifacts port `utils/artifacts.py`: the data URL is decoded, its
+  type sniffed (PNG, JPEG, WebP, GIF), and it is written with a sidecar
+  `.json` as `img_<12 hex>.<ext>` under a day directory; the result is
+  `{artifacts, next_step}` with nanobot's guidance to deliver via
+  `message`. Not attached to the final reply, like nanobot.
+- **Deviation: saved in the workspace.** nanobot writes under its
+  runtime media directory; nanobot-go writes to
+  `<workspace>/media/<saveDir>/`, next to `media/telegram` and
+  `media/weixin`, because the message tool only sends workspace files.
+  Writes go through an `os.Root` on the workspace (mode 0600). Reference
+  images must be workspace image files even when the workspace is not
+  restricted (nanobot also allows its media directory).
+- **Deviation: credentials** come from `providers.openrouter` /
+  `providers.openai` only; there is no per-provider `extraHeaders`,
+  `extraBody` or proxy, and Validate rejects an unsupported provider
+  when the tool is enabled (nanobot errors at call time).
+- **Not ported:** the `openai_codex`, `custom` (use `openai` with
+  `apiBase`), `aihubmix`, `minimax`, `gemini`, `ollama`, `stepfun`,
+  `zhipu` and `modelscope` clients; the WebUI Settings → Capabilities
+  toggle and `reload_image_generation_tool` hot reload (restart the
+  gateway after editing the config); the WebUI's own rendering of
+  generated media without a `message` call.
 
 ### Cron
 

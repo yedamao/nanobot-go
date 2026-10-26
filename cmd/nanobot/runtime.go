@@ -15,6 +15,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/cron"
 	"github.com/yedamao/nanobot-go/internal/heartbeat"
+	"github.com/yedamao/nanobot-go/internal/imagegen"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 	"github.com/yedamao/nanobot-go/internal/memory"
 	"github.com/yedamao/nanobot-go/internal/providers"
@@ -23,6 +24,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/skills"
 	"github.com/yedamao/nanobot-go/internal/tools"
 	"github.com/yedamao/nanobot-go/internal/tools/builtin"
+	"github.com/yedamao/nanobot-go/internal/tools/generateimage"
 	"github.com/yedamao/nanobot-go/internal/tools/message"
 )
 
@@ -253,6 +255,28 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	}
 	if err := reg.Register(message.NewTool(opts.bus, ws)); err != nil {
 		return nil, err
+	}
+	if ig := cfg.Tools.ImageGeneration; ig.Enabled {
+		pc := cfg.Providers.Get(ig.Provider)
+		if pc == nil {
+			return nil, fmt.Errorf("tools.imageGeneration.provider %q has no providers entry", ig.Provider)
+		}
+		gen, err := imagegen.New(ig.Provider, imagegen.Config{
+			APIKey:       pc.APIKey,
+			APIBase:      pc.APIBase,
+			ExtraHeaders: ig.ExtraHeaders,
+			ExtraBody:    ig.ExtraBody,
+			Policy:       ssrf,
+		})
+		if err != nil {
+			return nil, err
+		}
+		if pc.APIKey == "" {
+			logger.Warn("generate_image: provider has no API key; calls will fail", "provider", ig.Provider)
+		}
+		if err := reg.Register(generateimage.New(gen, ws, ig)); err != nil {
+			return nil, err
+		}
 	}
 	if rt.dream, err = newDream(s, nil); err != nil {
 		return nil, err
