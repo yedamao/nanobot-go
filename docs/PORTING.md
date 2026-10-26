@@ -168,9 +168,24 @@ Phase 2 is complete; phase 3 is in progress.
     `tools.ssrfWhitelist`) and passed to `sendPhoto`/`sendDocument` as
     the URL itself (sent as form fields, not uploaded); the Bot API
     fetches them. A refused URL becomes `[Failed to send: name]`.
-  - Not ported (Telegram): webhook mode, other inbound media (voice and
-    transcription, video, documents, stickers, media groups, non-photo
-    replied-to media), sendVideo/sendVoice/
+    Inbound voice notes and audio files (`msg.voice` / `msg.audio`):
+    downloaded the same way (capped at 20 MB, the `getFile` limit) to
+    `media/telegram/<file_unique_id>.<ext>` (`_get_extension`: by MIME
+    type, else `.ogg` for voice and `.mp3` for audio) and attached as
+    Media; the content gets `[transcription: …]` after the caption, or
+    `[voice: <path>]` / `[audio: <path>]` when there is no transcript, so
+    a bare voice note still makes a turn. A replied-to voice note or
+    audio file is downloaded and prepended too (`[Reply to: <part>]`
+    without a caption). Transcription is a thin `internal/transcribe`
+    (OpenAI-compatible `POST {apiBase}/audio/transcriptions`, multipart,
+    `whisper-1`), used when `providers.openai.apiKey` is set (its
+    `apiBase` too, so an OpenAI-compatible Whisper endpoint works);
+    failures fall back to the path form.
+  - Not ported (Telegram): webhook mode, other inbound media (video,
+    video notes, documents, stickers, animations, locations, media
+    groups), nanobot's transcription config (`transcription.*`, the
+    groq default and the other providers, language, max duration), the
+    `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
     sendAudio (sent as documents), media groups (albums), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
@@ -958,11 +973,13 @@ Phase 2 is complete; phase 3 is in progress.
   space, else between characters (never inside a surrogate pair). If a
   later chunk fails, the manager's retry resends the whole reply, so
   earlier chunks can appear twice (as in nanobot).
-- **Text only in.** nanobot downloads photos, voice, audio, documents
+- **Inbound media.** nanobot downloads photos, voice, audio, documents
   and video (transcribing voice), forwards locations and merges media
-  groups. nanobot-go handles text and captions; a message with neither is
-  skipped (a stranger's still gets a pairing code). Outbound media is
-  not sent (logged).
+  groups. nanobot-go handles text, captions, photos, voice notes and
+  audio files (transcribed through OpenAI's Whisper only, when
+  `providers.openai` has a key, where nanobot defaults to Groq); other
+  messages without text are skipped (a stranger's still gets a pairing
+  code).
 - **Access check.** As in nanobot: `"*"`, then the sender ID
   (`id|username`, or `id`) and its ID or username parts in `allowFrom`,
   then the pairing store; an empty list denies everyone not paired.

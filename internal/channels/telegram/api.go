@@ -254,8 +254,28 @@ type message struct {
 	Entities        []entity `json:"entities"`
 	CaptionEntities []entity `json:"caption_entities"`
 	// Photo lists the sizes Telegram made of a photo, smallest first.
-	Photo          []photoSize `json:"photo"`
-	ReplyToMessage *message    `json:"reply_to_message"`
+	Photo []photoSize `json:"photo"`
+	// Voice is a voice note; Audio is a music file.
+	Voice          *voice   `json:"voice"`
+	Audio          *audio   `json:"audio"`
+	ReplyToMessage *message `json:"reply_to_message"`
+}
+
+type voice struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
+}
+
+type audio struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	Duration     int    `json:"duration"`
+	FileName     string `json:"file_name"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
 }
 
 type photoSize struct {

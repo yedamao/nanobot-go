@@ -5,7 +5,9 @@
 // characters; files of a reply go up through sendPhoto (images) or
 // sendDocument. Inbound photos, and the photo of a replied-to message,
 // are downloaded into the workspace (MediaDir) and attached to the turn,
-// so vision models see them. With inlineKeyboards, the message tool's
+// so vision models see them; voice notes and audio files are saved there
+// too and stand in the text as their transcript (with a Transcriber) or
+// as "[voice: <path>]". With inlineKeyboards, the message tool's
 // buttons become an inline keyboard and a tap comes back as a message
 // with the button's label. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
@@ -66,6 +68,15 @@ type Options struct {
 	// Bot API is asked to fetch them (tools.ssrfWhitelist); nil blocks
 	// private, loopback, link-local and metadata addresses.
 	SSRF *security.Policy
+	// Transcriber turns inbound voice notes and audio files into text;
+	// nil leaves them as "[voice: <path>]" in the message.
+	Transcriber Transcriber
+}
+
+// Transcriber transcribes audio data; name is the saved file's path, whose
+// extension tells the format.
+type Transcriber interface {
+	Transcribe(ctx context.Context, name string, data []byte) (string, error)
 }
 
 // Factory returns the channels.Factory for Telegram.
@@ -90,6 +101,8 @@ type Channel struct {
 	workspace string
 	// ssrf is Options.SSRF.
 	ssrf *security.Policy
+	// transcriber is Options.Transcriber.
+	transcriber Transcriber
 	// allow holds the allowFrom entries; usernames are lower-cased and
 	// without "@".
 	allow    map[string]bool
@@ -145,6 +158,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 		pairing:        opts.Pairing,
 		workspace:      opts.Workspace,
 		ssrf:           opts.SSRF,
+		transcriber:    opts.Transcriber,
 		allow:          map[string]bool{},
 		sleep:          sleepCtx,
 		minBackoff:     minBackoff,
@@ -404,9 +418,12 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.deny(ctx, m, senderID)
 		return
 	}
-	// A photo whose caption is a command runs the command only.
+	// A photo or voice note whose caption is a command runs the command
+	// only.
 	hasPhoto := len(m.Photo) > 0 && !isCommand
-	if strings.TrimSpace(text) == "" && !hasPhoto {
+	k, hasClip := clipOf(m)
+	hasClip = hasClip && !isCommand
+	if strings.TrimSpace(text) == "" && !hasPhoto && !hasClip {
 		c.log.Debug("telegram: skipping a message without text", "chat_id", chatID, "sender", senderID)
 		return
 	}
@@ -430,6 +447,19 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 			media = []string{p}
 		}
 	}
+	// A voice note or audio file adds its transcript (or path) after the
+	// caption, like nanobot's content_parts.
+	if hasClip {
+		if p, part, err := c.downloadClip(ctx, k); err != nil {
+			c.log.Warn("telegram: could not download a "+k.kind+" message", "chat_id", chatID, "sender", senderID, "error", err)
+			if strings.TrimSpace(text) == "" {
+				return
+			}
+		} else {
+			media = append(media, p)
+			text = joinLines(text, part)
+		}
+	}
 	if !isCommand && m.ReplyToMessage != nil {
 		// The replied-to photo comes first, like nanobot's reply_media +
 		// media.
@@ -443,13 +473,18 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 					quote = "[Reply to: photo]"
 				}
 			}
+		} else if rk, ok := clipOf(r); ok {
+			if p, part, err := c.downloadClip(ctx, rk); err != nil {
+				c.log.Warn("telegram: could not download the replied-to "+rk.kind, "chat_id", chatID, "sender", senderID, "error", err)
+			} else {
+				media = append([]string{p}, media...)
+				if quote == "" {
+					quote = "[Reply to: " + part + "]"
+				}
+			}
 		}
 		if quote != "" {
-			if text == "" {
-				text = quote
-			} else {
-				text = quote + "\n" + text
-			}
+			text = joinLines(quote, text)
 		}
 	}
 
@@ -470,6 +505,18 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.stopTyping(m.Chat.ID)
 		c.log.Warn("telegram: drop inbound message", "chat_id", chatID, "error", err)
 	}
+}
+
+// joinLines joins two parts of a message's content with a newline,
+// leaving out an empty one.
+func joinLines(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	}
+	return a + "\n" + b
 }
 
 // deny answers a sender who is not allowed: a pairing code in a private

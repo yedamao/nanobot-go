@@ -21,6 +21,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/transcribe"
 )
 
 // eventLog records gateway events in order.
@@ -561,5 +562,17 @@ func TestRouteSignals(t *testing.T) {
 	}
 	if len(interrupts) != 1 || len(terminations) != 1 {
 		t.Errorf("buffered: %d interrupts, %d terminations", len(interrupts), len(terminations))
+	}
+}
+
+func TestVoiceTranscriber(t *testing.T) {
+	cfg := &config.Config{}
+	if tr := voiceTranscriber(cfg); tr != nil {
+		t.Errorf("transcriber without an OpenAI key = %v, want nil", tr)
+	}
+	cfg.Providers.OpenAI = config.ProviderConfig{APIKey: "sk-x", APIBase: "https://proxy.example/v1"}
+	tr, ok := voiceTranscriber(cfg).(*transcribe.OpenAI)
+	if !ok || tr.APIKey != "sk-x" || tr.APIBase != "https://proxy.example/v1" {
+		t.Errorf("transcriber = %#v", tr)
 	}
 }

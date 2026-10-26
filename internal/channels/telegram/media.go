@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yedamao/nanobot-go/internal/fsutil"
 	"github.com/yedamao/nanobot-go/internal/providers"
@@ -24,7 +25,25 @@ const (
 	// maxPhotoBytes caps a downloaded photo at what the providers inline;
 	// a larger one could never reach the model.
 	maxPhotoBytes = providers.MaxImageBytes
+	// maxAudioBytes caps a downloaded voice note or audio file at the Bot
+	// API's getFile limit.
+	maxAudioBytes = 20 << 20
+	// transcribeTimeout bounds the transcription of one clip; the poll
+	// loop waits for it.
+	transcribeTimeout = 60 * time.Second
 )
+
+// audioExts maps the MIME type of a voice note or audio file to its file
+// extension.
+var audioExts = map[string]string{
+	"audio/ogg":   ".ogg",
+	"audio/mpeg":  ".mp3",
+	"audio/mp4":   ".m4a",
+	"audio/x-m4a": ".m4a",
+	"audio/wav":   ".wav",
+	"audio/x-wav": ".wav",
+	"audio/flac":  ".flac",
+}
 
 // photoExts maps the detected type of a photo to its file extension.
 var photoExts = map[string]string{
@@ -62,19 +81,7 @@ func (c *Channel) downloadPhoto(ctx context.Context, sizes []photoSize) (string,
 	if p.FileSize > maxPhotoBytes {
 		return "", fmt.Errorf("%w (%d bytes, limit %d)", errTooLarge, p.FileSize, maxPhotoBytes)
 	}
-	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
-	defer cancel()
-	var f file
-	if err := c.api.call(ctx, "getFile", getFileParams{FileID: p.FileID}, &f); err != nil {
-		return "", err
-	}
-	if f.FilePath == "" {
-		return "", errors.New("telegram getFile: no file_path")
-	}
-	if f.FileSize > maxPhotoBytes {
-		return "", fmt.Errorf("%w (%d bytes, limit %d)", errTooLarge, f.FileSize, maxPhotoBytes)
-	}
-	data, err := c.api.download(ctx, f.FilePath, maxPhotoBytes)
+	data, err := c.fetchFile(ctx, p.FileID, maxPhotoBytes)
 	if err != nil {
 		return "", err
 	}
@@ -87,6 +94,105 @@ func (c *Channel) downloadPhoto(ctx context.Context, sizes []photoSize) (string,
 		return "", err
 	}
 	return rel, nil
+}
+
+// fetchFile resolves fileID with getFile and downloads it, refusing a
+// file over limit bytes.
+func (c *Channel) fetchFile(ctx context.Context, fileID string, limit int64) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, apiTimeout)
+	defer cancel()
+	var f file
+	if err := c.api.call(ctx, "getFile", getFileParams{FileID: fileID}, &f); err != nil {
+		return nil, err
+	}
+	if f.FilePath == "" {
+		return nil, errors.New("telegram getFile: no file_path")
+	}
+	if f.FileSize > limit {
+		return nil, fmt.Errorf("%w (%d bytes, limit %d)", errTooLarge, f.FileSize, limit)
+	}
+	return c.api.download(ctx, f.FilePath, limit)
+}
+
+// clip is the voice note or audio file of a message.
+type clip struct {
+	// kind is "voice" or "audio", the tag of its content part.
+	kind     string
+	fileID   string
+	uniqueID string
+	mimeType string
+	size     int64
+}
+
+// clipOf returns the voice note or audio file of m, if it has one.
+func clipOf(m *message) (clip, bool) {
+	switch {
+	case m.Voice != nil:
+		v := m.Voice
+		return clip{kind: "voice", fileID: v.FileID, uniqueID: v.FileUniqueID, mimeType: v.MimeType, size: v.FileSize}, true
+	case m.Audio != nil:
+		a := m.Audio
+		return clip{kind: "audio", fileID: a.FileID, uniqueID: a.FileUniqueID, mimeType: a.MimeType, size: a.FileSize}, true
+	}
+	return clip{}, false
+}
+
+// ext is the file extension of a clip: by MIME type, then by kind (like
+// nanobot's _get_extension).
+func (k clip) ext() string {
+	if ext, ok := audioExts[strings.ToLower(k.mimeType)]; ok {
+		return ext
+	}
+	if k.kind == "voice" {
+		return ".ogg"
+	}
+	return ".mp3"
+}
+
+// downloadClip saves a voice note or audio file to MediaDir in the
+// workspace as <file_unique_id>.<ext> (mode 0600) and returns its
+// workspace-relative path with the content part that stands for it: the
+// transcript as "[transcription: …]" when a Transcriber is set and
+// returns text, else "[voice: <path>]" or "[audio: <path>]" (nanobot's
+// _download_message_media).
+func (c *Channel) downloadClip(ctx context.Context, k clip) (rel, part string, err error) {
+	if c.workspace == "" {
+		return "", "", errors.New("no workspace to save it to")
+	}
+	if !safeID(k.uniqueID) {
+		return "", "", fmt.Errorf("unusable file_unique_id %q", k.uniqueID)
+	}
+	if k.size > maxAudioBytes {
+		return "", "", fmt.Errorf("%w (%d bytes, limit %d)", errTooLarge, k.size, maxAudioBytes)
+	}
+	data, err := c.fetchFile(ctx, k.fileID, maxAudioBytes)
+	if err != nil {
+		return "", "", err
+	}
+	rel = path.Join(MediaDir, k.uniqueID+k.ext())
+	if err := fsutil.WriteInRoot(c.workspace, rel, data); err != nil {
+		return "", "", err
+	}
+	if text := c.transcribe(ctx, rel, data); text != "" {
+		return rel, "[transcription: " + text + "]", nil
+	}
+	return rel, "[" + k.kind + ": " + rel + "]", nil
+}
+
+// transcribe returns the transcript of an audio file, or "" without a
+// Transcriber or when it fails (logged).
+func (c *Channel) transcribe(ctx context.Context, name string, data []byte) string {
+	if c.transcriber == nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(ctx, transcribeTimeout)
+	defer cancel()
+	text, err := c.transcriber.Transcribe(ctx, name, data)
+	if err != nil {
+		c.log.Warn("telegram: transcription failed", "file", name, "error", err)
+		return ""
+	}
+	return strings.TrimSpace(text)
 }
 
 // safeID reports whether a file_unique_id can be used as a file name:

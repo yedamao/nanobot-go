@@ -25,6 +25,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/session"
 	"github.com/yedamao/nanobot-go/internal/skills"
+	"github.com/yedamao/nanobot-go/internal/transcribe"
 )
 
 const (
@@ -150,7 +151,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.ssrf, rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.ssrf, voiceTranscriber(rt.cfg), rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
 	if err != nil {
 		return err
 	}
@@ -375,7 +376,8 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // loopback unless it has a token or tokenIssueSecret; ws is the agent's
 // workspace, whose files the WebUI previews (GET /ui/media/); ssrf is
 // the SSRF policy Telegram and WeChat check remote media URLs with (nil
-// is the default policy); sessions is the agent loop's session manager, which it loads
+// is the default policy); transcriber turns Telegram voice notes into
+// text (nil leaves them as paths); sessions is the agent loop's session manager, which it loads
 // chats from (fresh copies, not the cached ones) and renames and deletes
 // them through, keeping the agent's cache in step; status is the source
 // of its GET /ui/status (see webStatus), settings is the store of its
@@ -389,15 +391,16 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // leaves it unmounted), channelConfig backs /ui/channels/config (see
 // webChannels; nil leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, ssrf *security.Policy, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, ssrf *security.Policy, transcriber telegram.Transcriber, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
 		telegram.Name: telegram.Factory(telegram.Options{
-			Getenv:    a.getenv,
-			Pairing:   store,
-			Workspace: ws.Root,
-			SSRF:      ssrf,
+			Getenv:      a.getenv,
+			Pairing:     store,
+			Workspace:   ws.Root,
+			SSRF:        ssrf,
+			Transcriber: transcriber,
 		}),
 		weixin.Name: weixin.Factory(weixin.Options{
 			Getenv:          a.getenv,
@@ -474,4 +477,14 @@ func healthHandler() *http.ServeMux {
 	mux.HandleFunc("GET /healthz", ok)
 	mux.HandleFunc("GET /health", ok)
 	return mux
+}
+
+// voiceTranscriber returns the Whisper client for inbound voice notes:
+// OpenAI's (providers.openai), when it has an API key, else nil.
+func voiceTranscriber(cfg *config.Config) telegram.Transcriber {
+	pc := cfg.Providers.OpenAI
+	if pc.APIKey == "" {
+		return nil
+	}
+	return &transcribe.OpenAI{APIKey: pc.APIKey, APIBase: pc.APIBase}
 }
