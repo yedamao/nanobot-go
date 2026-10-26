@@ -190,8 +190,20 @@ Phase 2 is complete; phase 3 is in progress.
     `[video: …]`); not transcribed. A caption that is a command skips
     the download; a failed one keeps the caption and drops a bare
     video; a replied-to one is prepended like a replied-to voice note.
+    Inbound documents (`msg.document`, nanobot's `media_type="file"`):
+    downloaded the same way under the same 20 MB `getFile` cap to
+    `media/telegram/<file_unique_id>.<ext>` and attached as Media, with
+    `[file: <path>]` after the caption; not transcribed. The extension
+    follows `_get_extension`: a known image/audio/video MIME type, else
+    the file name's suffixes (`"".join(Path(name).suffixes)`, so
+    `backup.tar.gz` gives `.tar.gz`), else none. Unlike nanobot, only the
+    trailing suffixes of the base name made of letters, digits, `-` and
+    `_` (32 bytes at most) are kept, so a sender's `file_name` cannot
+    reach outside `media/telegram`. Commands, failures, size and replies
+    behave like videos. As in nanobot, an animation (which Telegram also
+    sends as a document) is saved as a file.
   - Not ported (Telegram): webhook mode, other inbound media
-    (documents, stickers, animations, locations, media groups), nanobot's transcription config (`transcription.*`, the
+    (stickers, animations as such, locations, media groups), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
     sendAudio (sent as documents), media groups (albums), Markdown to

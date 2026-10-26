@@ -256,12 +256,22 @@ type message struct {
 	// Photo lists the sizes Telegram made of a photo, smallest first.
 	Photo []photoSize `json:"photo"`
 	// Voice is a voice note; Audio is a music file; VideoNote is a round
-	// video message.
+	// video message; Document is any other file.
 	Voice          *voice     `json:"voice"`
 	Audio          *audio     `json:"audio"`
+	Document       *document  `json:"document"`
 	Video          *video     `json:"video"`
 	VideoNote      *videoNote `json:"video_note"`
 	ReplyToMessage *message   `json:"reply_to_message"`
+}
+
+// document is a general file; FileName is the sender's, untrusted.
+type document struct {
+	FileID       string `json:"file_id"`
+	FileUniqueID string `json:"file_unique_id"`
+	FileName     string `json:"file_name"`
+	MimeType     string `json:"mime_type"`
+	FileSize     int64  `json:"file_size"`
 }
 
 type video struct {

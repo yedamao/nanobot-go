@@ -419,8 +419,8 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.deny(ctx, m, senderID)
 		return
 	}
-	// A photo, voice note or video whose caption is a command runs the
-	// command only.
+	// A photo, voice note, document or video whose caption is a command
+	// runs the command only.
 	hasPhoto := len(m.Photo) > 0 && !isCommand
 	k, hasClip := clipOf(m)
 	hasClip = hasClip && !isCommand
@@ -448,8 +448,8 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 			media = []string{p}
 		}
 	}
-	// A voice note, audio file or video adds its transcript (or path)
-	// after the caption, like nanobot's content_parts.
+	// A voice note, audio file, document or video adds its transcript
+	// (or path) after the caption, like nanobot's content_parts.
 	if hasClip {
 		if p, part, err := c.downloadClip(ctx, k); err != nil {
 			c.log.Warn("telegram: could not download a "+k.kind+" message", "chat_id", chatID, "sender", senderID, "error", err)
