@@ -27,6 +27,10 @@ const (
 type apiCall struct {
 	Method string
 	Body   map[string]any
+	// File and FileName are the uploaded file of a multipart request,
+	// whose other fields are in Body as strings.
+	File     []byte
+	FileName string
 }
 
 // fakeAPI is an in-process Bot API. getUpdates long-polls: it answers
@@ -73,15 +77,35 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"ok":false,"error_code":401,"description":"Unauthorized"}`)
 		return
 	}
-	var body map[string]any
-	data, _ := io.ReadAll(r.Body)
-	if len(data) > 0 {
-		if err := json.Unmarshal(data, &body); err != nil {
-			f.t.Errorf("%s: bad JSON body %q", method, data)
+	call := apiCall{Method: method}
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			f.t.Errorf("%s: bad multipart body: %v", method, err)
+		} else {
+			call.Body = map[string]any{}
+			for k, v := range r.MultipartForm.Value {
+				call.Body[k] = v[0]
+			}
+			for _, fhs := range r.MultipartForm.File {
+				fh := fhs[0]
+				call.FileName = fh.Filename
+				if rd, err := fh.Open(); err == nil {
+					call.File, _ = io.ReadAll(rd)
+					rd.Close()
+				}
+			}
+		}
+	} else {
+		data, _ := io.ReadAll(r.Body)
+		if len(data) > 0 {
+			if err := json.Unmarshal(data, &call.Body); err != nil {
+				f.t.Errorf("%s: bad JSON body %q", method, data)
+			}
 		}
 	}
+	body := call.Body
 	f.mu.Lock()
-	f.calls = append(f.calls, apiCall{Method: method, Body: body})
+	f.calls = append(f.calls, call)
 	f.counts[method]++
 	n := f.counts[method]
 	reply := f.reply
@@ -106,7 +130,7 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			writeOK(w, batch)
 		case <-r.Context().Done():
 		}
-	case "sendMessage":
+	case "sendMessage", "sendPhoto", "sendDocument":
 		writeOK(w, map[string]any{"message_id": 1000 + n})
 	case "getFile":
 		id, _ := body["file_id"].(string)

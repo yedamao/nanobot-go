@@ -2,8 +2,10 @@
 // telegram). It talks to the Bot API directly over net/http: getMe
 // checks the token at start, getUpdates long-polls for messages, and
 // sendMessage delivers replies as plain text in chunks of at most 4096
-// characters. Photos are downloaded into the workspace (MediaDir) and
-// attached to the turn, so vision models see them. Senders are checked against allowFrom and the pairing
+// characters; files of a reply go up through sendPhoto (images) or
+// sendDocument. Inbound photos, and the photo of a replied-to message,
+// are downloaded into the workspace (MediaDir) and attached to the turn,
+// so vision models see them. Senders are checked against allowFrom and the pairing
 // store; an unknown sender in a private chat gets a pairing code.
 package telegram
 
@@ -14,6 +16,8 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -407,7 +411,20 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		}
 	}
 	if !isCommand && m.ReplyToMessage != nil {
-		if quote := c.replyContext(m.ReplyToMessage); quote != "" {
+		// The replied-to photo comes first, like nanobot's reply_media +
+		// media.
+		quote := c.replyContext(m.ReplyToMessage)
+		if r := m.ReplyToMessage; len(r.Photo) > 0 {
+			if p, err := c.downloadPhoto(ctx, r.Photo); err != nil {
+				c.log.Warn("telegram: could not download the replied-to photo", "chat_id", chatID, "sender", senderID, "error", err)
+			} else {
+				media = append([]string{p}, media...)
+				if quote == "" {
+					quote = "[Reply to: photo]"
+				}
+			}
+		}
+		if quote != "" {
 			if text == "" {
 				text = quote
 			} else {
@@ -569,12 +586,16 @@ func (c *Channel) replyContext(r *message) string {
 	return "[Reply to: " + text + "]"
 }
 
-// Send delivers msg as plain text, split into messages of at most 4096
-// characters, in the topic it came from. With replyToMessage (or an
-// explicit msg.ReplyTo) the messages reply to the inbound message.
-// Progress updates, streamed deltas and thinking (bus.IsStreamed) are
-// dropped: the final reply carries the whole text, and thinking is never
-// shown in a chat app.
+// Send delivers msg in the topic it came from: its files first (images
+// through sendPhoto, anything else as a document; at most
+// maxOutboundFiles), then its text, split into messages of at most 4096
+// characters. Text that fits in a caption (1024) rides on the first file
+// instead. A file that cannot be sent is replaced by a "[Failed to send:
+// name]" notice, like nanobot's, so a retry never repeats the files that
+// went through. With replyToMessage (or an explicit msg.ReplyTo) the
+// messages reply to the inbound message. Progress updates, streamed
+// deltas and thinking (bus.IsStreamed) are dropped: the final reply
+// carries the whole text, and thinking is never shown in a chat app.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if bus.IsStreamed(msg) {
 		return nil // no status display; the typing indicator keeps running
@@ -584,10 +605,17 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		return channels.Permanent(fmt.Errorf("telegram: invalid chat id %q", msg.ChatID))
 	}
 	c.stopTyping(chatID)
-	if len(msg.Media) > 0 {
-		c.log.Warn("telegram: sending media is not supported; sending the text only", "chat_id", chatID, "files", len(msg.Media))
+	text := msg.Content
+	if strings.TrimSpace(text) == "" || text == emptyMessage {
+		text = ""
 	}
-	if strings.TrimSpace(msg.Content) == "" || msg.Content == emptyMessage {
+	files := msg.Media
+	if len(files) > maxOutboundFiles {
+		c.log.Warn("telegram: too many files in one reply; sending the first ones", "chat_id", chatID,
+			"files", len(files), "limit", maxOutboundFiles)
+		files = files[:maxOutboundFiles]
+	}
+	if text == "" && len(files) == 0 {
 		return nil
 	}
 	threadID, _ := metaInt(msg.Metadata, "message_thread_id")
@@ -597,7 +625,28 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	} else if id, ok := metaInt(msg.Metadata, "message_id"); ok && c.cfg.ReplyToMessage {
 		reply = &replyParameters{MessageID: id, AllowSendingWithoutReply: true}
 	}
-	for _, chunk := range splitMessage(msg.Content, maxMessageLen) {
+	caption := ""
+	if len(files) > 0 && text != "" && utf16Len(strings.Trim(text, " \n")) <= maxCaptionLen {
+		caption, text = strings.Trim(text, " \n"), ""
+	}
+	for _, p := range files {
+		err := c.sendFile(ctx, chatID, threadID, reply, p, caption)
+		if err == nil {
+			caption = ""
+			continue
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		c.log.Warn("telegram: could not send a file", "chat_id", chatID, "file", p, "error", err)
+		if err := c.sendText(ctx, chatID, threadID, reply, "[Failed to send: "+path.Base(filepath.ToSlash(p))+"]"); err != nil {
+			return err
+		}
+	}
+	if caption != "" { // no file went through to carry it
+		text = caption
+	}
+	for _, chunk := range splitMessage(text, maxMessageLen) {
 		if err := c.sendText(ctx, chatID, threadID, reply, chunk); err != nil {
 			return err
 		}
@@ -605,14 +654,21 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	return nil
 }
 
-// sendText sends one message, waiting out flood control (429
-// retry_after) up to sendAttempts times. Rejections (400, 403: chat not
-// found, bot blocked) are Permanent.
+// sendText sends one message, waiting out flood control (see retrySend).
 func (c *Channel) sendText(ctx context.Context, chatID, threadID int64, reply *replyParameters, text string) error {
 	p := sendMessageParams{ChatID: chatID, Text: text, MessageThreadID: threadID, ReplyParameters: reply}
+	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
+		return c.api.call(ctx, "sendMessage", p, nil)
+	})
+}
+
+// retrySend makes one send call, waiting out flood control (429
+// retry_after) up to sendAttempts times. Rejections (400, 403: chat not
+// found, bot blocked) are Permanent.
+func (c *Channel) retrySend(ctx context.Context, chatID int64, send func(context.Context) error) error {
 	for attempt := 1; ; attempt++ {
 		cctx, cancel := context.WithTimeout(ctx, apiTimeout)
-		err := c.api.call(cctx, "sendMessage", p, nil)
+		err := send(cctx)
 		cancel()
 		if err == nil {
 			return nil

@@ -133,10 +133,19 @@ Phase 2 is complete; phase 3 is in progress.
     `media/telegram/<file_unique_id>.<ext>` (0600) in the workspace and
     attached as `InboundMessage.Media`, so the turn is multimodal; a bare
     photo is published with empty text, a failed download keeps only the
-    caption.
+    caption. The replied-to message's photo is downloaded the same way
+    and prepended (`reply_media + media_paths`; `[Reply to: photo]` when
+    it has no caption). Outbound `OutboundMessage.Media` (send's media
+    loop): local files, relative to the workspace, uploaded as multipart
+    `sendPhoto` (images by extension) or `sendDocument` (everything else,
+    and photos Telegram refuses with 400), with thread, reply parameters
+    and flood-control retries; up to 10 per reply; a failure sends
+    `[Failed to send: name]`. Unlike nanobot, text that fits (1024 UTF-16
+    units) is the first file's caption instead of a separate message.
   - Not ported (Telegram): webhook mode, other inbound media (voice and
-    transcription, video, documents, stickers, media groups, the
-    replied-to message's media), sending files, Markdown to
+    transcription, video, documents, stickers, media groups, non-photo
+    replied-to media), outbound remote media URLs, sendVideo/sendVoice/
+    sendAudio (sent as documents), media groups (albums), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,

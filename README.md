@@ -581,11 +581,17 @@ apply.
   workspace (up to 3.75 MB, what the providers inline) and attached to the
   turn as an image, with the caption as its text; a photo without a
   caption goes through too. If the download fails, a caption is answered
-  on its own and a bare photo is dropped (with a log line). Voice, video,
-  documents and other media without a caption are ignored. Replies are sent as **plain
-  text**, so Markdown from the model shows literally but can never break
-  delivery; long replies are split at newlines or spaces into messages of
-  at most 4096 characters. "typing…" shows while the agent works.
+  on its own and a bare photo is dropped (with a log line). Replying to a
+  photo attaches that photo to the turn too, before any photo of the reply
+  itself. Voice, video, documents and other media without a caption are
+  ignored. Replies are sent as **plain text**, so Markdown from the model
+  shows literally but can never break delivery; long replies are split at
+  newlines or spaces into messages of at most 4096 characters. Files of a
+  reply (workspace paths, up to 10) are uploaded first: images with
+  `sendPhoto`, anything else (or a photo Telegram refuses) as a document;
+  text up to 1024 characters becomes the caption of the first one, longer
+  text follows as messages. A file that cannot be sent is replaced by
+  `[Failed to send: name]`. "typing…" shows while the agent works.
 - **Reliability.** The bot token is checked with `getMe` at startup (a
   rejected token keeps Telegram from starting; the gateway runs on
   without it; if Telegram cannot be reached yet, the channel keeps

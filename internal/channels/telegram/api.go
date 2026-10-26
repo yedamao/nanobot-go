@@ -7,8 +7,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 )
@@ -25,7 +27,8 @@ const (
 	redacted = "<redacted>"
 )
 
-// client calls the Telegram Bot API over HTTPS with JSON bodies. The bot
+// client calls the Telegram Bot API over HTTPS with JSON (or, for file
+// uploads, multipart) bodies. The bot
 // token is part of every request URL (https://api.telegram.org/bot<token>/
 // <method>), so the client keeps it out of every error it returns.
 type client struct {
@@ -69,11 +72,45 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 	if err != nil {
 		return fmt.Errorf("telegram %s: %w", method, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+c.token+"/"+method, bytes.NewReader(body))
+	return c.post(ctx, method, "application/json", bytes.NewReader(body), out)
+}
+
+// upload posts fields and one file (field name, file name, contents) as
+// multipart/form-data to method, the way the Bot API takes local files
+// (sendPhoto, sendDocument). Errors never contain the token.
+func (c *client) upload(ctx context.Context, method string, fields map[string]string, field, name string, data []byte, out any) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	keys := make([]string, 0, len(fields))
+	for k := range fields {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if err := w.WriteField(k, fields[k]); err != nil {
+			return fmt.Errorf("telegram %s: %w", method, err)
+		}
+	}
+	part, err := w.CreateFormFile(field, name)
+	if err == nil {
+		_, err = part.Write(data)
+	}
+	if err == nil {
+		err = w.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("telegram %s: %w", method, err)
+	}
+	return c.post(ctx, method, w.FormDataContentType(), &buf, out)
+}
+
+// post sends body to method and decodes the Bot API envelope.
+func (c *client) post(ctx context.Context, method, contentType string, body io.Reader, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/bot"+c.token+"/"+method, body)
 	if err != nil {
 		return c.redact(fmt.Errorf("telegram %s: %w", method, err))
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", contentType)
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// *url.Error quotes the full URL, token included.
