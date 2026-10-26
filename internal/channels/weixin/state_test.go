@@ -188,3 +188,81 @@ func TestSanitizeMarkdown(t *testing.T) {
 		}
 	}
 }
+
+func TestClearLogin(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "weixin")
+	path := filepath.Join(dir, StateFileName)
+
+	// Missing state directory and file: nothing to do, nothing created.
+	if err := ClearLogin(path); err != nil {
+		t.Fatalf("missing: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("ClearLogin created the state directory: %v", err)
+	}
+
+	const secret = "fake-wx-SECRET-token"
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(path, []byte(`{"token":"`+secret+`","ilink_bot_id":"bot@im.bot"}`), 0o600)
+	os.WriteFile(filepath.Join(dir, "other.json"), []byte(`{}`), 0o600)
+	if !LoginStatus(path).LoggedIn {
+		t.Fatal("not logged in before clearing")
+	}
+	if err := ClearLogin(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("%s still exists: %v", StateFileName, err)
+	}
+	if got := LoginStatus(path); got.LoggedIn || got.Error != "" {
+		t.Errorf("after clearing: %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.json")); err != nil {
+		t.Errorf("a sibling file went: %v", err)
+	}
+	if err := ClearLogin(path); err != nil {
+		t.Errorf("again: %v", err)
+	}
+
+	// A corrupt file is removed too.
+	os.WriteFile(path, []byte(`{"token":"`+secret), 0o600)
+	if err := ClearLogin(path); err != nil {
+		t.Errorf("corrupt: %v", err)
+	}
+
+	for _, bad := range []string{dir, filepath.Join(dir, "other.json"), filepath.Join(dir, "config.json")} {
+		if err := ClearLogin(bad); err == nil {
+			t.Errorf("ClearLogin(%s) succeeded", bad)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.json")); err != nil {
+		t.Errorf("a refused path went: %v", err)
+	}
+	os.Mkdir(path, 0o700)
+	if err := ClearLogin(path); err == nil {
+		t.Error("ClearLogin removed a directory")
+	}
+}
+
+func TestSaveStateKeepsAClearedLoginCleared(t *testing.T) {
+	h := newHarness(t, nil)
+	h.start(t)
+	if err := ClearLogin(h.state.path); err != nil {
+		t.Fatal(err)
+	}
+	h.ch.saveState()
+	if _, err := os.Stat(h.state.path); !os.IsNotExist(err) {
+		t.Errorf("the running channel saved the cleared login again: %v", err)
+	}
+
+	// A configured token's state is not a login: it is saved again.
+	h2 := newHarness(t, func(c *Config) { c.Token = "cfg-SECRET" })
+	h2.start(t)
+	ClearLogin(h2.state.path)
+	h2.ch.saveState()
+	if st, _ := h2.state.load(); st.Token != "cfg-SECRET" {
+		t.Errorf("token = %q", st.Token)
+	}
+}

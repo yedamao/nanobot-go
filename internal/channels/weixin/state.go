@@ -154,3 +154,42 @@ func chooseAccount(cfg Config, st accountState) (account, bool) {
 	}
 	return a, true
 }
+
+// ClearLogin removes the login saved at path, which must name
+// StateFileName, under the state lock. Only that file goes: the state
+// directory, its lock and any other file in it are kept. A missing file
+// is not an error. It never reads or returns the file's contents.
+func ClearLogin(path string) error {
+	if filepath.Base(path) != StateFileName {
+		return fmt.Errorf("weixin state: %s is not a %s file", path, StateFileName)
+	}
+	exists := func() (bool, error) {
+		fi, err := os.Lstat(path)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return false, nil
+		case err != nil:
+			return false, fmt.Errorf("weixin state: %w", err)
+		case fi.IsDir():
+			return false, fmt.Errorf("weixin state: %s is a directory", path)
+		}
+		return true, nil
+	}
+	// Check first so a missing state directory is not created by the lock.
+	if ok, err := exists(); !ok || err != nil {
+		return err
+	}
+	s := stateFile{path}
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if ok, err := exists(); !ok || err != nil {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("weixin state: %w", err)
+	}
+	return nil
+}

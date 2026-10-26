@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import {
   approvePairing,
+  clearChannelLogin,
   denyPairing,
   getPairing,
   getStatus,
@@ -14,8 +15,10 @@ import {
   type Status,
 } from "./api";
 import {
+  canClearLogin,
   canTest,
   channelDraft,
+  clearLoginPrompt,
   channelState,
   checkChannel,
   checkToken,
@@ -26,6 +29,7 @@ import {
   testNote,
   tokenStatus,
   weixinLogin,
+  withLogin,
   type ChannelDraft,
 } from "./channelsConfig";
 import { RestartGateway } from "./RestartGateway";
@@ -213,7 +217,11 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
 
-  useEffect(() => setDraft(channelDraft(c)), [c]);
+  // The draft resets when the saved settings change, not when only the
+  // login or restart state does, so unsaved edits survive clearing the
+  // login.
+  const saved = JSON.stringify(channelDraft(c));
+  useEffect(() => setDraft(channelDraft(c)), [saved]);
 
   const set = <K extends keyof ChannelDraft>(k: K, v: ChannelDraft[K]) => setDraft((d) => ({ ...d, [k]: v }));
 
@@ -387,7 +395,9 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
           />
         </label>
       </fieldset>
-      {c.name === "weixin" && c.login && <WeixinLoginStatus login={c.login} />}
+      {c.name === "weixin" && c.login && (
+        <WeixinLoginStatus login={c.login} running={c.running} onCleared={(v) => onSaved(withLogin(c, v))} />
+      )}
       {c.name === "weixin" && !c.login && (
         <p className="page-empty">
           WeChat logs in by QR code: run <code>nanobot channels login weixin</code> in a terminal. The login is saved
@@ -427,11 +437,21 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
 
 // WeixinLoginStatus shows the saved WeChat login (never its token) and
 // the CLI command that logs in: the QR code is shown only in a terminal.
-// Refresh re-reads the login without resetting the card's form.
-function WeixinLoginStatus({ login: initial }: { login: WeixinLogin }) {
+// Refresh re-reads the login and Clear login removes the saved one
+// (after a confirm), both without resetting the card's form.
+function WeixinLoginStatus({
+  login: initial,
+  running,
+  onCleared,
+}: {
+  login: WeixinLogin;
+  running: boolean;
+  onCleared: (v: ChannelConfig) => void;
+}) {
   const [login, setLogin] = useState(initial);
   const [note, setNote] = useState("");
   const [refreshing, setRefreshing] = useState(false);
+  const [clearing, setClearing] = useState(false);
 
   useEffect(() => setLogin(initial), [initial]);
 
@@ -446,6 +466,26 @@ function WeixinLoginStatus({ login: initial }: { login: WeixinLogin }) {
       setNote("Cannot refresh: " + (err as Error).message);
     } finally {
       setRefreshing(false);
+    }
+  };
+
+  const clear = async () => {
+    if (clearing || !confirm(clearLoginPrompt(login, running))) return;
+    setClearing(true);
+    setNote("");
+    try {
+      const v = await clearChannelLogin("weixin");
+      if (v.login) setLogin(v.login);
+      onCleared(v);
+      setNote(
+        v.restart_required && running
+          ? "Login cleared. Restart the gateway so the running WeChat channel stops using it."
+          : "Login cleared.",
+      );
+    } catch (err) {
+      setNote("Cannot clear the login: " + (err as Error).message);
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -494,6 +534,11 @@ function WeixinLoginStatus({ login: initial }: { login: WeixinLogin }) {
         <button type="button" disabled={refreshing} onClick={() => void refresh()}>
           {refreshing ? "Refreshing…" : "Refresh status"}
         </button>
+        {canClearLogin(login) && (
+          <button type="button" disabled={clearing} onClick={() => void clear()}>
+            {clearing ? "Clearing…" : "Clear login"}
+          </button>
+        )}
       </div>
       <p className="page-empty">
         The QR code is shown only in the terminal; scan it with WeChat. Add <code>--force</code> to log in again over a

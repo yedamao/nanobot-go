@@ -598,6 +598,16 @@ export async function saveChannelConfig(name: string, patch: ChannelConfigPatch)
   return resp.json();
 }
 
+// DELETE /ui/channels/config/{name}/login removes the login saved by
+// `nanobot channels login weixin` (account.json only, never config.json)
+// and returns the channel afterwards. A running channel keeps the login
+// until the gateway restarts (restart_required).
+export async function clearChannelLogin(name: string): Promise<ChannelConfig> {
+  const resp = await fetch("channels/config/" + encodeURIComponent(name) + "/login", { method: "DELETE" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
 // POST /ui/channels/config/{name}/test checks a token (Telegram: getMe)
 // with the typed token, else the saved one; the draft is never saved.
 export async function testChannelConfig(name: string, token?: string): Promise<ChannelTestResult> {

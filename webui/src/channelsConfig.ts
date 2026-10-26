@@ -181,6 +181,25 @@ export function forceLoginCommand(cmd: string): string {
 }
 
 /** weixinLogin picks WeChat's login out of a channel config list. */
+/** canClearLogin reports a saved login file to remove: a login, or one
+ * that cannot be read. */
+export function canClearLogin(l: WeixinLogin): boolean {
+  return l.loggedIn || !!l.error;
+}
+
+/** clearLoginPrompt asks before the saved login is removed. */
+export function clearLoginPrompt(l: WeixinLogin, running: boolean): string {
+  let msg = "Clear the saved WeChat login?\n\nThis removes " + l.statePath + ". Log in again from a terminal to use it.";
+  if (running) msg += " The running WeChat channel keeps the login until the gateway restarts.";
+  return msg;
+}
+
+/** withLogin is c with the login of v, a view returned after the login
+ * changed; the section's saved settings are kept as they are. */
+export function withLogin(c: ChannelConfig, v: ChannelConfig): ChannelConfig {
+  return { ...c, login: v.login, hasLoginState: v.hasLoginState, restart_required: v.restart_required, running: v.running };
+}
+
 export function weixinLogin(list: ChannelConfig[]): WeixinLogin | undefined {
   return list.find((c) => c.name === "weixin")?.login;
 }

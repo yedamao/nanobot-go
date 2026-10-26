@@ -346,9 +346,14 @@ Phase 2 is complete; phase 3 is in progress.
     /ui/channels/config/{name}/test` checks a Telegram token (draft or
     saved) with `getMe` (`telegram.CheckToken`): `ok` with the bot's
     username, `rejected`, `not_configured` or `error`; weixin answers
-    `unsupported`. Gaps vs nanobot: WeChat still logs in with `nanobot
+    `unsupported`. `DELETE /ui/channels/config/weixin/login`
+    (`weixin.ClearLogin`, same-origin) removes only `account.json` under
+    the state lock (missing is fine; the directory, lock and config are
+    kept) and returns the weixin view; when the channel runs it sets
+    `restart_required` until the gateway restarts, and the running
+    channel no longer writes a cleared saved login back. Gaps vs nanobot: WeChat still logs in with `nanobot
     channels login weixin` (no QR login in the page, no probe; the card shows the
-    login state, a copyable CLI command and Refresh status); the
+    login state, a copyable CLI command, Refresh status and Clear login); the
     websocket channel's `token`/`tokenIssueSecret` are not editable;
     `proxy` and `stateDir` are kept but not editable; only telegram and
     weixin exist.

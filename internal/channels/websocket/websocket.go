@@ -449,6 +449,7 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 		mux.Handle("GET "+ChannelConfigPath, a.protect(http.HandlerFunc(c.serveChannelConfigs)))
 		mux.Handle("PATCH "+ChannelConfigPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchChannelConfig))))
 		mux.Handle("POST "+ChannelConfigPath+"/{name}/test", a.protect(sameOrigin.Handler(http.HandlerFunc(c.testChannelConfig))))
+		mux.Handle("DELETE "+ChannelConfigPath+"/{name}/login", a.protect(sameOrigin.Handler(http.HandlerFunc(c.clearChannelLogin))))
 	}
 	mux.Handle("GET "+AuthPath, a.public(http.HandlerFunc(a.serveAuth)))
 	mux.Handle("POST "+LoginPath, a.public(sameOrigin.Handler(http.HandlerFunc(a.login))))

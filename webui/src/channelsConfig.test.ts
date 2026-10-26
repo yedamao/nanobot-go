@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { ChannelConfig, WeixinLogin } from "./api.ts";
 import {
+  canClearLogin,
   canTest,
+  clearLoginPrompt,
   channelDraft,
   channelState,
   checkChannel,
@@ -15,6 +17,7 @@ import {
   testNote,
   tokenStatus,
   weixinLogin,
+  withLogin,
 } from "./channelsConfig.ts";
 
 const telegram: ChannelConfig = {
@@ -161,4 +164,23 @@ test("forceLoginCommand and weixinLogin", () => {
   assert.equal(forceLoginCommand(loggedOut.cliCommand), "nanobot channels login weixin --config /tmp/nb/config.json --force");
   assert.equal(weixinLogin([telegram]), undefined);
   assert.equal(weixinLogin([telegram, { ...telegram, name: "weixin", login: loggedOut }]), loggedOut);
+});
+
+test("canClearLogin, clearLoginPrompt and withLogin", () => {
+  assert.equal(canClearLogin(loggedOut), false);
+  assert.equal(canClearLogin({ ...loggedOut, loggedIn: true }), true);
+  assert.equal(canClearLogin({ ...loggedOut, error: "corrupt" }), true);
+  const p = clearLoginPrompt({ ...loggedOut, statePath: "/tmp/nb/state/weixin/account.json" }, false);
+  assert.match(p, /account\.json/);
+  assert.doesNotMatch(p, /restart/);
+  assert.match(clearLoginPrompt(loggedOut, true), /restarts/);
+
+  const before: ChannelConfig = { ...weixin, allowFrom: ["wx_user"], login: { ...loggedOut, loggedIn: true, botId: "b" } };
+  const after: ChannelConfig = { ...weixin, allowFrom: [], hasLoginState: false, login: loggedOut, restart_required: true, running: true };
+  const merged = withLogin(before, after);
+  assert.equal(merged.login, loggedOut);
+  assert.equal(merged.hasLoginState, false);
+  assert.equal(merged.restart_required, true);
+  assert.deepEqual(merged.allowFrom, ["wx_user"]);
+  assert.deepEqual(channelDraft(merged), channelDraft(before));
 });

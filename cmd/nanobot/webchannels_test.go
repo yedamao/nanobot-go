@@ -219,6 +219,98 @@ func TestWebChannelsWeixinLogin(t *testing.T) {
 	}
 }
 
+func TestWebChannelsClearWeixinLogin(t *testing.T) {
+	const secret = "wx-clear-fixture-secret"
+	path := writeSettingsConfig(t)
+	before, _ := os.ReadFile(path)
+	dir := filepath.Join(filepath.Dir(path), "state", "weixin")
+	statePath := filepath.Join(dir, weixin.StateFileName)
+	writeLogin := func() {
+		t.Helper()
+		os.MkdirAll(dir, 0o700)
+		if err := os.WriteFile(statePath, []byte(`{"token":"`+secret+`","ilink_bot_id":"bot@im.bot"}`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeLogin()
+	os.WriteFile(filepath.Join(dir, "keep.txt"), []byte("x"), 0o600)
+
+	// Not running: cleared, no restart needed.
+	s := runningChannels(t, path, nil)
+	v, err := s.ClearChannelLogin("weixin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoToken(t, v, secret)
+	if v.Name != "weixin" || v.HasLoginState == nil || *v.HasLoginState || v.Login == nil || v.Login.LoggedIn ||
+		v.Login.StatePath != statePath || v.RestartRequired {
+		t.Errorf("view = %+v", v)
+	}
+	if _, err := os.Stat(statePath); !os.IsNotExist(err) {
+		t.Errorf("%s remains: %v", statePath, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "keep.txt")); err != nil {
+		t.Errorf("sibling file removed: %v", err)
+	}
+	if after, _ := os.ReadFile(path); string(after) != string(before) {
+		t.Error("the config file changed")
+	}
+	// Idempotent.
+	if _, err := s.ClearChannelLogin("weixin"); err != nil {
+		t.Errorf("again: %v", err)
+	}
+
+	// Running with the login: the channel keeps it until a restart.
+	writeLogin()
+	s = runningChannels(t, path, nil, "weixin")
+	v, err = s.ClearChannelLogin("weixin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNoToken(t, v, secret)
+	if *v.HasLoginState || !v.RestartRequired || !strings.Contains(v.Login.LoginHint, "restart") {
+		t.Errorf("running view = %+v", v)
+	}
+	list, err := s.ChannelConfigs()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wx := channelByName(t, list, "weixin"); !wx.RestartRequired || *wx.HasLoginState {
+		t.Errorf("listed after clearing = %+v", wx)
+	}
+
+	// Running without a saved login: nothing to drop.
+	s = runningChannels(t, path, nil, "weixin")
+	if v, err := s.ClearChannelLogin("weixin"); err != nil || v.RestartRequired {
+		t.Errorf("nothing saved = %+v, %v", v, err)
+	}
+
+	// A section's stateDir is honored.
+	custom := filepath.Join(t.TempDir(), "wx")
+	if _, err := s.UpdateChannelConfig("weixin", websocket.ChannelConfigPatch{Enabled: ptr(false)}); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load(path)
+	cfg.Channels["weixin"] = json.RawMessage(`{"enabled":false,"stateDir":` + jsonString(custom) + `}`)
+	if err := cfg.Save(path); err != nil {
+		t.Fatal(err)
+	}
+	os.MkdirAll(custom, 0o700)
+	os.WriteFile(filepath.Join(custom, weixin.StateFileName), []byte(`{"token":"`+secret+`"}`), 0o600)
+	if v, err := s.ClearChannelLogin("weixin"); err != nil || v.Login.StatePath != filepath.Join(custom, weixin.StateFileName) {
+		t.Errorf("stateDir = %+v, %v", v, err)
+	}
+	if _, err := os.Stat(filepath.Join(custom, weixin.StateFileName)); !os.IsNotExist(err) {
+		t.Errorf("custom state remains: %v", err)
+	}
+
+	for _, name := range []string{"telegram", "websocket", "../weixin"} {
+		if _, err := s.ClearChannelLogin(name); !errors.Is(err, websocket.ErrChannelNotConfigurable) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
 func TestWeixinLoginCommand(t *testing.T) {
 	def, err := config.DefaultPath()
 	if err != nil {

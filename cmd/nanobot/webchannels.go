@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -61,6 +62,10 @@ type webChannels struct {
 	weixinStateDir string
 	// client probes Telegram tokens; nil uses one honoring the proxy.
 	client *http.Client
+	// weixinLoginCleared is set when a saved WeChat login was cleared
+	// while the channel ran: it keeps the token in memory until the
+	// gateway restarts.
+	weixinLoginCleared atomic.Bool
 }
 
 // newWebChannels returns the channel config store sharing settings'
@@ -203,6 +208,40 @@ func (s *webChannels) TestChannelConfig(ctx context.Context, name string, t webs
 		msg = "Telegram accepted the token of @" + user + "."
 	}
 	return websocket.ChannelTestResult{OK: true, Status: websocket.ChannelTestOK, Message: msg}, nil
+}
+
+// ClearChannelLogin implements websocket.ChannelConfigStore: it removes
+// WeChat's account.json (where the section's stateDir puts it), nothing
+// else.
+func (s *webChannels) ClearChannelLogin(name string) (websocket.ChannelConfigView, error) {
+	if name != weixin.Name {
+		return websocket.ChannelConfigView{}, websocket.ErrChannelNotConfigurable
+	}
+	sections, err := s.load()
+	if err != nil {
+		return websocket.ChannelConfigView{}, err
+	}
+	raw, ok := sections[name]
+	path := s.weixinStatePath(raw, ok)
+	had := weixin.LoginStatus(path)
+	if err := weixin.ClearLogin(path); err != nil {
+		return websocket.ChannelConfigView{}, err
+	}
+	if (had.LoggedIn || had.Error != "") && s.live != nil && slices.Contains(s.live(), name) {
+		s.weixinLoginCleared.Store(true)
+	}
+	return s.view(name, raw, ok), nil
+}
+
+// weixinStatePath is where WeChat's login is saved for section raw
+// (present reports whether the file has it).
+func (s *webChannels) weixinStatePath(raw json.RawMessage, present bool) string {
+	if present {
+		if cfg, err := weixin.ParseConfig(raw, nil); err == nil {
+			return cfg.StatePath(s.weixinStateDir)
+		}
+	}
+	return weixin.Config{}.StatePath(s.weixinStateDir)
 }
 
 // channelChanges returns the keys p sets (as JSON) and removes in
@@ -442,15 +481,11 @@ func (s *webChannels) view(name string, raw json.RawMessage, present bool) webso
 			v.RouteTag = strings.TrimSpace(fmt.Sprint(tag))
 		}
 		v.DefaultBase = weixin.DefaultBaseURL
-		path := weixin.Config{}.StatePath(s.weixinStateDir)
-		if cfg, err := weixin.ParseConfig(raw, nil); err == nil {
-			path = cfg.StatePath(s.weixinStateDir)
-		}
-		v.Login = s.weixinLogin(path)
+		v.Login = s.weixinLogin(s.weixinStatePath(raw, present))
 		v.HasLoginState = &v.Login.LoggedIn
 	}
 	run, ok := s.running[name]
-	v.RestartRequired = s.differs(name, raw, present, run, ok)
+	v.RestartRequired = s.differs(name, raw, present, run, ok) || (name == weixin.Name && s.weixinLoginCleared.Load())
 	return v
 }
 
@@ -463,6 +498,8 @@ func (s *webChannels) weixinLogin(statePath string) *websocket.WeixinLoginView {
 		StatePath: statePath, Error: info.Error, CLICommand: weixinLoginCommand(s.settings.path),
 	}
 	switch {
+	case s.weixinLoginCleared.Load() && !info.LoggedIn:
+		l.LoginHint = "The saved login was cleared, but the running WeChat channel keeps using it until the gateway restarts. Restart the gateway; to log in again, run the command below in a terminal first."
 	case info.Error != "":
 		l.LoginHint = "The saved login cannot be used. Run the command below with --force in a terminal to log in again."
 	case info.LoggedIn:

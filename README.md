@@ -852,7 +852,12 @@ and press Enter. Each reply is a full agent turn, tools included.
   assigned `baseUrl`, `statePath`, never the token, cursor or context
   tokens), a **Copy**-able `cliCommand` (with `--config` when the
   gateway's config file is not the default; add `--force` to log in
-  again) and **Refresh status**, which re-reads it. The
+  again) and **Refresh status**, which re-reads it. **Clear login**
+  (after a confirm; `DELETE /ui/channels/config/weixin/login`) removes
+  only the saved `account.json`, never `config.json`; a running WeChat
+  channel keeps the login in memory (without saving it back) until the
+  gateway restarts, so the card shows **restart required**. QR login
+  stays CLI-only. The
   WebUI channel's own secrets (`token`, `tokenIssueSecret`) are not
   editable from the page.
 - **Skills.** The **Skills** page lists the workspace skills

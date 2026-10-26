@@ -10,8 +10,9 @@ const (
 	// ChannelConfigPath lists the configurable channels' settings,
 	// redacted (GET /ui/channels/config); PATCH
 	// /ui/channels/config/{name} creates or changes channels.<name> in
-	// the config file and POST /ui/channels/config/{name}/test probes its
-	// token.
+	// the config file, POST /ui/channels/config/{name}/test probes its
+	// token and DELETE /ui/channels/config/{name}/login removes the login
+	// saved by the CLI (WeChat only).
 	ChannelConfigPath = "/ui/channels/config"
 	// maxChannelConfigBody caps the JSON body of a channel change.
 	maxChannelConfigBody = 16 << 10
@@ -46,6 +47,10 @@ type ChannelConfigStore interface {
 	ChannelConfigs() (ChannelConfigList, error)
 	UpdateChannelConfig(name string, p ChannelConfigPatch) (ChannelConfigView, error)
 	TestChannelConfig(ctx context.Context, name string, t ChannelConfigTest) (ChannelTestResult, error)
+	// ClearChannelLogin removes the login `nanobot channels login <name>`
+	// saved (only the state file, never the config) and returns the
+	// channel's view afterwards. Only WeChat has one.
+	ClearChannelLogin(name string) (ChannelConfigView, error)
 }
 
 // ChannelConfigList is the body of GET /ui/channels/config.
@@ -95,7 +100,8 @@ type ChannelConfigView struct {
 	EnvOverrides []string `json:"env_overrides"`
 	// RestartRequired reports that the saved section, with the
 	// environment applied, differs from the one the gateway started
-	// with: channels are built when it starts.
+	// with, or that a login the running channel uses was cleared:
+	// channels are built when it starts.
 	RestartRequired bool `json:"restart_required"`
 	// Running reports that the gateway runs the channel now.
 	Running bool `json:"running"`
@@ -208,6 +214,16 @@ func (c *Channel) testChannelConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, res)
+}
+
+// clearChannelLogin answers DELETE /ui/channels/config/{name}/login.
+func (c *Channel) clearChannelLogin(w http.ResponseWriter, r *http.Request) {
+	v, err := c.channelConfig.ClearChannelLogin(r.PathValue("name"))
+	if err != nil {
+		c.channelConfigError(w, "clear the login in", err)
+		return
+	}
+	writeJSON(w, v)
 }
 
 // channelConfigError answers a failed channel config request. Only

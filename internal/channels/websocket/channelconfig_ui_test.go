@@ -13,6 +13,7 @@ type fakeChannelConfig struct {
 	tokens    map[string]string
 	lastPatch ChannelConfigPatch
 	lastTest  ChannelConfigTest
+	loggedIn  bool
 }
 
 func (f *fakeChannelConfig) view(name string) ChannelConfigView {
@@ -48,6 +49,18 @@ func (f *fakeChannelConfig) TestChannelConfig(_ context.Context, name string, t 
 	return ChannelTestResult{OK: true, Status: ChannelTestOK, Message: "fine"}, nil
 }
 
+func (f *fakeChannelConfig) ClearChannelLogin(name string) (ChannelConfigView, error) {
+	if name != "weixin" {
+		return ChannelConfigView{}, ErrChannelNotConfigurable
+	}
+	f.loggedIn = false
+	v := f.view(name)
+	v.HasLoginState = &f.loggedIn
+	v.Login = &WeixinLoginView{StatePath: "/state/weixin/account.json"}
+	v.RestartRequired = true
+	return v, nil
+}
+
 func TestChannelConfigRoutes(t *testing.T) {
 	h := newHarnessWith(t, false, Options{Host: "127.0.0.1"})
 	if code, _ := skillsRequest(t, h, http.MethodGet, ChannelConfigPath, ""); code != http.StatusNotFound {
@@ -55,7 +68,7 @@ func TestChannelConfigRoutes(t *testing.T) {
 	}
 
 	const tok = "123456:route-fixture-secret"
-	store := &fakeChannelConfig{tokens: map[string]string{"telegram": tok}}
+	store := &fakeChannelConfig{tokens: map[string]string{"telegram": tok}, loggedIn: true}
 	h = newHarnessWith(t, false, Options{Host: "127.0.0.1", ChannelConfig: store})
 	code, body := skillsRequest(t, h, http.MethodGet, ChannelConfigPath, "")
 	if code != http.StatusOK || !strings.Contains(string(body), `"hasToken":true`) || strings.Contains(string(body), tok) {
@@ -95,6 +108,7 @@ func TestChannelConfigRoutes(t *testing.T) {
 	for _, r := range []struct{ method, path string }{
 		{http.MethodPatch, ChannelConfigPath + "/telegram"},
 		{http.MethodPost, ChannelConfigPath + "/telegram/test"},
+		{http.MethodDelete, ChannelConfigPath + "/weixin/login"},
 	} {
 		req, _ := http.NewRequest(r.method, h.srv.URL+r.path, strings.NewReader(`{"clearToken":true}`))
 		req.Header.Set("Origin", "https://evil.example")
@@ -108,6 +122,20 @@ func TestChannelConfigRoutes(t *testing.T) {
 			t.Errorf("cross-origin %s %s = %d", r.method, r.path, resp.StatusCode)
 		}
 	}
+	if !store.loggedIn {
+		t.Error("a cross-origin request cleared the login")
+	}
+
+	code, body = skillsRequest(t, h, http.MethodDelete, ChannelConfigPath+"/weixin/login", "")
+	if code != http.StatusOK || !strings.Contains(string(body), `"hasLoginState":false`) || !strings.Contains(string(body), `"loggedIn":false`) ||
+		!strings.Contains(string(body), `"restart_required":true`) || store.loggedIn {
+		t.Errorf("clear login = %d %s", code, body)
+	}
+	for _, name := range []string{"telegram", "websocket"} {
+		if code, _ := skillsRequest(t, h, http.MethodDelete, ChannelConfigPath+"/"+name+"/login", ""); code != http.StatusNotFound {
+			t.Errorf("clear %s login = %d", name, code)
+		}
+	}
 	// Non-local requests without sign-in are refused.
 	req, _ := http.NewRequest(http.MethodGet, h.srv.URL+ChannelConfigPath, nil)
 	req.Host = "evil.example"
@@ -118,5 +146,16 @@ func TestChannelConfigRoutes(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Errorf("foreign host GET = %d", resp.StatusCode)
+	}
+	store.loggedIn = true
+	req, _ = http.NewRequest(http.MethodDelete, h.srv.URL+ChannelConfigPath+"/weixin/login", nil)
+	req.Host = "evil.example"
+	resp, err = h.srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden || !store.loggedIn {
+		t.Errorf("foreign host DELETE login = %d", resp.StatusCode)
 	}
 }

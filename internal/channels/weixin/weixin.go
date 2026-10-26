@@ -930,7 +930,8 @@ func (c *Channel) sendTyping(ctx context.Context, user, ticket string, status in
 // saveState writes the token, cursor and context tokens to account.json
 // (nanobot: _save_state). It never overwrites a token saved by a login
 // since this channel loaded its own, unless the configured token is
-// authoritative.
+// authoritative, nor brings back a saved login that was cleared (the
+// channel keeps using it until the gateway restarts).
 func (c *Channel) saveState() {
 	c.saveMu.Lock()
 	defer c.saveMu.Unlock()
@@ -949,6 +950,9 @@ func (c *Channel) saveState() {
 			st.ReplacedConfigTokenSHA256 != tokenFingerprint(c.cfg.Token)
 		if st.Token != "" && st.Token != acct.token && !authoritative {
 			return false // a login saved a newer token
+		}
+		if acct.fromState && st.Token == "" {
+			return false // the saved login was cleared; do not bring it back
 		}
 		if st.Token != acct.token {
 			st.BotID, st.UserID = "", ""
