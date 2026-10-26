@@ -42,6 +42,17 @@ func (a *app) newMCP(cfg *config.Config, reg *tools.Registry, logger *slog.Logge
 	return mcp.NewManager(cfg.Tools.MCPServers, reg, logger, opts...)
 }
 
+// probeMCP returns a throwaway Manager for cfg's servers, for the WebUI's
+// MCP test: its tools land in a registry of their own, and ${VAR}s are
+// looked up as the WebUI's other MCP views do.
+func (a *app) probeMCP(cfg *config.Config) *mcp.Manager {
+	lookup := func(k string) (string, bool) {
+		v := a.getenv(k)
+		return v, v != ""
+	}
+	return a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(mcpTestTimeout), mcp.WithLookupEnv(lookup))
+}
+
 // connectMCP connects the servers before the first turn. Ctrl-C stops
 // waiting for slow servers. With report set it prints a one-line summary
 // to stderr.

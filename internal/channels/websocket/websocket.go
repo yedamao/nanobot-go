@@ -241,6 +241,9 @@ type Options struct {
 	// ProviderTester probes credentials for POST
 	// /ui/providers/{name}/test. Nil leaves that path unmounted (404).
 	ProviderTester ProviderTester
+	// MCPTester probes saved MCP servers for POST /ui/mcp/{name}/test.
+	// Nil leaves that path unmounted (404).
+	MCPTester MCPTester
 	// Gateway reports on and restarts the gateway for /ui/gateway. Nil
 	// leaves those paths unmounted (404).
 	Gateway GatewayControl
@@ -330,6 +333,7 @@ type Channel struct {
 	providers ProvidersStore
 	models    ModelCatalog
 	tester    ProviderTester
+	mcpTester MCPTester
 	gateway   GatewayControl
 	// channelConfig is Options.ChannelConfig.
 	channelConfig ChannelConfigStore
@@ -365,7 +369,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, tester: opts.ProviderTester, gateway: opts.Gateway, channelConfig: opts.ChannelConfig, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, tester: opts.ProviderTester, mcpTester: opts.MCPTester, gateway: opts.Gateway, channelConfig: opts.ChannelConfig, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -431,6 +435,9 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 		mux.Handle("PUT "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.putMCP))))
 		mux.Handle("PATCH "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchMCP))))
 		mux.Handle("DELETE "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.deleteMCP))))
+	}
+	if c.mcpTester != nil {
+		mux.Handle("POST "+MCPTestPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.testMCP))))
 	}
 	if c.providers != nil {
 		mux.Handle("GET "+ProvidersPath, a.protect(http.HandlerFunc(c.serveProviders)))

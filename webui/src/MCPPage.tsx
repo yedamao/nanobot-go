@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { deleteMCPServer, listMCP, putMCPServer, setMCPServerEnabled, type MCPList, type MCPServer } from "./api";
-import { buildMCPInput, emptyMCPForm, mcpBadges, mcpTarget, type MCPForm } from "./mcp";
+import { deleteMCPServer, listMCP, putMCPServer, setMCPServerEnabled, testMCPServer, type MCPList, type MCPServer } from "./api";
+import { buildMCPInput, canTestMCP, emptyMCPForm, mcpBadges, mcpTarget, mcpTestNote, type MCPForm } from "./mcp";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useT, type MessageKey } from "./i18n";
 
@@ -11,6 +11,10 @@ export function MCPPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [form, setForm] = useState<MCPForm>(emptyMCPForm);
+  // tests holds each server's last test note; testing names the one
+  // being tested.
+  const [tests, setTests] = useState<Record<string, { kind: "" | "ok" | "error"; text: string }>>({});
+  const [testing, setTesting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError("");
@@ -47,6 +51,19 @@ export function MCPPage() {
     act(s.name, t(s.enabled ? "mcp.disabledNote" : "mcp.enabledNote", { name: s.name }), () =>
       setMCPServerEnabled(s.name, !s.enabled),
     );
+  const test = async (s: MCPServer) => {
+    if (testing !== null || busy !== null) return;
+    setTesting(s.name);
+    setTests((prev) => ({ ...prev, [s.name]: { kind: "", text: t("common.testing") } }));
+    let note: { kind: "" | "ok" | "error"; text: string };
+    try {
+      note = mcpTestNote(await testMCPServer(s.name), t);
+    } catch (err) {
+      note = { kind: "error", text: t("common.notTested", { message: (err as Error).message }) };
+    }
+    setTests((prev) => ({ ...prev, [s.name]: note }));
+    setTesting(null);
+  };
   const remove = (s: MCPServer) => {
     if (!confirm(t("mcp.removeConfirm", { name: s.name }))) return;
     void act(s.name, t("mcp.removed", { name: s.name }), () => deleteMCPServer(s.name));
@@ -113,10 +130,18 @@ export function MCPPage() {
                   )}
                   {!s.removed && (
                     <span className="page-actions">
-                      <button type="button" disabled={busy !== null} onClick={() => void toggle(s)}>
+                      <button
+                        type="button"
+                        disabled={busy !== null || testing !== null || !canTestMCP(s)}
+                        title={s.enabled ? undefined : t("mcp.testDisabled")}
+                        onClick={() => void test(s)}
+                      >
+                        {t(testing === s.name ? "common.testing" : "common.test")}
+                      </button>
+                      <button type="button" disabled={busy !== null || testing === s.name} onClick={() => void toggle(s)}>
                         {t(s.enabled ? "common.disable" : "common.enable")}
                       </button>
-                      <button type="button" disabled={busy !== null} onClick={() => remove(s)}>
+                      <button type="button" disabled={busy !== null || testing === s.name} onClick={() => remove(s)}>
                         {t("common.remove")}
                       </button>
                     </span>
@@ -133,6 +158,11 @@ export function MCPPage() {
                 )}
                 {s.error && <p className="page-error">{s.error}</p>}
                 {s.tools && s.tools.length > 0 && <p>{t("mcp.tools", { tools: s.tools.join(", ") })}</p>}
+                {!s.removed && tests[s.name] && (
+                  <p className={tests[s.name].kind === "error" ? "page-error" : "page-note"} role="status">
+                    {tests[s.name].text}
+                  </p>
+                )}
               </li>
             ))}
           </ul>

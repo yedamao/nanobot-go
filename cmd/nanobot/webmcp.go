@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
+	"os/exec"
 	"reflect"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/config"
@@ -15,6 +19,9 @@ import (
 
 // redacted stands for a value the WebUI is never shown.
 const redacted = "***"
+
+// mcpTestTimeout bounds the connection of POST /ui/mcp/{name}/test.
+const mcpTestTimeout = 15 * time.Second
 
 // maxMCPError caps a connection error shown in the WebUI.
 const maxMCPError = 300
@@ -37,11 +44,14 @@ type webMCP struct {
 	// live returns the running Manager's states; nil when there is none.
 	live   func() []mcp.ServerStatus
 	getenv func(string) string
+	// probe returns a throwaway Manager for cfg's MCP servers, connecting
+	// within mcpTestTimeout; nil disables TestMCPServer.
+	probe func(cfg *config.Config) *mcp.Manager
 }
 
 // newWebMCP returns the MCP store sharing settings' config file and lock.
-func newWebMCP(settings *webSettings, running map[string]config.MCPServerConfig, live func() []mcp.ServerStatus, getenv func(string) string) *webMCP {
-	return &webMCP{settings: settings, running: maps.Clone(running), live: live, getenv: getenv}
+func newWebMCP(settings *webSettings, running map[string]config.MCPServerConfig, live func() []mcp.ServerStatus, getenv func(string) string, probe func(*config.Config) *mcp.Manager) *webMCP {
+	return &webMCP{settings: settings, running: maps.Clone(running), live: live, getenv: getenv, probe: probe}
 }
 
 // MCPServers implements websocket.MCPStore.
@@ -158,6 +168,80 @@ func (s *webMCP) DeleteMCPServer(name string) error {
 	return err
 }
 
+// TestMCPServer implements websocket.MCPTester: it connects the saved
+// server alone through a Manager of its own, lists its tools (ignoring
+// enabledTools) and closes it, as the gateway would connect it after a
+// restart. The running gateway's connections are untouched and nothing
+// is saved. A disabled server, or one needing an unset ${VAR}, is not
+// dialed.
+func (s *webMCP) TestMCPServer(ctx context.Context, name string) (websocket.MCPTestResult, error) {
+	if s.probe == nil {
+		return websocket.MCPTestResult{}, errors.New("MCP test is not available")
+	}
+	s.settings.mu.Lock()
+	cfg, err := config.Load(s.settings.path)
+	s.settings.mu.Unlock()
+	if err != nil {
+		return websocket.MCPTestResult{}, err
+	}
+	srv, ok := cfg.Tools.MCPServers[name]
+	if !ok {
+		return websocket.MCPTestResult{}, websocket.ErrMCPNotFound
+	}
+	if !srv.IsEnabled() {
+		return websocket.MCPTestResult{Status: websocket.MCPTestNotConfigured,
+			Message: name + " is disabled: enable it to test."}, nil
+	}
+	// The error names the unset variables, never values.
+	if _, err := srv.Expand(s.lookupEnv); err != nil {
+		return websocket.MCPTestResult{Status: websocket.MCPTestNotConfigured,
+			Message: "Cannot test " + name + ": " + err.Error() + "."}, nil
+	}
+
+	srv.EnabledTools = nil
+	cfg.Tools.MCPServers = map[string]config.MCPServerConfig{name: srv}
+	m := s.probe(cfg)
+	defer m.Close()
+	if err := m.Connect(ctx); err != nil {
+		return websocket.MCPTestResult{Status: websocket.MCPTestError, Message: "The test of " + name + " was canceled."}, nil
+	}
+	st := m.Status()[0]
+	switch {
+	case st.State == mcp.StateConnected && len(st.Tools) == 0:
+		return websocket.MCPTestResult{OK: true, Status: websocket.MCPTestOK,
+			Message: name + " connected, but reported no tools."}, nil
+	case st.State == mcp.StateConnected:
+		noun := "tools"
+		if len(st.Tools) == 1 {
+			noun = "tool"
+		}
+		return websocket.MCPTestResult{OK: true, Status: websocket.MCPTestOK,
+			Message: fmt.Sprintf("%s connected with %d %s.", name, len(st.Tools), noun), Tools: st.Tools}, nil
+	case st.Err == nil:
+		return websocket.MCPTestResult{Status: websocket.MCPTestError, Message: name + " did not complete an MCP handshake."}, nil
+	}
+	msg := st.Err.Error()
+	switch {
+	case srv.Transport() == config.MCPStdio && (errors.Is(st.Err, exec.ErrNotFound) || strings.Contains(msg, exec.ErrNotFound.Error())):
+		return websocket.MCPTestResult{Status: websocket.MCPTestError,
+			Message: s.scrub(fmt.Sprintf("%s needs %q, which is not on PATH.", name, srv.Command), srv)}, nil
+	case strings.Contains(msg, "timed out after"):
+		return websocket.MCPTestResult{Status: websocket.MCPTestError,
+			Message: fmt.Sprintf("%s did not answer within %s.", name, mcpTestTimeout)}, nil
+	case srv.Transport() != config.MCPStdio && (strings.Contains(msg, "Unauthorized") || strings.Contains(msg, "Forbidden")):
+		return websocket.MCPTestResult{Status: websocket.MCPTestRejected,
+			Message: s.scrub(name+" refused access (HTTP 401/403): check its headers. "+msg, srv)}, nil
+	}
+	return websocket.MCPTestResult{Status: websocket.MCPTestError,
+		Message: s.scrub("Cannot connect to "+name+": "+msg, srv)}, nil
+}
+
+// lookupEnv is getenv as the Manager looks variables up: empty is unset.
+func (s *webMCP) lookupEnv(k string) (string, bool) {
+	v := s.getenv(k)
+	return v, v != ""
+}
+
 // update loads the config file, lets f change its servers, validates and
 // saves it. Validation errors wrap websocket.ErrInvalidMCP.
 func (s *webMCP) update(f func(map[string]config.MCPServerConfig) error) (*config.Config, error) {
@@ -250,10 +334,7 @@ func sameMCPServer(saved config.MCPServerConfig, ok bool, running config.MCPServ
 // scrub removes the server's secrets, as configured and as expanded from
 // the environment, from a connection error, and caps its length.
 func (s *webMCP) scrub(msg string, srv config.MCPServerConfig) string {
-	expanded, err := srv.Expand(func(k string) (string, bool) {
-		v := s.getenv(k)
-		return v, v != ""
-	})
+	expanded, err := srv.Expand(s.lookupEnv)
 	var secrets []string
 	for _, c := range []config.MCPServerConfig{srv, expanded} {
 		if c.URL != "" {
@@ -337,4 +418,7 @@ func redactMCPURL(raw string) string {
 	return out
 }
 
-var _ websocket.MCPStore = (*webMCP)(nil)
+var (
+	_ websocket.MCPStore  = (*webMCP)(nil)
+	_ websocket.MCPTester = (*webMCP)(nil)
+)

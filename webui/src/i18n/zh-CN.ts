@@ -357,6 +357,8 @@ export const zhCN: Messages = {
     toolsAllowed: "允许的工具：{tools}。",
     timeout: "超时 {seconds} 秒。",
     tools: "工具：{tools}",
+    testConnected: "服务器已连接。",
+    testDisabled: "启用该服务器后才能测试。",
     add: "添加 MCP 服务器",
     fields: {
       name: "名称",

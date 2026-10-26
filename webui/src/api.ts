@@ -433,6 +433,23 @@ export async function deleteMCPServer(name: string): Promise<void> {
   await mcpRequest(name, "DELETE");
 }
 
+// POST /ui/mcp/{name}/test connects the saved server on its own, lists
+// its tools and disconnects; nothing is saved and the gateway's own
+// connections are left alone. message never holds env or header values.
+export interface MCPTestResult {
+  ok: boolean;
+  status: "ok" | "not_configured" | "rejected" | "error";
+  message: string;
+  /** The tools offered, ignoring enabledTools, when ok. */
+  tools?: string[];
+}
+
+export async function testMCPServer(name: string): Promise<MCPTestResult> {
+  const resp = await fetch("mcp/" + encodeURIComponent(name) + "/test", { method: "POST" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
 // GET /ui/providers lists the known providers' credentials: never an
 // apiKey, only hasApiKey and a short apiKeyHint (sk-a••••xyz1). PATCH
 // /ui/providers/{name} sets (apiKey) or clears (clearApiKey) the key and

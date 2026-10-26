@@ -358,6 +358,8 @@ export const en = {
     toolsAllowed: "tools allowed: {tools}. ",
     timeout: "timeout {seconds}s.",
     tools: "Tools: {tools}",
+    testConnected: "The server connected.",
+    testDisabled: "Enable the server to test it.",
     add: "Add MCP server",
     fields: {
       name: "Name",

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MCPServer } from "./api.ts";
-import { buildMCPInput, emptyMCPForm, mcpBadges, mcpTarget, parsePairs } from "./mcp.ts";
+import { buildMCPInput, canTestMCP, emptyMCPForm, mcpBadges, mcpTarget, mcpTestNote, parsePairs } from "./mcp.ts";
 
 test("parsePairs reads env and header lines", () => {
   assert.deepEqual(parsePairs("A=1\n\n B = x=y \n"), { pairs: { A: "1", B: "x=y" } });
@@ -32,4 +32,24 @@ test("target and badges describe a server", () => {
   assert.deepEqual(mcpBadges(s), ["stdio", "disabled", "restart required"]);
   assert.equal(mcpTarget({ ...s, command: undefined, url: "https://h.test" }), "https://h.test");
   assert.deepEqual(mcpBadges({ ...s, removed: true, restart_required: true }), ["stdio", "removed", "restart required"]);
+});
+
+test("canTestMCP tests only saved, enabled servers", () => {
+  const s: MCPServer = { name: "fs", enabled: true, transport: "stdio", enabled_tools: null, state: "unknown", restart_required: false };
+  assert.equal(canTestMCP(s), true);
+  assert.equal(canTestMCP({ ...s, enabled: false }), false);
+  assert.equal(canTestMCP({ ...s, removed: true }), false);
+});
+
+test("mcpTestNote", () => {
+  assert.deepEqual(mcpTestNote({ ok: true, status: "ok", message: "fs connected with 2 tools.", tools: ["a", "b"] }), {
+    kind: "ok",
+    text: "Test passed: fs connected with 2 tools.",
+  });
+  assert.deepEqual(mcpTestNote({ ok: true, status: "ok", message: "" }), { kind: "ok", text: "Test passed: The server connected." });
+  assert.deepEqual(mcpTestNote({ ok: false, status: "rejected", message: "web refused access (HTTP 401/403): check its headers." }), {
+    kind: "error",
+    text: "Test failed: web refused access (HTTP 401/403): check its headers.",
+  });
+  assert.deepEqual(mcpTestNote({ ok: false, status: "error", message: "" }), { kind: "error", text: "Test failed: The test failed." });
 });

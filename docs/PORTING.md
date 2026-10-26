@@ -649,7 +649,16 @@ Phase 2 is complete; phase 3 is in progress.
     `{"enabled":bool}` and `DELETE` edit the config under the settings'
     lock (`cmd/nanobot/webmcp.go`). `restart_required` lists servers whose
     saved config differs from the running one: changes apply on gateway
-    restart. Gaps vs nanobot: no hot reload/reconnect, no connection test,
+    restart. Connection test done: `POST /ui/mcp/{name}/test` (each
+    card's Test button) connects the saved server alone through a
+    throwaway `mcp.Manager` (same SSRF policy, 15s timeout, whitelist
+    ignored), lists its tools and closes it; the running Manager is not
+    touched and nothing is saved. It answers `{ok, status: ok |
+    not_configured | rejected | error, message, tools?}` like the
+    Providers test: disabled servers and unset `${VAR}`s are
+    `not_configured` without dialing, HTTP 401/403 is `rejected`, a
+    missing command/timeout/dial/handshake failure is `error`; messages
+    are scrubbed of secrets. Gaps vs nanobot: no hot reload/reconnect,
     no OAuth, no preset catalog/marketplace or Cursor/Claude config
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.

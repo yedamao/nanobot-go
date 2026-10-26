@@ -140,7 +140,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	status := webStatus(rt.cfg, time.Now(), running)
 	settings := newWebSettings(rt.configPath, rt.cfg, a.getenv)
 	rt.skills.SetPersist(settings.saveDisabledSkills)
-	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv)
+	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv, a.probeMCP)
 	providersStore := newWebProviders(settings, rt.cfg.Providers, a.getenv)
 	modelCatalog := newWebModels(settings, a.getenv)
 	channelConfig := newWebChannels(settings, rt.cfg.Channels, running, a.getenv, weixin.DefaultStateDir(rt.configPath))
@@ -151,7 +151,7 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	if err != nil {
 		return err
 	}
-	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.ssrf, voiceTranscriber(rt.cfg), rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
+	reg, err := a.channelRegistry(rt.configPath, rt.cfg.Gateway.Host, rt.ws, rt.ssrf, voiceTranscriber(rt.cfg), rt.sessions, status, settings, rt.cron, rt.skills, mcpStore, mcpStore, providersStore, modelCatalog, modelCatalog, gatewayCtl, channelConfig)
 	if err != nil {
 		return err
 	}
@@ -391,7 +391,7 @@ func newGatewayServer(chans []channels.Channel, log *slog.Logger) (srv *http.Ser
 // leaves it unmounted), channelConfig backs /ui/channels/config (see
 // webChannels; nil leaves it unmounted), and the pairing store backs /ui/pairing (shared with
 // Telegram/WeChat).
-func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, ssrf *security.Policy, transcriber telegram.Transcriber, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
+func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, ssrf *security.Policy, transcriber telegram.Transcriber, sessions *session.Manager, status func() websocket.Status, settings websocket.SettingsStore, cronSvc *cron.Service, skillsMgr *skills.Manager, mcpStore websocket.MCPStore, mcpTester websocket.MCPTester, providersStore websocket.ProvidersStore, modelCatalog websocket.ModelCatalog, providerTester websocket.ProviderTester, gatewayCtl websocket.GatewayControl, channelConfig websocket.ChannelConfigStore) (*channels.Registry, error) {
 	r := channels.NewRegistry()
 	store := pairing.NewStore(pairing.PathFor(configPath))
 	builtins := map[string]channels.Factory{
@@ -413,7 +413,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 		websocket.Name: websocket.Factory(websocket.Options{
 			Host: host, Sessions: sessions, Status: status, Settings: settings,
 			Workspace: ws, Cron: cronSvc, Pairing: store, Skills: skillsMgr,
-			MCP: mcpStore, Providers: providersStore, Models: modelCatalog, ProviderTester: providerTester,
+			MCP: mcpStore, MCPTester: mcpTester, Providers: providersStore, Models: modelCatalog, ProviderTester: providerTester,
 			Gateway: gatewayCtl, ChannelConfig: channelConfig,
 		}),
 	}

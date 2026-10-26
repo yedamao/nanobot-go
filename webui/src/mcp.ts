@@ -1,4 +1,4 @@
-import type { MCPServer, MCPServerInput } from "./api.ts";
+import type { MCPServer, MCPServerInput, MCPTestResult } from "./api.ts";
 import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** The MCP page's add form. */
@@ -103,4 +103,16 @@ export function mcpBadges(s: MCPServer, t: Translator = enT): string[] {
   else if (!s.enabled) out.push(t("common.disabled"));
   if (s.restart_required) out.push(t("common.restartRequired"));
   return out;
+}
+
+/** canTestMCP reports whether a server can be tested: saved and enabled
+ * (the gateway does not dial disabled servers, nor does the test). */
+export function canTestMCP(s: MCPServer): boolean {
+  return !s.removed && s.enabled;
+}
+
+/** mcpTestNote is a card's note for a test's result. */
+export function mcpTestNote(r: MCPTestResult, t: Translator = enT): { kind: "ok" | "error"; text: string } {
+  const message = r.message || t(r.ok ? "mcp.testConnected" : "common.testFailedDefault");
+  return { kind: r.ok ? "ok" : "error", text: t(r.ok ? "common.testPassed" : "common.testFailed", { message }) };
 }
