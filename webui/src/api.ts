@@ -208,6 +208,27 @@ export async function listCronJobs(): Promise<CronJob[]> {
   return ((await resp.json()) as { jobs?: CronJob[] }).jobs ?? [];
 }
 
+// GET /ui/cron/targets lists the stored chats a job can deliver to, most
+// recent first, plus the binding used when create omits one.
+export interface CronTarget {
+  channel: string;
+  chatId: string;
+  title?: string;
+  updatedAt?: string;
+}
+
+export interface CronTargets {
+  default: { channel: string; chatId: string };
+  targets: CronTarget[];
+}
+
+export async function listCronTargets(): Promise<CronTargets> {
+  const resp = await fetch("cron/targets", { cache: "no-store" });
+  if (!resp.ok) throw await requestError(resp);
+  const body = (await resp.json()) as CronTargets;
+  return { ...body, targets: body.targets ?? [] };
+}
+
 export async function runCronJob(id: string, force = false): Promise<CronJob> {
   const resp = await fetch("cron/" + encodeURIComponent(id) + "/run", {
     method: "POST",

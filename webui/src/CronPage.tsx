@@ -3,13 +3,27 @@ import {
   createCronJob,
   listCronJobs,
   listCronRuns,
+  listCronTargets,
   patchCronJob,
   removeCronJob,
   runCronJob,
   type CronJob,
   type CronRun,
+  type CronTargets,
   type CronWrite,
 } from "./api";
+import {
+  CUSTOM,
+  DEFAULT_BINDING,
+  NONE,
+  bindingKey,
+  bindingLabel,
+  bindingOptions,
+  bindingWrite,
+  optionLabel,
+  type Binding,
+  type BindingOption,
+} from "./cronBinding";
 import { formatDuration, runReply, runStatusState, runStatusText } from "./cronRuns";
 import { useFormatDate, useT, type MessageKey } from "./i18n";
 
@@ -25,9 +39,13 @@ interface FormState {
   atLocal: string;
   enabled: boolean;
   deleteAfterRun: boolean;
+  // binding is the chat the job delivers to; undefined only for an
+  // edited job that has none. custom shows the channel/chat id inputs.
+  binding?: Binding;
+  custom: boolean;
 }
 
-function emptyForm(): FormState {
+function emptyForm(binding: Binding = DEFAULT_BINDING): FormState {
   return {
     name: "",
     message: "",
@@ -38,6 +56,8 @@ function emptyForm(): FormState {
     atLocal: "",
     enabled: true,
     deleteAfterRun: false,
+    binding,
+    custom: false,
   };
 }
 
@@ -74,11 +94,15 @@ function formFromJob(job: CronJob): FormState {
     atLocal,
     enabled: job.enabled,
     deleteAfterRun: !!job.deleteAfterRun,
+    binding: job.binding,
+    custom: false,
   };
 }
 
 // buildWrite returns the request, or the message key of what is missing.
-function buildWrite(form: FormState, forCreate: boolean): CronWrite | MessageKey {
+// base is the binding the server keeps when none is sent: the default
+// on create, the job's own on edit.
+function buildWrite(form: FormState, forCreate: boolean, base: Binding | undefined): CronWrite | MessageKey {
   const message = form.message.trim();
   if (!message) return "cron.validation.messageRequired";
   const write: CronWrite = {
@@ -105,6 +129,9 @@ function buildWrite(form: FormState, forCreate: boolean): CronWrite | MessageKey
   if (form.kind !== "at" && !forCreate) {
     write.deleteAfterRun = form.deleteAfterRun;
   }
+  const binding = bindingWrite(form.binding, base);
+  if (typeof binding === "string") return binding;
+  if (binding) write.binding = binding;
   return write;
 }
 
@@ -118,6 +145,8 @@ export function CronPage() {
   const [create, setCreate] = useState<FormState>(emptyForm);
   const [editing, setEditing] = useState<CronJob | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm);
+  const [targets, setTargets] = useState<CronTargets | null>(null);
+  const [targetsError, setTargetsError] = useState("");
   const [history, setHistory] = useState<{ job: CronJob; runs: CronRun[] | null; error: string } | null>(null);
   const t = useT();
 
@@ -131,9 +160,21 @@ export function CronPage() {
     }
   }, []);
 
+  const loadTargets = useCallback(async () => {
+    try {
+      setTargets(await listCronTargets());
+      setTargetsError("");
+    } catch (err) {
+      setTargetsError((err as Error).message);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-  }, [load]);
+    void loadTargets();
+  }, [load, loadTargets]);
+
+  const defaultBinding = targets?.default ?? DEFAULT_BINDING;
 
   const loadHistory = async (job: CronJob) => {
     setHistory({ job, runs: null, error: "" });
@@ -193,7 +234,7 @@ export function CronPage() {
 
   const submitCreate = async (e: FormEvent) => {
     e.preventDefault();
-    const write = buildWrite(create, true);
+    const write = buildWrite(create, true, defaultBinding);
     if (typeof write === "string") {
       setNote(t(write));
       return;
@@ -203,7 +244,7 @@ export function CronPage() {
     try {
       const job = await createCronJob(write);
       setNote(t("cron.notes.created", { name: job.name }));
-      setCreate(emptyForm());
+      setCreate(emptyForm(defaultBinding));
       await load();
     } catch (err) {
       setNote(t("cron.notes.createFailed", { error: (err as Error).message }));
@@ -217,12 +258,13 @@ export function CronPage() {
     setEditing(job);
     setEditForm(formFromJob(job));
     setNote("");
+    void loadTargets();
   };
 
   const submitEdit = async (e: FormEvent) => {
     e.preventDefault();
     if (!editing) return;
-    const write = buildWrite(editForm, false);
+    const write = buildWrite(editForm, false, editing.binding);
     if (typeof write === "string") {
       setNote(t(write));
       return;
@@ -245,7 +287,14 @@ export function CronPage() {
     <section className="page" aria-labelledby="cron-heading">
       <header className="page-header">
         <h2 id="cron-heading">{t("cron.heading")}</h2>
-        <button type="button" onClick={() => void load()} disabled={busy !== null}>
+        <button
+          type="button"
+          onClick={() => {
+            void load();
+            void loadTargets();
+          }}
+          disabled={busy !== null}
+        >
           {t("common.refresh")}
         </button>
       </header>
@@ -254,7 +303,14 @@ export function CronPage() {
 
       <form className="cron-form" onSubmit={(e) => void submitCreate(e)}>
         <h3>{t("cron.newJob")}</h3>
-        <CronFields form={create} setForm={setCreate} idPrefix="create" />
+        <CronFields
+          form={create}
+          setForm={setCreate}
+          idPrefix="create"
+          options={bindingOptions(targets?.targets ?? [], defaultBinding)}
+          defaultBinding={defaultBinding}
+          targetsError={targetsError}
+        />
         <div className="cron-form-actions">
           <button type="submit" disabled={busy !== null}>
             {t("cron.create")}
@@ -272,6 +328,7 @@ export function CronPage() {
             <tr>
               <th>{t("cron.columns.name")}</th>
               <th>{t("cron.columns.schedule")}</th>
+              <th>{t("cron.columns.binding")}</th>
               <th>{t("cron.columns.next")}</th>
               <th>{t("cron.columns.last")}</th>
               <th>{t("cron.columns.status")}</th>
@@ -287,6 +344,13 @@ export function CronPage() {
                   {!j.enabled && <span className="badge">{t("cron.badges.disabled")}</span>}
                 </td>
                 <td>{j.schedule.summary}</td>
+                <td className="cron-binding">
+                  {j.system
+                    ? t("cron.binding.system")
+                    : j.binding
+                      ? bindingLabel(j.binding)
+                      : t("cron.binding.none")}
+                </td>
                 <td>{fmt(j.state.nextRun)}</td>
                 <td>{fmt(j.state.lastRun)}</td>
                 <td>
@@ -379,7 +443,14 @@ export function CronPage() {
         <dialog className="cron-dialog" open onCancel={() => setEditing(null)}>
           <form className="cron-form" onSubmit={(e) => void submitEdit(e)}>
             <h3>{t("cron.edit.title", { name: editing.name })}</h3>
-            <CronFields form={editForm} setForm={setEditForm} idPrefix="edit" />
+            <CronFields
+              form={editForm}
+              setForm={setEditForm}
+              idPrefix="edit"
+              options={bindingOptions(targets?.targets ?? [], defaultBinding, editing.binding)}
+              defaultBinding={defaultBinding}
+              targetsError={targetsError}
+            />
             <div className="cron-form-actions">
               <button type="button" onClick={() => setEditing(null)} disabled={busy === editing.id}>
                 {t("common.cancel")}
@@ -399,13 +470,28 @@ function CronFields({
   form,
   setForm,
   idPrefix,
+  options,
+  defaultBinding,
+  targetsError,
 }: {
   form: FormState;
   setForm: (f: FormState) => void;
   idPrefix: string;
+  options: BindingOption[];
+  defaultBinding: Binding;
+  targetsError: string;
 }) {
   const set = (patch: Partial<FormState>) => setForm({ ...form, ...patch });
   const t = useT();
+  const bindingValue = form.custom ? CUSTOM : form.binding ? bindingKey(form.binding) : NONE;
+  const pickBinding = (value: string) => {
+    if (value === CUSTOM) {
+      set({ custom: true, binding: form.binding ?? { channel: "", chatId: "" } });
+      return;
+    }
+    set({ custom: false, binding: options.find((o) => bindingKey(o) === value) });
+  };
+  const defaultKey = bindingKey(defaultBinding);
   return (
     <fieldset className="cron-fields">
       <label htmlFor={idPrefix + "-name"}>
@@ -497,6 +583,45 @@ function CronFields({
               onChange={(e) => set({ deleteAfterRun: e.target.checked })}
             />
             {t("cron.fields.deleteAfterRun")}
+          </label>
+        </>
+      )}
+      <label htmlFor={idPrefix + "-binding"}>
+        {t("cron.fields.binding")}
+        <select id={idPrefix + "-binding"} value={bindingValue} onChange={(e) => pickBinding(e.target.value)}>
+          {!form.custom && !form.binding && <option value={NONE}>{t("cron.fields.bindingNone")}</option>}
+          {options.map((o) => {
+            const key = bindingKey(o);
+            return (
+              <option key={key} value={key}>
+                {key === defaultKey ? t("cron.fields.bindingDefault", { label: optionLabel(o) }) : optionLabel(o)}
+              </option>
+            );
+          })}
+          <option value={CUSTOM}>{t("cron.fields.bindingCustom")}</option>
+        </select>
+      </label>
+      {targetsError && <p className="page-error">{t("cron.fields.bindingTargetsError", { error: targetsError })}</p>}
+      {form.custom && (
+        <>
+          <label htmlFor={idPrefix + "-binding-channel"}>
+            {t("cron.fields.bindingChannel")}
+            <input
+              id={idPrefix + "-binding-channel"}
+              type="text"
+              value={form.binding?.channel ?? ""}
+              placeholder="telegram"
+              onChange={(e) => set({ binding: { channel: e.target.value, chatId: form.binding?.chatId ?? "" } })}
+            />
+          </label>
+          <label htmlFor={idPrefix + "-binding-chat"}>
+            {t("cron.fields.bindingChatId")}
+            <input
+              id={idPrefix + "-binding-chat"}
+              type="text"
+              value={form.binding?.chatId ?? ""}
+              onChange={(e) => set({ binding: { channel: form.binding?.channel ?? "", chatId: e.target.value } })}
+            />
           </label>
         </>
       )}

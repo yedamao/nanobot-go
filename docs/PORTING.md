@@ -374,10 +374,11 @@ Phase 2 is complete; phase 3 is in progress.
     per run and no full `cron/runs/*.json` response files.
   - Done (simplified): WebUI job list/create/edit/enable/run/remove via
     `/ui/cron` through the live `cron.Service` (see WebUI below).
-  - Not ported: local triggers, run records (`cron/runs/`), a WebUI
-    `change_binding` picker (the API takes a binding; the Cron page
-    does not expose it); for the heartbeat,
-    see Cron below.
+  - Done (simplified): a WebUI binding picker (nanobot's
+    `change_binding`): `GET /ui/cron/targets` lists bindable chats and
+    the Cron page shows and edits each job's chat (see WebUI below).
+  - Not ported: local triggers, run records (`cron/runs/`); for the
+    heartbeat, see Cron below.
 - `internal/api`: an OpenAI-compatible API.
   - Done: `api.Server` (`GET /health`, `GET /v1/models`,
     `POST /v1/chat/completions` with SSE streaming, bearer token, refusal
@@ -715,10 +716,25 @@ Phase 2 is complete; phase 3 is in progress.
     present) and `DELETE /ui/skills/{name}` removes a workspace skill
     through `os.Root` (403 for builtins). The system prompt now carries
     a skills summary of the enabled workspace skills. The React header
-    nav switches Chat / Cron / Channels / Skills (`#/cron` etc.). Gaps:
-    the Cron form has no binding fields (create uses the default
-    websocket `cron` chat, edit keeps the job's binding; other
-    channels/chats only via the API), run replies only as stored truncated (`GET /ui/cron/{id}/runs` and the
+    nav switches Chat / Cron / Channels / Skills (`#/cron` etc.).
+    Done (simplified): the Cron table has a **Delivers to** column
+    (`channel · chatId`, "system" for system jobs) and the Create form
+    and Edit dialog a **Deliver to** select: the default websocket
+    `cron` chat, the job's current chat, the stored chats from `GET
+    /ui/cron/targets` (`{default, targets:[{channel, chatId, title,
+    updatedAt}]}` from `session.Manager.List`, most recent first, capped
+    at 200; `channel:chat` keys only, so Telegram topic sessions and
+    cli/system/api/heartbeat sessions are left out, as in
+    `heartbeat.PickTarget`; never a session key or metadata) and
+    "Other chat…" for a typed channel + chat id. The page only sends
+    `binding` when it differs from the default (create) or the job's
+    chat (edit), and `PATCH` with the job's current channel/chatId keeps
+    the stored binding, so its session key and metadata (thread ids)
+    survive an edit; a new chat gets `channel:chatId` and no metadata.
+    Unlike nanobot there is no automation-chat list, `binding_revision`
+    conflict check or workspace scope, no check that the channel is
+    enabled, and a job cannot be moved to a Telegram topic from the
+    page. Gaps: run replies only as stored truncated (`GET /ui/cron/{id}/runs` and the
     Cron page's **History** show status, duration, truncated error and
     reply; no per-run detail GET), no skill marketplace (skills.sh/ClawHub),
     skill detail/raw view, requirement checks (`requires.bins/env`) or

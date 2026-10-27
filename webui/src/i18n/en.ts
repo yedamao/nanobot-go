@@ -454,6 +454,7 @@ export const en = {
       next: "Next",
       last: "Last",
       status: "Status",
+      binding: "Delivers to",
     },
     badges: {
       system: "system",
@@ -491,6 +492,8 @@ export const en = {
       exprRequired: "cron schedule needs an expression",
       atRequired: "one-time schedule needs a date/time",
       atInvalid: "invalid date/time",
+      bindingRequired: "custom chat needs both a channel and a chat id",
+      bindingColon: "channel must not contain “:”",
     },
     history: {
       title: "History: {name}",
@@ -522,6 +525,17 @@ export const en = {
       when: "When",
       deleteAfterRun: "Delete after run",
       enabled: "Enabled",
+      binding: "Deliver to",
+      bindingDefault: "{label} (default)",
+      bindingNone: "No chat (job is skipped)",
+      bindingCustom: "Other chat…",
+      bindingChannel: "Channel",
+      bindingChatId: "Chat id",
+      bindingTargetsError: "Cannot load chats ({error}); pick “Other chat…” to type one.",
+    },
+    binding: {
+      none: "—",
+      system: "system",
     },
   },
 };

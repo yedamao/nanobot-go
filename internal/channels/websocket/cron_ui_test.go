@@ -13,6 +13,8 @@ import (
 	"github.com/yedamao/nanobot-go/internal/bus"
 	"github.com/yedamao/nanobot-go/internal/channels"
 	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/nanobot-go/internal/session"
 )
 
 func TestCronUIListRunRemove(t *testing.T) {
@@ -366,5 +368,141 @@ func TestCronUIRunsAuth(t *testing.T) {
 		r.Header.Set("Authorization", "Bearer "+testToken)
 	}); rec.Code != http.StatusOK {
 		t.Errorf("LAN with token: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestCronUITargets(t *testing.T) {
+	store := session.NewJSONLStore(t.TempDir())
+	base := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	save := func(key string, age time.Duration, msgs ...providers.Message) {
+		t.Helper()
+		sess := session.New(key)
+		sess.Append(msgs...)
+		sess.UpdatedAt = base.Add(-age)
+		if err := store.Save(sess); err != nil {
+			t.Fatal(err)
+		}
+	}
+	user := func(s string) providers.Message { return providers.Message{Role: providers.RoleUser, Content: s} }
+	save("telegram:42", time.Hour, user("daily report please"))
+	save(Name+":trip", 2*time.Hour, user("plan the trip"))
+	save("telegram:42:topic:7", 0, user("a topic"))
+	save("cli:direct", 0, user("from the terminal"))
+	save("api:default", 0, user("from the api"))
+	save("heartbeat", 0, user("tick"))
+	save("weixin:wx-1", 3*time.Hour)
+
+	svc, err := cron.NewService(cron.ServiceConfig{
+		Store: cron.NewStore(t.TempDir()),
+		Run:   func(context.Context, cron.Job) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Cron: svc, Sessions: store})
+	code, body := h.request(t, http.MethodGet, CronTargetsPath, "", "", "")
+	if code != http.StatusOK {
+		t.Fatalf("GET %s = %d %s", CronTargetsPath, code, body)
+	}
+	if strings.Contains(body, "sessionKey") || strings.Contains(body, "topic") {
+		t.Errorf("targets leaked a session key or topic: %s", body)
+	}
+	var got CronTargets
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Default != (CronBindingView{Channel: Name, ChatID: "cron"}) {
+		t.Errorf("default = %+v", got.Default)
+	}
+	want := []CronTargetView{
+		{Channel: "telegram", ChatID: "42", Title: "daily report please"},
+		{Channel: Name, ChatID: "trip", Title: "plan the trip"},
+		{Channel: "weixin", ChatID: "wx-1"},
+	}
+	if len(got.Targets) != len(want) {
+		t.Fatalf("targets = %+v, want %+v", got.Targets, want)
+	}
+	for i, w := range want {
+		g := got.Targets[i]
+		if g.Channel != w.Channel || g.ChatID != w.ChatID || g.Title != w.Title || g.UpdatedAt.IsZero() {
+			t.Errorf("targets[%d] = %+v, want %+v", i, g, w)
+		}
+	}
+
+	// Without a session store the list is empty but still has the default.
+	h = newHarnessWith(t, false, Options{Host: "127.0.0.1", Cron: svc})
+	code, body = h.request(t, http.MethodGet, CronTargetsPath, "", "", "")
+	if code != http.StatusOK || !strings.Contains(body, `"targets":[]`) {
+		t.Fatalf("GET without sessions = %d %s", code, body)
+	}
+}
+
+func TestCronUIPatchBindingKeepsMetadata(t *testing.T) {
+	svc, err := cron.NewService(cron.ServiceConfig{
+		Store: cron.NewStore(t.TempDir()),
+		Run:   func(context.Context, cron.Job) (string, error) { return "", nil },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := svc.Add(cron.AddSpec{
+		Message:  "standup",
+		Schedule: cron.Schedule{Kind: cron.KindEvery, Every: time.Hour},
+		Binding: &cron.Binding{
+			Channel: "telegram", ChatID: "42", SessionKey: "telegram:42:topic:7",
+			Metadata: map[string]any{"message_thread_id": float64(7)},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", Cron: svc})
+	path := CronPath + "/" + job.ID
+	binding := func() *cron.Binding {
+		t.Helper()
+		j, ok, err := svc.Get(job.ID)
+		if err != nil || !ok {
+			t.Fatalf("get = %v %v", ok, err)
+		}
+		return j.Binding
+	}
+
+	// The same chat (only binding sent) keeps the stored binding.
+	code, body := h.request(t, http.MethodPatch, path, `{"binding":{"channel":"telegram","chatId":"42"}}`, "", h.srv.URL)
+	if code != http.StatusOK {
+		t.Fatalf("PATCH same binding = %d %s", code, body)
+	}
+	if b := binding(); b.SessionKey != "telegram:42:topic:7" || b.Metadata["message_thread_id"] != float64(7) {
+		t.Errorf("same binding dropped metadata: %+v", b)
+	}
+	// Alongside other fields too.
+	code, body = h.request(t, http.MethodPatch, path, `{"name":"daily","binding":{"channel":"telegram","chatId":"42"}}`, "", h.srv.URL)
+	if code != http.StatusOK || !strings.Contains(body, `"name":"daily"`) {
+		t.Fatalf("PATCH name+same binding = %d %s", code, body)
+	}
+	if b := binding(); b.SessionKey != "telegram:42:topic:7" || b.Metadata == nil {
+		t.Errorf("name+same binding dropped metadata: %+v", b)
+	}
+
+	// Another chat replaces it with channel:chatId and no metadata.
+	code, body = h.request(t, http.MethodPatch, path, `{"binding":{"channel":"weixin","chatId":"wx-1"}}`, "", h.srv.URL)
+	if code != http.StatusOK {
+		t.Fatalf("PATCH new binding = %d %s", code, body)
+	}
+	var v CronJobView
+	if err := json.Unmarshal([]byte(body), &v); err != nil {
+		t.Fatal(err)
+	}
+	if v.Binding == nil || *v.Binding != (CronBindingView{Channel: "weixin", ChatID: "wx-1"}) {
+		t.Errorf("view binding = %+v", v.Binding)
+	}
+	if b := binding(); b.SessionKey != "weixin:wx-1" || b.Metadata != nil {
+		t.Errorf("new binding = %+v", b)
+	}
+
+	// Unchanged binding on a missing job is still 404.
+	code, _ = h.request(t, http.MethodPatch, CronPath+"/missing", `{"binding":{"channel":"weixin","chatId":"wx-1"}}`, "", h.srv.URL)
+	if code != http.StatusNotFound {
+		t.Errorf("PATCH missing = %d, want 404", code)
 	}
 }

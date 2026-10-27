@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/nanobot-go/internal/session"
 )
 
 const (
@@ -18,8 +19,12 @@ const (
 	// run/edit/remove under /ui/cron/{id}/run and /ui/cron/{id}; GET
 	// /ui/cron/{id}/runs is the job's recent run history.
 	CronPath = "/ui/cron"
+	// CronTargetsPath lists the chats a job can be bound to.
+	CronTargetsPath = CronPath + "/targets"
 	// maxCronMessageRunes caps payload.message in list/run responses.
 	maxCronMessageRunes = 500
+	// maxCronTargets caps GET /ui/cron/targets.
+	maxCronTargets = 200
 )
 
 // CronList is the body of GET /ui/cron.
@@ -92,6 +97,80 @@ type CronRunView struct {
 	DurationMs int64  `json:"durationMs,omitempty"`
 	Error      string `json:"error,omitempty"`
 	Reply      string `json:"reply,omitempty"`
+}
+
+// CronTargets is the body of GET /ui/cron/targets.
+type CronTargets struct {
+	// Default is where a job created without a binding runs.
+	Default CronBindingView `json:"default"`
+	// Targets is the stored chats, most recently updated first.
+	Targets []CronTargetView `json:"targets"`
+}
+
+// CronTargetView is one chat a job can be bound to.
+type CronTargetView struct {
+	Channel   string    `json:"channel"`
+	ChatID    string    `json:"chatId"`
+	Title     string    `json:"title,omitempty"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+// cronTargetKey splits a session key into a bindable channel and chat
+// id, like heartbeat.PickTarget: keys with more parts (a Telegram
+// topic's telegram:chat:topic:n) are skipped because the chat id alone
+// does not route back to them, and so are sessions of channels that
+// cannot deliver (cli, system, api, heartbeat).
+func cronTargetKey(key string) (channel, chatID string, ok bool) {
+	channel, chatID, found := strings.Cut(key, ":")
+	if !found || channel == "" || chatID == "" || strings.Contains(chatID, ":") {
+		return "", "", false
+	}
+	switch channel {
+	case "cli", "system", "api", "heartbeat":
+		return "", "", false
+	}
+	return channel, chatID, true
+}
+
+// serveCronTargets answers GET /ui/cron/targets with the stored chats a
+// job can deliver to (channel, chat id and a title, never the session
+// key or metadata) plus the default binding.
+func (c *Channel) serveCronTargets(w http.ResponseWriter, _ *http.Request) {
+	def := defaultWebCronBinding()
+	out := CronTargets{
+		Default: CronBindingView{Channel: def.Channel, ChatID: def.ChatID},
+		Targets: []CronTargetView{},
+	}
+	if c.sessions == nil {
+		writeJSON(w, out)
+		return
+	}
+	infos, err := c.sessions.List()
+	if err != nil {
+		c.log.Warn("websocket: list cron targets", "error", err)
+		http.Error(w, "cannot list chats", http.StatusInternalServerError)
+		return
+	}
+	for _, info := range infos {
+		if len(out.Targets) == maxCronTargets {
+			break
+		}
+		channel, chatID, ok := cronTargetKey(info.Key)
+		if !ok {
+			continue
+		}
+		t := CronTargetView{Channel: channel, ChatID: chatID, UpdatedAt: info.UpdatedAt}
+		if sess, err := c.sessions.Load(info.Key); err == nil {
+			if ci, ok := chatInfo(chatID, sess); ok {
+				t.Title = ci.Title
+			}
+			t.UpdatedAt = sess.UpdatedAt
+		} else if !errors.Is(err, session.ErrNotFound) {
+			c.log.Warn("websocket: load chat", "session", info.Key, "error", err)
+		}
+		out.Targets = append(out.Targets, t)
+	}
+	writeJSON(w, out)
 }
 
 // cronJobView maps a cron.Job into the WebUI shape.
@@ -462,6 +541,28 @@ func (c *Channel) patchCron(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		patch.Binding = b
+		// The same chat again keeps the stored binding, so its session key
+		// and metadata (thread ids and the like) survive an edit.
+		if cur, ok, err := c.cron.Get(id); err == nil && ok && cur.Binding != nil &&
+			cur.Binding.Channel == b.Channel && cur.Binding.ChatID == b.ChatID {
+			patch.Binding = nil
+		}
+	}
+	if patch == (cron.UpdateSpec{}) {
+		// Only an unchanged binding: nothing to write.
+		job, ok, err := c.cron.Get(id)
+		switch {
+		case err != nil:
+			c.log.Warn("websocket: get cron job", "error", err)
+			http.Error(w, "cannot load the cron job", http.StatusInternalServerError)
+		case !ok:
+			http.Error(w, "no such cron job", http.StatusNotFound)
+		case job.System():
+			http.Error(w, "system cron jobs cannot be edited", http.StatusForbidden)
+		default:
+			writeJSON(w, cronJobView(job))
+		}
+		return
 	}
 	job, res, err := c.cron.Update(id, patch)
 	if err != nil {

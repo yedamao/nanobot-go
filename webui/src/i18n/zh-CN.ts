@@ -453,6 +453,7 @@ export const zhCN: Messages = {
       next: "下次运行",
       last: "上次运行",
       status: "状态",
+      binding: "发送到",
     },
     badges: {
       system: "系统",
@@ -490,6 +491,8 @@ export const zhCN: Messages = {
       exprRequired: "请填写 Cron 表达式",
       atRequired: "一次性任务需要日期和时间",
       atInvalid: "日期或时间无效",
+      bindingRequired: "自定义会话需要同时填写平台和会话 ID",
+      bindingColon: "平台名不能包含“:”",
     },
     history: {
       title: "运行历史：{name}",
@@ -521,6 +524,17 @@ export const zhCN: Messages = {
       when: "时间",
       deleteAfterRun: "运行后删除",
       enabled: "启用",
+      binding: "发送到",
+      bindingDefault: "{label}（默认）",
+      bindingNone: "无会话（任务会被跳过）",
+      bindingCustom: "其他会话…",
+      bindingChannel: "平台",
+      bindingChatId: "会话 ID",
+      bindingTargetsError: "无法加载会话（{error}）；可选择“其他会话…”手动填写。",
+    },
+    binding: {
+      none: "—",
+      system: "系统",
     },
   },
 };
