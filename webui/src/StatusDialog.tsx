@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { getSettings, getStatus, saveSettings, type ImageGenerationSettings, type Settings, type SettingsChoices, type Status } from "./api";
+import {
+  getSettings,
+  getStatus,
+  saveSettings,
+  type ImageGenerationSettings,
+  type Settings,
+  type SettingsChoices,
+  type Status,
+  type WebSearchSettings,
+} from "./api";
 import { RestartGateway } from "./RestartGateway";
 import { diffSettings, duration, pendingText, savedText, withCurrent } from "./settings";
 import { useT } from "./i18n";
@@ -56,6 +65,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
     provider: null,
     exec_sandbox: null,
     image_generation_provider: null,
+    web_provider: null,
   });
   const [saving, setSaving] = useState(false);
   const [note, setNote] = useState<Note>({ kind: "", text: "" });
@@ -126,8 +136,11 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
     edit((d) => ({ ...d, tools: { ...d.tools, [key]: value } }));
   const image = <K extends keyof ImageGenerationSettings>(key: K, value: ImageGenerationSettings[K]) =>
     edit((d) => ({ ...d, tools: { ...d.tools, image_generation: { ...d.tools.image_generation, [key]: value } } }));
+  const search = <K extends keyof WebSearchSettings>(key: K, value: WebSearchSettings[K]) =>
+    edit((d) => (d.tools.web_search ? { ...d, tools: { ...d.tools, web_search: { ...d.tools.web_search, [key]: value } } } : d));
   const disabled = !draft || saving;
   const ig = draft?.tools.image_generation;
+  const ws = draft?.tools.web_search;
 
   return (
     <dialog id="status-panel" ref={dialog} aria-labelledby="status-title" onClose={onClose}>
@@ -156,6 +169,71 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
             />{" "}
             {t("status.webFetchTool")}
           </label>
+          {ws && (
+            <div id="set-web-search">
+              <label>
+                {t("status.webSearchProvider")}
+                <select id="set-web-search-provider" value={ws.provider} onChange={(ev) => search("provider", ev.target.value)}>
+                  {withCurrent(choices.web_provider ?? null, ws.provider).map((v) => (
+                    <option key={v} value={v}>
+                      {v || t("common.none")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {ws.provider && (
+                <>
+                  <label>
+                    {t("status.webSearchMax")}
+                    <input
+                      id="set-web-search-max"
+                      type="number"
+                      required
+                      min={1}
+                      max={50}
+                      step={1}
+                      value={ws.max_results}
+                      onChange={(ev) => search("max_results", ev.target.valueAsNumber)}
+                    />
+                  </label>
+                  <label>
+                    {t("status.webSearchTimeout")}
+                    <input
+                      id="set-web-search-timeout"
+                      type="number"
+                      required
+                      min={1}
+                      max={300}
+                      step={1}
+                      value={ws.timeout}
+                      onChange={(ev) => search("timeout", ev.target.valueAsNumber)}
+                    />
+                  </label>
+                </>
+              )}
+              <label>
+                {t("status.webFetchProvider")}
+                <select
+                  id="set-web-fetch-provider"
+                  value={draft?.tools.web_fetch_provider ?? ""}
+                  onChange={(ev) => edit((d) => ({ ...d, tools: { ...d.tools, web_fetch_provider: ev.target.value } }))}
+                >
+                  {withCurrent(choices.web_provider ?? null, draft?.tools.web_fetch_provider ?? "").map((v) => (
+                    <option key={v} value={v}>
+                      {v || t("status.webFetchDirect")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <p className="status-note">
+                {ws.key_source ? t("status.webSearchKeySet", { source: ws.key_source }) : t("status.webSearchKeyMissing")}{" "}
+                <a href="#/providers" onClick={() => dialog.current?.close()}>
+                  {t("status.imageKeyLink")}
+                </a>
+                {t("status.webSearchKeyAfter")}
+              </p>
+            </div>
+          )}
           <label>
             {t("status.execSandbox")}
             <select

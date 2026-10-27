@@ -288,6 +288,14 @@ func TestValidate(t *testing.T) {
 		{"sandbox relative ro bind", func(c *Config) { c.Tools.Exec.SandboxRoBinds = []string{"bin"} }, "sandboxRoBinds[0] must be an absolute path"},
 		{"sandbox empty rw bind", func(c *Config) { c.Tools.Exec.SandboxRwBinds = []string{"/x", ""} }, "sandboxRwBinds[1]"},
 		{"fetch bytes", func(c *Config) { c.Tools.Web.FetchMaxBytes = -1 }, "fetchMaxBytes"},
+		{"web search", func(c *Config) {
+			c.Tools.Web.Search = WebSearchConfig{Provider: "deepseek", MaxResults: 50, Timeout: 300}
+		}, ""},
+		{"web search zero means default", func(c *Config) { c.Tools.Web.Search = WebSearchConfig{} }, ""},
+		{"web search results high", func(c *Config) { c.Tools.Web.Search.MaxResults = 51 }, "tools.web.search.maxResults"},
+		{"web search results negative", func(c *Config) { c.Tools.Web.Search.MaxResults = -1 }, "tools.web.search.maxResults"},
+		{"web search timeout high", func(c *Config) { c.Tools.Web.Search.Timeout = 301 }, "tools.web.search.timeout"},
+		{"web search timeout negative", func(c *Config) { c.Tools.Web.Search.Timeout = -5 }, "tools.web.search.timeout"},
 		{"ssrf whitelist", func(c *Config) {
 			c.Tools.SSRFWhitelist = []string{"100.64.0.0/10", "192.168.1.20/32", "fd7a:115c:a1e0::/48", "10.0.0.5"}
 		}, ""},
@@ -481,5 +489,50 @@ func TestImageGenerationConfig(t *testing.T) {
 	cfg.Tools.ImageGeneration.Provider = "gemini"
 	if err := cfg.Validate(); err != nil {
 		t.Errorf("disabled with unknown provider: %v", err)
+	}
+}
+
+func TestLoadWebSearch(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"tools": {"web": {"search": {"provider": "deepseek", "maxResults": 8}, "fetch": {"provider": "deepseek"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := cfg.Tools.Web
+	if ws.Search.Provider != "deepseek" || ws.Search.MaxResults != 8 || ws.Search.Timeout != DefaultWebSearchTimeout ||
+		ws.Fetch.Provider != "deepseek" || !ws.Enable {
+		t.Errorf("web = %+v", ws)
+	}
+	if d := Default().Tools.Web.Search; d.Provider != "" || d.MaxResults != DefaultWebSearchResults {
+		t.Errorf("default search = %+v, want no provider", d)
+	}
+}
+
+func TestWebSearchAPIKey(t *testing.T) {
+	env := map[string]string{}
+	getenv := func(k string) string { return env[k] }
+	cfg := Default()
+	if got := cfg.WebSearchAPIKey(getenv); got != "" {
+		t.Errorf("no key = %q", got)
+	}
+	env["WEB_SEARCH_API_KEY"] = "web"
+	if got := cfg.WebSearchAPIKey(getenv); got != "web" {
+		t.Errorf("WEB_SEARCH_API_KEY: %q", got)
+	}
+	env["DEEPSEEK_API_KEY"] = "ds-env"
+	if got := cfg.WebSearchAPIKey(getenv); got != "ds-env" {
+		t.Errorf("DEEPSEEK_API_KEY: %q", got)
+	}
+	env["NANOBOT_GO_DEEPSEEK_API_KEY"] = "ds-nanobot"
+	cfg.ApplyEnv(getenv)
+	if got := cfg.WebSearchAPIKey(getenv); got != "ds-nanobot" {
+		t.Errorf("providers.deepseek via ApplyEnv: %q", got)
+	}
+	cfg.Tools.Web.Search.APIKey = " search "
+	if got := cfg.WebSearchAPIKey(getenv); got != "search" {
+		t.Errorf("tools.web.search.apiKey: %q", got)
 	}
 }

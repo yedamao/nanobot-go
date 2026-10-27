@@ -224,6 +224,8 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 		return nil, err
 	}
 	reg := tools.NewRegistry()
+	// The DeepSeek tools key is resolved here and never saved.
+	searchKey := cfg.WebSearchAPIKey(a.getenv)
 	err = builtin.RegisterAll(reg, builtin.Config{
 		Workspace: ws,
 		Exec: builtin.ExecConfig{
@@ -237,9 +239,17 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 			SandboxRWBinds: cfg.Tools.Exec.SandboxRwBinds,
 		},
 		Web: builtin.WebFetchConfig{
-			Disabled: !cfg.Tools.Web.Enable,
-			MaxBytes: cfg.Tools.Web.FetchMaxBytes,
-			Policy:   ssrf,
+			Disabled:       !cfg.Tools.Web.Enable,
+			MaxBytes:       cfg.Tools.Web.FetchMaxBytes,
+			Policy:         ssrf,
+			Provider:       cfg.Tools.Web.Fetch.Provider,
+			DeepSeekAPIKey: searchKey,
+		},
+		Search: builtin.WebSearchConfig{
+			Provider:   cfg.Tools.Web.Search.Provider,
+			APIKey:     searchKey,
+			MaxResults: cfg.Tools.Web.Search.MaxResults,
+			Timeout:    time.Duration(cfg.Tools.Web.Search.Timeout) * time.Second,
 		},
 	})
 	if err != nil {

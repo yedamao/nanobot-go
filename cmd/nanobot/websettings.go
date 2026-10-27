@@ -66,6 +66,8 @@ type webSettings struct {
 	// without the lock held: the gateway retries the MCP servers that are
 	// not connected, which it may have refused before.
 	ssrfApplied func()
+	// getenv tells where web_search's key would come from.
+	getenv func(string) string
 
 	mu sync.Mutex
 }
@@ -74,7 +76,7 @@ type webSettings struct {
 // cfg is the running config; getenv tells which settings the environment
 // overrides.
 func newWebSettings(path string, cfg *config.Config, getenv func(string) string) *webSettings {
-	s := &webSettings{path: path, running: settingsOf(cfg)}
+	s := &webSettings{path: path, running: settingsOf(cfg), getenv: getenv}
 	for _, e := range []struct{ name, env string }{{"model", "NANOBOT_GO_MODEL"}, {"provider", "NANOBOT_GO_PROVIDER"}} {
 		if getenv(e.env) != "" {
 			s.envSet = append(s.envSet, e.name)
@@ -155,12 +157,13 @@ func (s *webSettings) saveDisabledSkills(names []string) error {
 
 func (s *webSettings) view(cfg *config.Config) websocket.SettingsView {
 	saved := settingsOf(cfg)
+	saved.Tools.WebSearch.KeySource = webSearchKeySource(cfg, s.getenv)
 	return websocket.SettingsView{
 		Settings:        saved,
 		RestartRequired: settingsDiff(saved, s.running),
 		EnvOverrides:    slices.Clone(s.envSet),
 		Choices: websocket.SettingsChoices{Provider: providerChoices(), ExecSandbox: sandboxChoices(),
-			ImageGenerationProvider: slices.Clone(config.ImageProviders)},
+			ImageGenerationProvider: slices.Clone(config.ImageProviders), WebProvider: webProviderChoices()},
 	}
 }
 
@@ -186,6 +189,12 @@ func settingsOf(cfg *config.Config) websocket.Settings {
 				MaxImagesPerTurn:   ig.MaxImagesPerTurn,
 			},
 			SSRFWhitelist: append([]string{}, cfg.Tools.SSRFWhitelist...),
+			WebSearch: websocket.WebSearchSettings{
+				Provider:   cfg.Tools.Web.Search.Provider,
+				MaxResults: orDefault(cfg.Tools.Web.Search.MaxResults, config.DefaultWebSearchResults),
+				Timeout:    orDefault(cfg.Tools.Web.Search.Timeout, config.DefaultWebSearchTimeout),
+			},
+			WebFetchProvider: cfg.Tools.Web.Fetch.Provider,
 		},
 		Channels: map[string]websocket.ChannelSettings{},
 	}
@@ -229,6 +238,11 @@ func settingsDiff(saved, running websocket.Settings) []string {
 	add("tools.image_generation.default_image_size", si.DefaultImageSize != ri.DefaultImageSize)
 	add("tools.image_generation.max_images_per_turn", si.MaxImagesPerTurn != ri.MaxImagesPerTurn)
 	add(ssrfWhitelistSetting, !slices.Equal(saved.Tools.SSRFWhitelist, running.Tools.SSRFWhitelist))
+	sw, rw := saved.Tools.WebSearch, running.Tools.WebSearch
+	add("tools.web_search.provider", sw.Provider != rw.Provider)
+	add("tools.web_search.max_results", sw.MaxResults != rw.MaxResults)
+	add("tools.web_search.timeout", sw.Timeout != rw.Timeout)
+	add("tools.web_fetch_provider", saved.Tools.WebFetchProvider != running.Tools.WebFetchProvider)
 	names := slices.Sorted(maps.Keys(saved.Channels))
 	for name := range running.Channels {
 		if _, ok := saved.Channels[name]; !ok {
@@ -305,6 +319,18 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 			}
 			cfg.Tools.SSRFWhitelist = list
 		}
+		if t.WebSearch != nil {
+			if err := applyWebSearch(&cfg.Tools.Web.Search, *t.WebSearch); err != nil {
+				return err
+			}
+		}
+		if t.WebFetchProvider != nil {
+			name, err := checkWebProvider("tools.web_fetch_provider", *t.WebFetchProvider)
+			if err != nil {
+				return err
+			}
+			cfg.Tools.Web.Fetch.Provider = name
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(p.Channels)) {
 		on := p.Channels[name].Enabled
@@ -373,6 +399,71 @@ func applyImageGeneration(ig *config.ImageGenerationConfig, p websocket.ImageGen
 		ig.MaxImagesPerTurn = n
 	}
 	return nil
+}
+
+// applyWebSearch sets p's fields on ws. Its apiKey is never touched.
+func applyWebSearch(ws *config.WebSearchConfig, p websocket.WebSearchPatch) error {
+	const at = "tools.web_search."
+	if p.Provider != nil {
+		name, err := checkWebProvider(at+"provider", *p.Provider)
+		if err != nil {
+			return err
+		}
+		ws.Provider = name
+	}
+	if p.MaxResults != nil {
+		n := *p.MaxResults
+		if n < 1 || n > config.MaxWebSearchResults {
+			return fmt.Errorf("%smax_results must be in [1, %d], got %d", at, config.MaxWebSearchResults, n)
+		}
+		ws.MaxResults = n
+	}
+	if p.Timeout != nil {
+		n := *p.Timeout
+		if n < 1 || n > config.MaxWebSearchTimeout {
+			return fmt.Errorf("%stimeout must be in [1, %d] seconds, got %d", at, config.MaxWebSearchTimeout, n)
+		}
+		ws.Timeout = n
+	}
+	return nil
+}
+
+// checkWebProvider returns the web tool provider name, trimmed and
+// lower-cased, or an error naming it as field.
+func checkWebProvider(field, name string) (string, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if !slices.Contains(webProviderChoices(), name) {
+		return "", fmt.Errorf("%s %q is not one of %q", field, name, webProviderChoices())
+	}
+	return name, nil
+}
+
+// webProviderChoices are the web_search and web_fetch providers: none
+// (direct fetch) and DeepSeek.
+func webProviderChoices() []string { return []string{"", config.WebSearchDeepSeek} }
+
+// webSearchKeySource names where web_search's key would come from after
+// a restart, as config.WebSearchAPIKey resolves it, without the key.
+func webSearchKeySource(cfg *config.Config, getenv func(string) string) string {
+	if getenv == nil {
+		getenv = func(string) string { return "" }
+	}
+	switch {
+	case strings.TrimSpace(cfg.Tools.Web.Search.APIKey) != "":
+		return "tools.web.search.apiKey"
+	case strings.TrimSpace(cfg.Providers.DeepSeek.APIKey) != "", getenv(config.EnvKeyName(config.WebSearchDeepSeek)) != "":
+		return "providers.deepseek.apiKey"
+	case getenv("DEEPSEEK_API_KEY") != "", getenv("WEB_SEARCH_API_KEY") != "":
+		return "environment"
+	}
+	return ""
+}
+
+func orDefault(n, def int) int {
+	if n == 0 {
+		return def
+	}
+	return n
 }
 
 // checkSSRFWhitelist returns the whitelist list with its entries

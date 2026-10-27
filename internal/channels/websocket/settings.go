@@ -68,6 +68,25 @@ type ToolSettings struct {
 	// ranges web_fetch, MCP HTTP servers and media downloads may reach
 	// although they are private or internal.
 	SSRFWhitelist []string `json:"ssrf_whitelist"`
+	// WebSearch is tools.web.search: web_search is registered when its
+	// provider is "deepseek".
+	WebSearch WebSearchSettings `json:"web_search"`
+	// WebFetchProvider is tools.web.fetch.provider: "deepseek" reads pages
+	// through the DeepSeek Fetch API, empty fetches directly.
+	WebFetchProvider string `json:"web_fetch_provider"`
+}
+
+// WebSearchSettings are the editable fields of tools.web.search. Its key
+// is never shown or edited here: it is set in config.json or, through
+// providers.deepseek, on the Providers page.
+type WebSearchSettings struct {
+	Provider   string `json:"provider"`
+	MaxResults int    `json:"max_results"`
+	Timeout    int    `json:"timeout"`
+	// KeySource names where the DeepSeek key would come from
+	// ("tools.web.search.apiKey", "providers.deepseek.apiKey" or
+	// "environment"), or is empty when none is set. Read-only.
+	KeySource string `json:"key_source"`
 }
 
 // ImageGenerationSettings are the editable fields of
@@ -112,6 +131,9 @@ type SettingsChoices struct {
 	// ImageGenerationProvider names the providers generate_image
 	// supports.
 	ImageGenerationProvider []string `json:"image_generation_provider"`
+	// WebProvider names the web_search and web_fetch providers, "" (none
+	// / direct) included.
+	WebProvider []string `json:"web_provider"`
 }
 
 // SettingsPatch is a decoded PATCH /ui/settings body: nil fields are left
@@ -134,7 +156,16 @@ type ToolSettingsPatch struct {
 	ImageGeneration *ImageGenerationPatch `json:"image_generation"`
 	// SSRFWhitelist, when set, replaces the whole list; an empty list
 	// clears it.
-	SSRFWhitelist *[]string `json:"ssrf_whitelist"`
+	SSRFWhitelist    *[]string       `json:"ssrf_whitelist"`
+	WebSearch        *WebSearchPatch `json:"web_search"`
+	WebFetchProvider *string         `json:"web_fetch_provider"`
+}
+
+// WebSearchPatch changes WebSearchSettings.
+type WebSearchPatch struct {
+	Provider   *string `json:"provider"`
+	MaxResults *int    `json:"max_results"`
+	Timeout    *int    `json:"timeout"`
 }
 
 // ImageGenerationPatch changes ImageGenerationSettings.
@@ -161,7 +192,8 @@ var patchSchema = map[string]any{
 	"fallbackModels": []any{map[string]any{"provider": nil, "model": nil}},
 	"tools": map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil, "image_generation": map[string]any{
 		"enabled": nil, "provider": nil, "model": nil, "default_aspect_ratio": nil, "default_image_size": nil, "max_images_per_turn": nil,
-	}, "ssrf_whitelist": []any{nil}},
+	}, "ssrf_whitelist": []any{nil}, "web_search": map[string]any{"provider": nil, "max_results": nil, "timeout": nil},
+		"web_fetch_provider": nil},
 	"channels": map[string]any{"*": map[string]any{"enabled": nil}},
 }
 
@@ -299,7 +331,7 @@ func fillSettings(v SettingsView) SettingsView {
 	if v.Settings.Channels == nil {
 		v.Settings.Channels = map[string]ChannelSettings{}
 	}
-	for _, l := range []*[]string{&v.RestartRequired, &v.Applied, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox, &v.Choices.ImageGenerationProvider} {
+	for _, l := range []*[]string{&v.RestartRequired, &v.Applied, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox, &v.Choices.ImageGenerationProvider, &v.Choices.WebProvider} {
 		if *l == nil {
 			*l = []string{}
 		}

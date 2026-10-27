@@ -1,4 +1,4 @@
-import type { ImageGenerationSettings, Settings, SettingsPatch, SettingsView } from "./api";
+import type { ImageGenerationSettings, Settings, SettingsPatch, SettingsView, WebSearchSettings } from "./api";
 import { enT, type Translator } from "./i18n/translate.ts";
 
 // diffSettings returns the fields of draft that differ from saved, as a
@@ -14,6 +14,12 @@ export function diffSettings(saved: Settings, draft: Settings): SettingsPatch {
   if (draft.tools.exec_sandbox !== saved.tools.exec_sandbox) tools.exec_sandbox = draft.tools.exec_sandbox;
   const image = diffImageGeneration(saved.tools.image_generation, draft.tools.image_generation);
   if (Object.keys(image).length) tools.image_generation = image;
+  if (saved.tools.web_search && draft.tools.web_search) {
+    const search = diffWebSearch(saved.tools.web_search, draft.tools.web_search);
+    if (Object.keys(search).length) tools.web_search = search;
+  }
+  const fetchProvider = draft.tools.web_fetch_provider ?? "";
+  if (fetchProvider !== (saved.tools.web_fetch_provider ?? "")) tools.web_fetch_provider = fetchProvider;
   const whitelist = whitelistLines(draft.tools.ssrf_whitelist);
   const savedWhitelist = saved.tools.ssrf_whitelist ?? [];
   if (whitelist.length !== savedWhitelist.length || whitelist.some((e, i) => e !== savedWhitelist[i])) {
@@ -38,6 +44,16 @@ function diffImageGeneration(saved: ImageGenerationSettings, draft: ImageGenerat
     if (v !== saved[key]) patch[key] = v;
   }
   if (draft.max_images_per_turn !== saved.max_images_per_turn) patch.max_images_per_turn = draft.max_images_per_turn;
+  return patch;
+}
+
+// diffWebSearch returns the web search fields of draft that differ from
+// saved; key_source is read-only and never sent.
+function diffWebSearch(saved: WebSearchSettings, draft: WebSearchSettings): NonNullable<NonNullable<SettingsPatch["tools"]>["web_search"]> {
+  const patch: NonNullable<NonNullable<SettingsPatch["tools"]>["web_search"]> = {};
+  if (draft.provider !== saved.provider) patch.provider = draft.provider;
+  if (draft.max_results !== saved.max_results) patch.max_results = draft.max_results;
+  if (draft.timeout !== saved.timeout) patch.timeout = draft.timeout;
   return patch;
 }
 

@@ -19,8 +19,9 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - Agent: model/tool loop with an iteration cap, concurrent read-only tools,
   and recovery from truncated or empty responses.
 - Tools: `read_file`, `write_file`, `edit_file`, `list_dir`, `exec`,
-  `web_fetch`, `message` (send a message with workspace files or http(s)
-  URLs attached), `generate_image` (opt-in; OpenRouter or OpenAI images
+  `web_fetch`, `web_search` (opt-in; DeepSeek Search API, see
+  [Web search](#web-search-deepseek)), `message` (send a message with
+  workspace files or http(s) URLs attached), `generate_image` (opt-in; OpenRouter or OpenAI images
   saved to the workspace, see [docs/image-generation.md](docs/image-generation.md)).
   `exec` can run commands in an OS sandbox (phase 4): bubblewrap on Linux,
   Seatbelt on macOS.
@@ -151,7 +152,9 @@ Missing fields keep their defaults; unknown keys are an error.
     "restrictToWorkspace": true,
     "exec": {"enable": true, "timeout": 60, "denyPatterns": [], "allowPatterns": [], "allowedEnvKeys": [],
              "sandbox": "", "sandboxRoBinds": [], "sandboxRwBinds": []},
-    "web": {"enable": true, "fetchMaxBytes": 2097152},
+    "web": {"enable": true, "fetchMaxBytes": 2097152,
+            "search": {"provider": "", "apiKey": "", "maxResults": 5, "timeout": 30},
+            "fetch": {"provider": ""}},
     "ssrfWhitelist": [],
     "mcpServers": {}
   },
@@ -322,6 +325,46 @@ Images are saved under `<workspace>/media/generated/<date>/` and the agent
 sends them with `message`'s `media`, so they arrive as photos on Telegram
 and WeChat and inline in the WebUI. See
 [docs/image-generation.md](docs/image-generation.md) for the options.
+
+### Web search (DeepSeek)
+
+`web_search` is off by default: it is registered only when
+`tools.web.enable` is true and `tools.web.search.provider` is
+`"deepseek"`. Empty or any other provider leaves it out (`web_fetch`
+stays). It calls DeepSeek's client-side Search API
+(`POST https://api.deepseek.com/v1/tools/search`), which DeepSeek bills
+per successful request; it is unrelated to provider-hosted search in
+chat completions, and works whichever chat provider you use.
+
+```json
+{
+  "providers": {"deepseek": {"apiKey": "sk-..."}},
+  "tools": {"web": {"search": {"provider": "deepseek", "maxResults": 5, "timeout": 30}}}
+}
+```
+
+The key is `tools.web.search.apiKey`, else `providers.deepseek.apiKey`
+(so `NANOBOT_GO_DEEPSEEK_API_KEY` and the Providers page work), else the
+`DEEPSEEK_API_KEY` or `WEB_SEARCH_API_KEY` environment variable; the
+resolved key is never written to `config.json`. `maxResults` (1–50,
+default 5) is the count when the model gives none; the model may ask for
+1–50. `timeout` is in seconds (1–300, default 30). Queries are 1–128
+characters; each result is the title, URL, date and DeepSeek's summary
+(or snippet), capped at 500 characters. Transient failures (408, 429,
+5xx) are retried once after a second; 401, 402 (balance) and 429 get
+explicit messages.
+
+`"fetch": {"provider": "deepseek"}` makes `web_fetch` read pages through
+DeepSeek's Fetch API (`POST /v1/tools/fetch`, billed per successful
+request, same key) instead of fetching them itself: DeepSeek's servers
+get the URL and return the page as Markdown. The SSRF policy does not
+apply there (nothing is dialled locally), so internal URLs are simply
+unreachable. Empty (the default) fetches directly.
+
+The Status dialog edits the search provider, result count, timeout and
+the fetch backend, and says where the key comes from; set the key on the
+Providers page (`deepseek`) or in `config.json`. Restart the gateway
+after saving.
 
 ### Scheduled jobs (cron)
 
@@ -1145,11 +1188,18 @@ and press Enter. Each reply is a full agent turn, tools included.
   | `tools.image_generation.model` | `tools.imageGeneration.model` | as `model`; required when enabled |
   | `tools.image_generation.default_aspect_ratio` / `default_image_size` | `tools.imageGeneration.defaultAspectRatio` / `defaultImageSize` | non-empty, no spaces, at most 32 bytes |
   | `tools.image_generation.max_images_per_turn` | `tools.imageGeneration.maxImagesPerTurn` | 1–8 |
+  | `tools.web_search.provider` | `tools.web.search.provider` | `""` (no `web_search`) or `deepseek` |
+  | `tools.web_search.max_results` | `tools.web.search.maxResults` | 1–50 |
+  | `tools.web_search.timeout` | `tools.web.search.timeout` | 1–300 seconds |
+  | `tools.web_fetch_provider` | `tools.web.fetch.provider` | `""` (direct) or `deepseek` |
   | `tools.ssrf_whitelist` | `tools.ssrfWhitelist` | list (at most 64) of IP addresses or CIDR ranges, at most 64 bytes each; sent whole, `[]` clears it; applied at once (see [Network access](#network-access-ssrf-protection)) |
   | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
 
   `GET /ui/settings` reads the file and answers
-  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":"","image_generation":{"enabled":false,"provider":"openrouter","model":"openai/gpt-5.4-image-2","default_aspect_ratio":"1:1","default_image_size":"1K","max_images_per_turn":4},"ssrf_whitelist":[]},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"],"image_generation_provider":["openrouter","openai"]}}`.
+  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":"","image_generation":{"enabled":false,"provider":"openrouter","model":"openai/gpt-5.4-image-2","default_aspect_ratio":"1:1","default_image_size":"1K","max_images_per_turn":4},"ssrf_whitelist":[],"web_search":{"provider":"","max_results":5,"timeout":30,"key_source":"providers.deepseek.apiKey"},"web_fetch_provider":""},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"],"image_generation_provider":["openrouter","openai"],"web_provider":["","deepseek"]}}`.
+  `tools.web_search.key_source` is read-only: where the DeepSeek key
+  would come from (`tools.web.search.apiKey`, `providers.deepseek.apiKey`,
+  `environment`, or `""` for none); the key itself is never sent.
   `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings

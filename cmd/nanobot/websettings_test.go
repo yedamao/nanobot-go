@@ -88,7 +88,9 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 		Tools: websocket.ToolSettings{Exec: true, WebFetch: true, ImageGeneration: websocket.ImageGenerationSettings{
 			Provider: config.DefaultImageProvider, Model: config.DefaultImageModel, DefaultAspectRatio: config.DefaultImageAspectRatio,
 			DefaultImageSize: config.DefaultImageSize, MaxImagesPerTurn: config.DefaultMaxImagesPerTurn,
-		}, SSRFWhitelist: []string{}},
+		}, SSRFWhitelist: []string{}, WebSearch: websocket.WebSearchSettings{
+			MaxResults: config.DefaultWebSearchResults, Timeout: config.DefaultWebSearchTimeout,
+		}},
 		Channels: map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
 	}
 	if !reflect.DeepEqual(v.Settings, want) || len(v.RestartRequired) != 0 || len(v.EnvOverrides) != 0 {
@@ -322,6 +324,66 @@ func TestWebSettingsSSRFWhitelist(t *testing.T) {
 	}
 	if _, err := s.UpdateSettings(ssrfPatch("10.0.0.1", "bad")); err == nil || !strings.Contains(err.Error(), "tools.ssrf_whitelist[1]") {
 		t.Errorf("bad entry error = %v", err)
+	}
+}
+
+func TestWebSettingsWebSearch(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, nil)
+
+	v, err := s.UpdateSettings(websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{
+		WebSearch:        &websocket.WebSearchPatch{Provider: ptr(" DeepSeek "), MaxResults: ptr(12), Timeout: ptr(45)},
+		WebFetchProvider: ptr("deepseek"),
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ws := v.Settings.Tools.WebSearch
+	if ws.Provider != "deepseek" || ws.MaxResults != 12 || ws.Timeout != 45 || v.Settings.Tools.WebFetchProvider != "deepseek" {
+		t.Errorf("after update: %+v, fetch %q", ws, v.Settings.Tools.WebFetchProvider)
+	}
+	wantRestart := []string{"tools.web_search.provider", "tools.web_search.max_results", "tools.web_search.timeout", "tools.web_fetch_provider"}
+	if !slices.Equal(v.RestartRequired, wantRestart) {
+		t.Errorf("restart = %v", v.RestartRequired)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Tools.Web.Search; got.Provider != "deepseek" || got.MaxResults != 12 || got.Timeout != 45 || got.APIKey != "" ||
+		cfg.Tools.Web.Fetch.Provider != "deepseek" || cfg.Providers.Anthropic.APIKey != fileSecret+"-anthropic" {
+		t.Errorf("saved web = %+v", cfg.Tools.Web)
+	}
+
+	for _, p := range []websocket.WebSearchPatch{
+		{Provider: ptr("brave")}, {MaxResults: ptr(0)}, {MaxResults: ptr(51)}, {Timeout: ptr(0)}, {Timeout: ptr(301)},
+	} {
+		if _, err := s.UpdateSettings(websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{WebSearch: &p}}); !errors.Is(err, websocket.ErrInvalidSettings) {
+			t.Errorf("%+v: err = %v", p, err)
+		}
+	}
+	if _, err := s.UpdateSettings(websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{WebFetchProvider: ptr("jina")}}); !errors.Is(err, websocket.ErrInvalidSettings) {
+		t.Errorf("fetch provider jina: err = %v", err)
+	}
+}
+
+func TestWebSearchKeySource(t *testing.T) {
+	env := map[string]string{}
+	getenv := func(k string) string { return env[k] }
+	cfg := config.Default()
+	for _, step := range []struct {
+		set  func()
+		want string
+	}{
+		{func() {}, ""},
+		{func() { env["WEB_SEARCH_API_KEY"] = envSecret }, "environment"},
+		{func() { env["NANOBOT_GO_DEEPSEEK_API_KEY"] = envSecret }, "providers.deepseek.apiKey"},
+		{func() { cfg.Tools.Web.Search.APIKey = fileSecret }, "tools.web.search.apiKey"},
+	} {
+		step.set()
+		if got := webSearchKeySource(cfg, getenv); got != step.want {
+			t.Errorf("key source = %q, want %q", got, step.want)
+		}
 	}
 }
 

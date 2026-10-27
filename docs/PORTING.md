@@ -1354,6 +1354,43 @@ Phase 2 is complete; phase 3 is in progress.
   `_record_channel_delivery` and session-generation metadata, and
   `message_id` as an argument.
 
+### Web search
+
+- **Done (DeepSeek only):** `web_search` (`internal/tools/builtin/web_search.go`),
+  a port of `_search_deepseek` in `agent/tools/web.py`: the client-side
+  DeepSeek Search API (`POST https://api.deepseek.com/v1/tools/search`,
+  `{query, count, need_content: false}`), never provider-hosted search
+  injected into a chat completion. Same limits and wording as nanobot:
+  1–128 Unicode characters (runes) after trimming, count clamped to
+  1–50, `summary` preferred over `snippet` and capped at 500 characters
+  with a `date` line before it, `error.message` details tag-stripped and
+  capped at 300, one retry after 1 s on 408/429/5xx, explicit 401/402/429
+  messages, `_format_results`' output. Config `tools.web.search`
+  (`provider`, `apiKey`, `maxResults`, `timeout`); registered only when
+  `tools.web.enable` and the provider is `deepseek` (case-insensitive).
+- **Deviation: provider default.** nanobot defaults to `duckduckgo`;
+  nanobot-go defaults to `""` (no `web_search`), since the only provider
+  bills per call and needs a key.
+- **Deviation: key fallback.** `tools.web.search.apiKey`, else
+  `providers.deepseek.apiKey` (environment applied), else
+  `DEEPSEEK_API_KEY` / `WEB_SEARCH_API_KEY`; resolved at startup and
+  never saved.
+- **Done (addition): DeepSeek Fetch backend.** `tools.web.fetch.provider:
+  "deepseek"` sends `web_fetch` URLs to `POST /v1/tools/fetch`
+  (documented by DeepSeek: `{url}` → `{title, content}` Markdown, same
+  errors and retry rules); nanobot has no such backend (its `fetch`
+  config is `useJinaReader`). The URL is checked for shape only (http(s),
+  host, no credentials, at most 8192 characters); the SSRF policy does
+  not apply since nothing is dialled locally.
+- **Not ported:** Brave, Tavily, DuckDuckGo, SearXNG, Jina, Exa,
+  AnySearch, Volcengine, `baseUrl`, proxies, the per-call config reload.
+- **WebUI:** `/ui/settings` takes `tools.web_search` (provider,
+  max_results, timeout) and `tools.web_fetch_provider`, all
+  `restart_required`; the view adds a read-only `key_source`. The key is
+  not editable there (the settings schema refuses secret-looking keys);
+  it goes in `config.json` or on the Providers page as
+  `providers.deepseek`.
+
 ### Image generation
 
 - **Done (openrouter, openai):** `generate_image`

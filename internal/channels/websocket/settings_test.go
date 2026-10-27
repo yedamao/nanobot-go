@@ -68,6 +68,14 @@ func TestParseSettingsPatch(t *testing.T) {
 		p.Tools.SSRFWhitelist == nil || !slices.Equal(*p.Tools.SSRFWhitelist, []string{"10.19.3.17", "100.64.0.0/10"}) {
 		t.Errorf("ssrf whitelist patch = %+v, %v", p, err)
 	}
+	p, err = ParseSettingsPatch([]byte(`{"tools":{"web_search":{"provider":"deepseek","max_results":8,"timeout":20},"web_fetch_provider":"deepseek"}}`))
+	if err != nil || p.Tools == nil || p.Tools.WebSearch == nil || *p.Tools.WebSearch.Provider != "deepseek" ||
+		*p.Tools.WebSearch.MaxResults != 8 || *p.Tools.WebSearch.Timeout != 20 || *p.Tools.WebFetchProvider != "deepseek" {
+		t.Errorf("web search patch = %+v, %v", p, err)
+	}
+	if _, err := ParseSettingsPatch([]byte(`{"tools":{"web_search":{"apiKey":"sk"}}}`)); err == nil || !strings.Contains(err.Error(), "config.json only") {
+		t.Errorf("web search key patch err = %v", err)
+	}
 	if p, err := ParseSettingsPatch([]byte(`{"tools":{"ssrf_whitelist":[]}}`)); err != nil || p.Tools.SSRFWhitelist == nil || len(*p.Tools.SSRFWhitelist) != 0 {
 		t.Errorf("clearing ssrf whitelist patch = %+v, %v", p, err)
 	}
@@ -168,8 +176,9 @@ func TestSettingsEndpoints(t *testing.T) {
 
 	code, body := do(http.MethodGet, "", "", "")
 	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":"",` +
-		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0},"ssrf_whitelist":[]},"channels":{}},` +
-		`"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[]}}` + "\n"
+		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0},"ssrf_whitelist":[],` +
+		`"web_search":{"provider":"","max_results":0,"timeout":0,"key_source":""},"web_fetch_provider":""},"channels":{}},` +
+		`"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[],"web_provider":[]}}` + "\n"
 	if code != http.StatusOK || body != want {
 		t.Errorf("GET = %d\n%s\nwant\n%s", code, body, want)
 	}

@@ -20,6 +20,8 @@ const saved: Settings = {
       max_images_per_turn: 4,
     },
     ssrf_whitelist: ["100.64.0.0/10"],
+    web_search: { provider: "", max_results: 5, timeout: 30, key_source: "providers.deepseek.apiKey" },
+    web_fetch_provider: "",
   },
   channels: { websocket: { enabled: true }, telegram: { enabled: false } },
 };
@@ -55,6 +57,23 @@ test("image generation fields are patched trimmed and on their own", () => {
   assert.deepEqual(diffSettings(saved, draft), {
     tools: { image_generation: { enabled: true, provider: "openai", model: "gpt-image-1", max_images_per_turn: 2 } },
   });
+});
+
+test("web search and fetch provider are patched without the key source", () => {
+  const draft = clone(saved);
+  draft.tools.web_search!.key_source = "environment";
+  assert.deepEqual(diffSettings(saved, draft), {});
+  draft.tools.web_search!.provider = "deepseek";
+  draft.tools.web_search!.max_results = 10;
+  draft.tools.web_fetch_provider = "deepseek";
+  assert.deepEqual(diffSettings(saved, draft), {
+    tools: { web_search: { provider: "deepseek", max_results: 10 }, web_fetch_provider: "deepseek" },
+  });
+  // An older gateway without the fields sends nothing for them.
+  const old = clone(saved);
+  delete old.tools.web_search;
+  delete old.tools.web_fetch_provider;
+  assert.deepEqual(diffSettings(old, clone(old)), {});
 });
 
 test("the SSRF whitelist is patched as a whole list, trimmed, without blank lines", () => {

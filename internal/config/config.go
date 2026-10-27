@@ -49,7 +49,17 @@ const (
 	DefaultDreamIntervalH = 2
 	DefaultExecTimeout    = 60
 	DefaultFetchMaxBytes  = 2 << 20
+	// DefaultWebSearchResults and DefaultWebSearchTimeout match nanobot's
+	// WebSearchConfig; the DeepSeek Search API returns at most 50 results.
+	DefaultWebSearchResults = 5
+	DefaultWebSearchTimeout = 30
+	MaxWebSearchResults     = 50
+	MaxWebSearchTimeout     = 300
 )
+
+// WebSearchDeepSeek is the tools.web.search.provider that enables
+// web_search.
+const WebSearchDeepSeek = "deepseek"
 
 // ProviderAuto picks the provider from the model name and configured keys.
 const ProviderAuto = "auto"
@@ -254,10 +264,34 @@ type ExecToolConfig struct {
 	SandboxRwBinds []string `json:"sandboxRwBinds"`
 }
 
-// WebToolConfig configures the web_fetch tool.
+// WebToolConfig configures the web_fetch and web_search tools.
 type WebToolConfig struct {
-	Enable        bool  `json:"enable"`
-	FetchMaxBytes int64 `json:"fetchMaxBytes"`
+	Enable        bool            `json:"enable"`
+	FetchMaxBytes int64           `json:"fetchMaxBytes"`
+	Search        WebSearchConfig `json:"search"`
+	Fetch         WebFetchConfig  `json:"fetch"`
+}
+
+// WebFetchConfig selects how web_fetch reads pages. Provider "deepseek"
+// uses the DeepSeek Fetch API (billed per successful request, with the
+// key web_search resolves); empty fetches directly.
+type WebFetchConfig struct {
+	Provider string `json:"provider"`
+}
+
+// WebSearchConfig configures the web_search tool. It is registered only
+// when Provider is "deepseek" (the client-side DeepSeek Search API, billed
+// per successful call); empty or any other provider leaves it out.
+type WebSearchConfig struct {
+	Provider string `json:"provider"`
+	// APIKey is the search key; empty falls back to
+	// providers.deepseek.apiKey, then DEEPSEEK_API_KEY and
+	// WEB_SEARCH_API_KEY.
+	APIKey string `json:"apiKey"`
+	// MaxResults is the default result count (0 means 5, at most 50).
+	MaxResults int `json:"maxResults"`
+	// Timeout is the request timeout in seconds (0 means 30).
+	Timeout int `json:"timeout"`
 }
 
 // Default returns the default config.
@@ -281,7 +315,8 @@ func Default() *Config {
 			RestrictToWorkspace: true,
 			Exec: ExecToolConfig{Enable: true, Timeout: DefaultExecTimeout, DenyPatterns: []string{}, AllowPatterns: []string{}, AllowedEnvKeys: []string{},
 				SandboxRoBinds: []string{}, SandboxRwBinds: []string{}},
-			Web:           WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes},
+			Web: WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes,
+				Search: WebSearchConfig{MaxResults: DefaultWebSearchResults, Timeout: DefaultWebSearchTimeout}},
 			SSRFWhitelist: []string{},
 			MCPServers:    map[string]MCPServerConfig{},
 			ImageGeneration: ImageGenerationConfig{
@@ -522,6 +557,12 @@ func (c *Config) Validate() error {
 	if c.Tools.Web.FetchMaxBytes < 0 {
 		bad("tools.web.fetchMaxBytes must not be negative, got %d", c.Tools.Web.FetchMaxBytes)
 	}
+	if ws := c.Tools.Web.Search; ws.MaxResults < 0 || ws.MaxResults > MaxWebSearchResults {
+		bad("tools.web.search.maxResults must be in [1, %d] (0 for the default), got %d", MaxWebSearchResults, ws.MaxResults)
+	}
+	if ws := c.Tools.Web.Search; ws.Timeout < 0 || ws.Timeout > MaxWebSearchTimeout {
+		bad("tools.web.search.timeout must be in [1, %d] seconds (0 for the default), got %d", MaxWebSearchTimeout, ws.Timeout)
+	}
 	if _, err := security.ParseWhitelist(c.Tools.SSRFWhitelist); err != nil {
 		bad("tools.ssrfWhitelist%v", err)
 	}
@@ -584,4 +625,23 @@ func SafeRelDir(dir string) (string, error) {
 		}
 	}
 	return norm, nil
+}
+
+// WebSearchAPIKey returns the DeepSeek key web_search and a "deepseek"
+// web_fetch use: tools.web.search.apiKey,
+// else providers.deepseek.apiKey (with NANOBOT_GO_DEEPSEEK_API_KEY applied
+// when ApplyEnv ran), else the DEEPSEEK_API_KEY or WEB_SEARCH_API_KEY
+// environment variable. The result is never saved.
+func (c *Config) WebSearchAPIKey(getenv func(string) string) string {
+	for _, k := range []string{
+		c.Tools.Web.Search.APIKey,
+		c.Providers.DeepSeek.APIKey,
+		getenv("DEEPSEEK_API_KEY"),
+		getenv("WEB_SEARCH_API_KEY"),
+	} {
+		if k = strings.TrimSpace(k); k != "" {
+			return k
+		}
+	}
+	return ""
 }

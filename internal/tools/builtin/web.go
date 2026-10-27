@@ -39,12 +39,24 @@ type WebFetchConfig struct {
 	// Policy decides which addresses are reachable (tools.ssrfWhitelist).
 	// nil blocks loopback, private, CGNAT and metadata ranges.
 	Policy *security.Policy
+	// Provider "deepseek" fetches pages through the DeepSeek Fetch API
+	// (billed per successful request) instead of a direct GET; empty or
+	// any other value fetches directly.
+	Provider string
+	// DeepSeekAPIKey is the resolved key for Provider "deepseek".
+	DeepSeekAPIKey string
+	// DeepSeekURL overrides DeepSeekFetchURL (tests).
+	DeepSeekURL string
 }
 
 // WebFetch implements web_fetch.
 type WebFetch struct {
 	cfg    WebFetchConfig
 	client *http.Client
+	// apiClient calls the DeepSeek Fetch API: a public endpoint, so the
+	// SSRF policy (meant for the fetched target) does not apply to it.
+	apiClient  *http.Client
+	retryDelay time.Duration
 }
 
 // NewWebFetch returns the web_fetch tool.
@@ -73,7 +85,10 @@ func NewWebFetch(cfg WebFetchConfig) *WebFetch {
 		Timeout:       cfg.Timeout,
 		CheckRedirect: cfg.Policy.CheckRedirect(maxRedirects),
 	}
-	return &WebFetch{cfg: cfg, client: client}
+	if cfg.DeepSeekURL == "" {
+		cfg.DeepSeekURL = DeepSeekFetchURL
+	}
+	return &WebFetch{cfg: cfg, client: client, apiClient: &http.Client{Timeout: cfg.Timeout}, retryDelay: deepseekRetryDelay}
 }
 
 func (*WebFetch) Name() string { return "web_fetch" }
@@ -102,6 +117,9 @@ func (w *WebFetch) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 	u, err := url.Parse(strings.TrimSpace(args.URL))
 	if err != nil {
 		return tools.Errorf("invalid URL %q: %v", args.URL, err)
+	}
+	if strings.EqualFold(strings.TrimSpace(w.cfg.Provider), "deepseek") {
+		return w.fetchDeepSeek(ctx, u, args.MaxChars)
 	}
 	// One deadline and one DNS pin set for the check, every redirect hop
 	// and every dial: each host is resolved and validated exactly once.
@@ -154,6 +172,45 @@ func (w *WebFetch) Execute(ctx context.Context, raw json.RawMessage) tools.Resul
 		res.Content = "Error: HTTP " + resp.Status + "\n" + res.Content
 	}
 	return res
+}
+
+// fetchDeepSeek fetches u through the DeepSeek Fetch API, which returns
+// the page's title and its content as Markdown. DeepSeek's servers do the
+// fetching, so the target is checked for shape only.
+func (w *WebFetch) fetchDeepSeek(ctx context.Context, u *url.URL, maxChars int) tools.Result {
+	if w.cfg.DeepSeekAPIKey == "" {
+		return tools.Errorf("DeepSeek fetch requires an API key. Set tools.web.search.apiKey or providers.deepseek.apiKey.")
+	}
+	switch {
+	case u.Scheme != "http" && u.Scheme != "https":
+		return tools.Errorf("fetch %s: only http and https URLs are supported", u.Redacted())
+	case u.Host == "":
+		return tools.Errorf("fetch %s: URL has no host", u.Redacted())
+	case u.User != nil:
+		return tools.Errorf("fetch %s: URLs with credentials are not supported", u.Redacted())
+	case len(u.String()) > deepseekMaxFetchURL:
+		return tools.Errorf("fetch: URL is longer than %d characters", deepseekMaxFetchURL)
+	}
+	ctx, cancel := context.WithTimeout(ctx, w.cfg.Timeout)
+	defer cancel()
+	body, fail := deepseekPost(ctx, deepseekCall{
+		client: w.apiClient, url: w.cfg.DeepSeekURL, key: w.cfg.DeepSeekAPIKey, userAgent: w.cfg.UserAgent,
+		retryDelay: w.retryDelay, what: "fetch", keyHint: "tools.web.search.apiKey",
+		tool: "web_fetch",
+	}, map[string]string{"url": u.String()})
+	if fail != nil {
+		return *fail
+	}
+	var page struct {
+		Title   any `json:"title"`
+		Content any `json:"content"`
+	}
+	if err := json.Unmarshal(body, &page); err != nil {
+		return tools.Errorf("DeepSeek fetch returned a response that was not valid JSON.")
+	}
+	header := fmt.Sprintf("URL: %s\nTitle: %s\nSource: DeepSeek Fetch API (Markdown)\n%s\n\n",
+		u, apiText(page.Title), untrustedNote)
+	return tools.Text(header + tools.Truncate(apiText(page.Content), maxChars))
 }
 
 func isTextual(mediaType string, body []byte) bool {

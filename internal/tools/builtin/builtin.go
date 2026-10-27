@@ -1,5 +1,5 @@
 // Package builtin implements nanobot's built-in tools: filesystem access,
-// shell execution and web fetching.
+// shell execution, web fetching and web search.
 package builtin
 
 import (
@@ -16,6 +16,9 @@ type Config struct {
 	Workspace *security.Workspace
 	Exec      ExecConfig
 	Web       WebFetchConfig
+	// Search configures web_search, registered when web tools are on
+	// (Web.Disabled false) and Search.Enabled.
+	Search WebSearchConfig
 }
 
 // RegisterAll registers every enabled built-in tool with r.
@@ -38,6 +41,9 @@ func RegisterAll(r *tools.Registry, cfg Config) error {
 	}
 	if !cfg.Web.Disabled {
 		ts = append(ts, NewWebFetch(cfg.Web))
+		if cfg.Search.Enabled() {
+			ts = append(ts, NewWebSearch(cfg.Search))
+		}
 	}
 	for _, t := range ts {
 		if err := r.Register(t); err != nil {

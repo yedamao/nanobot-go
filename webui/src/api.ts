@@ -100,8 +100,21 @@ export interface Settings {
     image_generation: ImageGenerationSettings;
     /** tools.ssrfWhitelist: IP addresses and CIDR ranges tools may reach although private. */
     ssrf_whitelist: string[] | null;
+    /** tools.web.search: web_search is registered when its provider is "deepseek". */
+    web_search?: WebSearchSettings;
+    /** tools.web.fetch.provider: "deepseek" fetches through the DeepSeek Fetch API, "" directly. */
+    web_fetch_provider?: string;
   };
   channels: Record<string, { enabled: boolean }>;
+}
+
+/** tools.web.search as the settings show it; the key is never sent. */
+export interface WebSearchSettings {
+  provider: string;
+  max_results: number;
+  timeout: number;
+  /** Where the DeepSeek key comes from ("" when none is set); read-only. */
+  key_source?: string;
 }
 
 /** tools.imageGeneration as the settings show it; the key stays on the Providers page. */
@@ -118,6 +131,8 @@ export interface SettingsChoices {
   provider: string[] | null;
   exec_sandbox: string[] | null;
   image_generation_provider: string[] | null;
+  /** web_search and web_fetch providers, "" (none / direct) included. */
+  web_provider?: string[] | null;
 }
 
 export interface SettingsView {
@@ -134,8 +149,9 @@ export interface SettingsPatch {
   provider?: string;
   /** Replaces the whole list; [] clears it. */
   fallbackModels?: FallbackModel[];
-  tools?: Partial<Omit<Settings["tools"], "image_generation" | "ssrf_whitelist">> & {
+  tools?: Partial<Omit<Settings["tools"], "image_generation" | "ssrf_whitelist" | "web_search">> & {
     image_generation?: Partial<ImageGenerationSettings>;
+    web_search?: Partial<Omit<WebSearchSettings, "key_source">>;
     /** Replaces the whole list; [] clears it. */
     ssrf_whitelist?: string[];
   };
