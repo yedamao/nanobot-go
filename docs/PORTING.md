@@ -223,8 +223,21 @@ Phase 2 is complete; phase 3 is in progress.
     trailing suffixes of the base name made of letters, digits, `-` and
     `_` (32 bytes at most) are kept, so a sender's `file_name` cannot
     reach outside `media/telegram`. Commands, failures, size and replies
-    behave like videos. As in nanobot, an animation (which Telegram also
-    sends as a document) is saved as a file.
+    behave like videos. This path is for true documents only: an
+    animation, which Telegram also sends as a document, is handled as an
+    animation (below), where nanobot checks `msg.document` first and so
+    saves every animation as a file.
+    Inbound animations (`msg.animation`, GIFs and soundless H.264 clips;
+    new, see above): checked before `msg.document`, downloaded the same
+    way under the same 20 MB `getFile` cap to
+    `media/telegram/<file_unique_id>.<ext>` and attached as Media, with
+    `[animation: <path>]` after the caption; not transcribed. The
+    extension follows `_get_extension`: a known image/video MIME type
+    (`image/gif` gives `.gif`, so sending the path back goes through
+    `sendAnimation`; `video/mp4` gives `.mp4`, sent back with
+    `sendVideo`), else the file name's suffixes as for documents, else
+    `.mp4`. Commands, failures, size, replies and albums behave like
+    videos.
     Inbound stickers (`msg.sticker`; new: nanobot's Telegram channel does
     not register `filters.STICKER`, so it ignores them): static, animated
     and video stickers are downloaded the same way under the same 20 MB
@@ -235,7 +248,8 @@ Phase 2 is complete; phase 3 is in progress.
     videos.
     Inbound media groups (albums, `msg.media_group_id`): like nanobot's
     `_media_group_buffers`, each message of an album is handled as usual
-    (downloads, `[video: ...]`/`[file: ...]` parts, reply context) but
+    (downloads, `[video: ...]`/`[animation: ...]`/`[file: ...]` parts,
+    reply context) but
     buffered under `<chat_id>:<media_group_id>`; the first one starts
     typing and schedules a flush 600ms later, which publishes one turn
     with the first message's metadata and topic session, the non-empty
@@ -246,7 +260,7 @@ Phase 2 is complete; phase 3 is in progress.
     `[empty message]`). A command caption is not buffered. Stop drops
     pending albums, like nanobot's `stop`.
   - Not ported (Telegram): webhook mode, other inbound media
-    (animations as such, locations), nanobot's transcription config (`transcription.*`, the
+    (locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
@@ -1058,8 +1072,10 @@ Phase 2 is complete; phase 3 is in progress.
   and video (transcribing voice), forwards locations and merges media
   groups. nanobot-go handles text, captions, photos, voice notes and
   audio files (transcribed through OpenAI's Whisper only, when
-  `providers.openai` has a key, where nanobot defaults to Groq), videos
-  and video notes (saved and attached, not transcribed); other
+  `providers.openai` has a key, where nanobot defaults to Groq), videos,
+  video notes, animations, documents and stickers (saved and attached,
+  not transcribed; an animation as such, not as the document Telegram
+  sets beside it), and merges media groups; other
   messages without text are skipped (a stranger's still gets a pairing
   code).
 - **Access check.** As in nanobot: `"*"`, then the sender ID

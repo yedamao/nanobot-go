@@ -448,8 +448,8 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 		c.deny(ctx, m, senderID)
 		return
 	}
-	// A photo, voice note, document, video or sticker whose caption is a
-	// command runs the command only.
+	// A photo, voice note, animation, document, video or sticker whose
+	// caption is a command runs the command only.
 	hasPhoto := len(m.Photo) > 0 && !isCommand
 	k, hasClip := clipOf(m)
 	hasClip = hasClip && !isCommand
@@ -479,8 +479,8 @@ func (c *Channel) handle(ctx context.Context, m *message) {
 			media = []string{p}
 		}
 	}
-	// A voice note, audio file, document, video or sticker adds its
-	// transcript (or path) after the caption, like nanobot's
+	// A voice note, audio file, animation, document, video or sticker
+	// adds its transcript (or path) after the caption, like nanobot's
 	// content_parts.
 	if hasClip {
 		if p, part, err := c.downloadClip(ctx, k); err != nil {

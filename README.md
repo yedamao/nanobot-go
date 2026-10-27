@@ -712,8 +712,12 @@ apply.
   (`POST {apiBase}/audio/transcriptions`, `whisper-1`) and the text reads
   `[transcription: ...]` after any caption, otherwise (or if transcription
   fails) `[voice: media/telegram/<id>.ogg]`, so the agent still gets the
-  turn. Replying to a voice note attaches it the same way. Video,
-  documents and other media without a caption are ignored. Replies are sent as **plain text**, so Markdown from the model
+  turn. Replying to a voice note attaches it the same way. **Videos,
+  video notes, animations (GIFs), documents and stickers** are saved to
+  `media/telegram/` the same way (up to 20 MB) and attached, read as
+  `[video: ...]`, `[video_note: ...]`, `[animation: ...]`, `[file: ...]`
+  or `[sticker: ...]` after any caption (not transcribed); an animation
+  saved as `.gif` goes back through `sendAnimation`. Replies are sent as **plain text**, so Markdown from the model
   shows literally but can never break delivery; long replies are split at
   newlines or spaces into messages of at most 4096 characters. Files of a
   reply (workspace paths, up to 10) are uploaded first: images with

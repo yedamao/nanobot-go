@@ -25,9 +25,10 @@ const (
 	// maxPhotoBytes caps a downloaded photo at what the providers inline;
 	// a larger one could never reach the model.
 	maxPhotoBytes = providers.MaxImageBytes
-	// maxClipBytes caps a downloaded voice note, audio file, document,
-	// video, video note or sticker at the Bot API's getFile limit (20 MB; bots
-	// cannot download larger files, so nanobot has no cap of its own).
+	// maxClipBytes caps a downloaded voice note, audio file, animation,
+	// document, video, video note or sticker at the Bot API's getFile
+	// limit (20 MB; bots cannot download larger files, so nanobot has no
+	// cap of its own).
 	maxClipBytes = 20 << 20
 	// transcribeTimeout bounds the transcription of one clip; the poll
 	// loop waits for it.
@@ -128,26 +129,29 @@ func (c *Channel) fetchFile(ctx context.Context, fileID string, limit int64) ([]
 	return c.api.download(ctx, f.FilePath, limit)
 }
 
-// clip is the voice note, audio file, document, video, video note or
-// sticker of a message.
+// clip is the voice note, audio file, animation, document, video, video
+// note or sticker of a message.
 type clip struct {
-	// kind is "voice", "audio", "file" (a document, as nanobot tags it),
-	// "video", "video_note" or "sticker", the tag of its content part.
+	// kind is "voice", "audio", "animation", "file" (a document, as
+	// nanobot tags it), "video", "video_note" or "sticker", the tag of its
+	// content part.
 	kind     string
 	fileID   string
 	uniqueID string
 	mimeType string
-	// fileName is the sender's name for a document, used only for its
-	// extension.
+	// fileName is the sender's name for a document or animation, used
+	// only for its extension.
 	fileName string
 	// stickerExt is the extension of a sticker, which has no MIME type.
 	stickerExt string
 	size       int64
 }
 
-// clipOf returns the voice note, audio file, document, video, video note
-// or sticker of m, if it has one, in nanobot's order (stickers, which
-// nanobot does not handle, last).
+// clipOf returns the voice note, audio file, animation, document, video,
+// video note or sticker of m, if it has one, in nanobot's order (stickers,
+// which nanobot does not handle, last), except that an animation comes
+// before the document Telegram sets beside it: nanobot checks the
+// document first and so takes every animation for a plain file.
 func clipOf(m *message) (clip, bool) {
 	switch {
 	case m.Voice != nil:
@@ -156,6 +160,9 @@ func clipOf(m *message) (clip, bool) {
 	case m.Audio != nil:
 		a := m.Audio
 		return clip{kind: "audio", fileID: a.FileID, uniqueID: a.FileUniqueID, mimeType: a.MimeType, size: a.FileSize}, true
+	case m.Animation != nil:
+		a := m.Animation
+		return clip{kind: "animation", fileID: a.FileID, uniqueID: a.FileUniqueID, mimeType: a.MimeType, fileName: a.FileName, size: a.FileSize}, true
 	case m.Document != nil:
 		d := m.Document
 		return clip{kind: "file", fileID: d.FileID, uniqueID: d.FileUniqueID, mimeType: d.MimeType, fileName: d.FileName, size: d.FileSize}, true
@@ -181,8 +188,9 @@ func clipOf(m *message) (clip, bool) {
 
 // ext is the file extension of a clip: by MIME type, then by kind (like
 // nanobot's _get_extension); a document without a known MIME type takes
-// the suffixes of its file name, else none; a sticker's comes from its
-// type. A video note's is ".video_note.mp4", so that sending the saved
+// the suffixes of its file name, else none; an animation's likewise, else
+// ".mp4" (a GIF saved as .gif goes back through sendAnimation); a
+// sticker's comes from its type. A video note's is ".video_note.mp4", so that sending the saved
 // file back goes through sendVideoNote (see outboundMediaOf).
 func (k clip) ext() string {
 	mime := strings.ToLower(k.mimeType)
@@ -196,6 +204,16 @@ func (k clip) ext() string {
 			}
 		}
 		return nameExt(k.fileName)
+	case "animation":
+		for _, exts := range []map[string]string{photoExts, videoExts} {
+			if ext, ok := exts[mime]; ok {
+				return ext
+			}
+		}
+		if ext := nameExt(k.fileName); ext != "" {
+			return ext
+		}
+		return ".mp4" // Telegram's are usually MPEG4
 	case "video":
 		if ext, ok := videoExts[mime]; ok {
 			return ext
@@ -241,14 +259,15 @@ func (k clip) transcribable() bool {
 	return k.kind == "voice" || k.kind == "audio"
 }
 
-// downloadClip saves a voice note, audio file, document, video, video
-// note or sticker to MediaDir in the workspace as <file_unique_id>.<ext>
-// (<file_unique_id>.video_note.mp4 for a video note; mode 0600)
+// downloadClip saves a voice note, audio file, animation, document,
+// video, video note or sticker to MediaDir in the workspace as
+// <file_unique_id>.<ext> (<file_unique_id>.video_note.mp4 for a video
+// note; mode 0600)
 // and returns its workspace-relative path with the content part that
 // stands for it: for audio, the transcript as "[transcription: …]" when
 // a Transcriber is set and returns text; else "[<kind>: <path>]", e.g.
-// "[voice: <path>]", "[file: <path>]", "[video_note: <path>]" or
-// "[sticker: <path>]" (nanobot's _download_message_media).
+// "[voice: <path>]", "[file: <path>]", "[animation: <path>]",
+// "[video_note: <path>]" or "[sticker: <path>]" (nanobot's _download_message_media).
 func (c *Channel) downloadClip(ctx context.Context, k clip) (rel, part string, err error) {
 	if c.workspace == "" {
 		return "", "", errors.New("no workspace to save it to")
