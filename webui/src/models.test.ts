@@ -22,6 +22,7 @@ const saved: Settings = {
       default_image_size: "1K",
       max_images_per_turn: 4,
     },
+    ssrf_whitelist: [],
   },
   channels: {},
 };

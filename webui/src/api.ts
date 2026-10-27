@@ -93,7 +93,14 @@ export interface Settings {
   provider: string;
   /** Tried in order when the primary provider fails. */
   fallbackModels: FallbackModel[] | null;
-  tools: { exec: boolean; web_fetch: boolean; exec_sandbox: string; image_generation: ImageGenerationSettings };
+  tools: {
+    exec: boolean;
+    web_fetch: boolean;
+    exec_sandbox: string;
+    image_generation: ImageGenerationSettings;
+    /** tools.ssrfWhitelist: IP addresses and CIDR ranges tools may reach although private. */
+    ssrf_whitelist: string[] | null;
+  };
   channels: Record<string, { enabled: boolean }>;
 }
 
@@ -116,6 +123,8 @@ export interface SettingsChoices {
 export interface SettingsView {
   settings: Settings;
   restart_required: string[] | null;
+  /** Settings of this change the running gateway took on at once (tools.ssrf_whitelist). */
+  applied?: string[] | null;
   env_overrides: string[] | null;
   choices: SettingsChoices;
 }
@@ -125,8 +134,10 @@ export interface SettingsPatch {
   provider?: string;
   /** Replaces the whole list; [] clears it. */
   fallbackModels?: FallbackModel[];
-  tools?: Partial<Omit<Settings["tools"], "image_generation">> & {
+  tools?: Partial<Omit<Settings["tools"], "image_generation" | "ssrf_whitelist">> & {
     image_generation?: Partial<ImageGenerationSettings>;
+    /** Replaces the whole list; [] clears it. */
+    ssrf_whitelist?: string[];
   };
   channels?: Record<string, { enabled: boolean }>;
 }

@@ -296,7 +296,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 #settings-fields label { display: grid; grid-template-columns: 110px 1fr; gap: 8px; align-items: center; color: var(--muted); }
 #settings-fields label.check { display: flex; gap: 8px; color: var(--text); }
 #set-image-generation { display: grid; gap: 8px; padding-left: 20px; }
-#settings-fields input[type="text"], #settings-fields input[type="number"], #settings-fields select {
+#settings-fields input[type="text"], #settings-fields input[type="number"], #settings-fields select, #settings-fields textarea {
   font: inherit;
   padding: 4px 8px;
   color: var(--text);

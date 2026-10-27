@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -26,12 +27,16 @@ type Resolver interface {
 // Policy decides which addresses outgoing HTTP requests of agent tools may
 // reach (SSRF protection). The zero value, like a nil *Policy, blocks
 // everything IsBlockedIP reports and resolves with net.DefaultResolver.
+// A Policy must not be copied after first use.
 type Policy struct {
 	// Whitelist ranges are reachable even if IsBlockedIP would block them
-	// (tools.ssrfWhitelist, e.g. a Tailscale node's 100.x.y.z/32).
+	// (tools.ssrfWhitelist, e.g. a Tailscale node's 100.x.y.z/32). Set it
+	// before the Policy is shared; change it later with SetWhitelist.
 	Whitelist []netip.Prefix
 	// Resolver resolves host names; nil uses net.DefaultResolver.
 	Resolver Resolver
+
+	mu sync.RWMutex
 }
 
 // ParseWhitelist parses CIDR ranges such as "100.64.0.0/10". A bare
@@ -76,11 +81,22 @@ func NewPolicy(cidrs []string) (*Policy, error) {
 	return &Policy{Whitelist: wl}, nil
 }
 
+// SetWhitelist replaces p's whitelist while it is in use, so the
+// requests and connections dialled afterwards honor wl; connections
+// already open are kept.
+func (p *Policy) SetWhitelist(wl []netip.Prefix) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Whitelist = slices.Clone(wl)
+}
+
 // Allow reports whether ip may be reached: it is whitelisted or not
 // blocked. IPv4-mapped IPv6 addresses are checked as IPv4.
 func (p *Policy) Allow(ip netip.Addr) bool {
 	ip = ip.Unmap().WithZone("")
 	if p != nil {
+		p.mu.RLock()
+		defer p.mu.RUnlock()
 		for _, w := range p.Whitelist {
 			if w.Contains(ip) {
 				return true

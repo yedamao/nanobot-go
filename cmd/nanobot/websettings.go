@@ -14,6 +14,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/channels/weixin"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/security"
 	"github.com/yedamao/nanobot-go/internal/security/sandbox"
 )
 
@@ -28,6 +29,17 @@ const maxImageOptionLen = 32
 // WebUI.
 const maxFallbackModels = 16
 
+// maxSSRFWhitelist caps tools.ssrfWhitelist set from the WebUI; with
+// entries of at most maxSSRFEntryLen bytes the change fits in the
+// settings body.
+const (
+	maxSSRFWhitelist = 64
+	maxSSRFEntryLen  = 64
+)
+
+// ssrfWhitelistSetting is tools.ssrfWhitelist's dotted settings path.
+const ssrfWhitelistSetting = "tools.ssrf_whitelist"
+
 // editableChannels are the channels whose "enabled" flag the WebUI may
 // set, and only when their section is already in the config file: a
 // section added from the page would lack its token.
@@ -41,10 +53,19 @@ var editableChannels = []string{telegram.Name, websocket.Name, weixin.Name}
 // start, the model, provider and fallbackModels included (the provider
 // chain is built once when the gateway starts): running holds the
 // settings the gateway runs with, to report which saved ones differ.
+// The SSRF whitelist is the exception: with ssrf set it is applied to the
+// running gateway as soon as it is saved.
 type webSettings struct {
 	path    string
 	running websocket.Settings
 	envSet  []string
+	// ssrf, when set, is the running gateway's SSRF policy, shared by
+	// web_fetch, MCP HTTP servers and the channels' media downloads.
+	ssrf *security.Policy
+	// ssrfApplied, when set, runs once a changed whitelist was applied,
+	// without the lock held: the gateway retries the MCP servers that are
+	// not connected, which it may have refused before.
+	ssrfApplied func()
 
 	mu sync.Mutex
 }
@@ -90,7 +111,32 @@ func (s *webSettings) UpdateSettings(p websocket.SettingsPatch) (websocket.Setti
 	if err := cfg.Save(s.path); err != nil {
 		return websocket.SettingsView{}, err
 	}
-	return s.view(cfg), nil
+	var applied []string
+	if p.Tools != nil && p.Tools.SSRFWhitelist != nil && s.applySSRF(cfg.Tools.SSRFWhitelist) {
+		applied = append(applied, ssrfWhitelistSetting)
+		if s.ssrfApplied != nil {
+			go s.ssrfApplied()
+		}
+	}
+	v := s.view(cfg)
+	v.Applied = applied
+	return v, nil
+}
+
+// applySSRF applies the saved whitelist list to the running policy, if
+// there is one and list differs from the running list, and reports
+// whether it did. The caller holds s.mu.
+func (s *webSettings) applySSRF(list []string) bool {
+	if s.ssrf == nil || slices.Equal(list, s.running.Tools.SSRFWhitelist) {
+		return false
+	}
+	wl, err := security.ParseWhitelist(list)
+	if err != nil { // applySettings and Validate checked it
+		return false
+	}
+	s.ssrf.SetWhitelist(wl)
+	s.running.Tools.SSRFWhitelist = slices.Clone(list)
+	return true
 }
 
 // saveDisabledSkills saves names as agents.defaults.disabledSkills: the
@@ -139,6 +185,7 @@ func settingsOf(cfg *config.Config) websocket.Settings {
 				DefaultImageSize:   ig.DefaultImageSize,
 				MaxImagesPerTurn:   ig.MaxImagesPerTurn,
 			},
+			SSRFWhitelist: append([]string{}, cfg.Tools.SSRFWhitelist...),
 		},
 		Channels: map[string]websocket.ChannelSettings{},
 	}
@@ -181,6 +228,7 @@ func settingsDiff(saved, running websocket.Settings) []string {
 	add("tools.image_generation.default_aspect_ratio", si.DefaultAspectRatio != ri.DefaultAspectRatio)
 	add("tools.image_generation.default_image_size", si.DefaultImageSize != ri.DefaultImageSize)
 	add("tools.image_generation.max_images_per_turn", si.MaxImagesPerTurn != ri.MaxImagesPerTurn)
+	add(ssrfWhitelistSetting, !slices.Equal(saved.Tools.SSRFWhitelist, running.Tools.SSRFWhitelist))
 	names := slices.Sorted(maps.Keys(saved.Channels))
 	for name := range running.Channels {
 		if _, ok := saved.Channels[name]; !ok {
@@ -250,6 +298,13 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 				return err
 			}
 		}
+		if t.SSRFWhitelist != nil {
+			list, err := checkSSRFWhitelist(*t.SSRFWhitelist)
+			if err != nil {
+				return err
+			}
+			cfg.Tools.SSRFWhitelist = list
+		}
 	}
 	for _, name := range slices.Sorted(maps.Keys(p.Channels)) {
 		on := p.Channels[name].Enabled
@@ -318,6 +373,28 @@ func applyImageGeneration(ig *config.ImageGenerationConfig, p websocket.ImageGen
 		ig.MaxImagesPerTurn = n
 	}
 	return nil
+}
+
+// checkSSRFWhitelist returns the whitelist list with its entries
+// trimmed, or an error when it is too long or an entry is not an IP
+// address or CIDR range (security.ParseWhitelist, as config.Load checks
+// it).
+func checkSSRFWhitelist(list []string) ([]string, error) {
+	if len(list) > maxSSRFWhitelist {
+		return nil, fmt.Errorf("%s must have at most %d entries", ssrfWhitelistSetting, maxSSRFWhitelist)
+	}
+	out := make([]string, 0, len(list))
+	for i, e := range list {
+		e = strings.TrimSpace(e)
+		if len(e) > maxSSRFEntryLen {
+			return nil, fmt.Errorf("%s[%d] must be at most %d bytes", ssrfWhitelistSetting, i, maxSSRFEntryLen)
+		}
+		out = append(out, e)
+	}
+	if _, err := security.ParseWhitelist(out); err != nil {
+		return nil, fmt.Errorf("%s%v", ssrfWhitelistSetting, err)
+	}
+	return out, nil
 }
 
 // checkModel returns the model name m, trimmed, or an error naming it

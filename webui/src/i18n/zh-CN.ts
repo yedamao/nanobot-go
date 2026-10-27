@@ -149,8 +149,12 @@ export const zhCN: Messages = {
     imageKeyLink: "提供商页面",
     imageKeyAfter: "配置。保存后需重启网关。",
     channel: "{name} 聊天平台",
-    savedNote: "保存到 config.json；网关重启后使用已保存的设置。密钥、令牌和允许列表只能在 config.json 中编辑。",
+    ssrfWhitelist: "SSRF 白名单",
+    ssrfWhitelistHint:
+      "允许 web_fetch、MCP 服务器和媒体下载访问的私有或内网 IP 地址及 CIDR 网段，每行一个（例如 Tailscale 的 100.64.0.0/10）。保存后立即应用到运行中的网关，并重试连接失败的 MCP 服务器。",
+    savedNote: "保存到 config.json；网关重启后使用已保存的设置，SSRF 白名单除外（立即生效）。密钥、令牌和允许列表只能在 config.json 中编辑。",
     saved: "已保存，重启网关后生效。{pending}",
+    savedApplied: "已保存，已应用到运行中的网关：{names}。{pending}",
     disableWebsocket: "停用 websocket 聊天平台？\n\n网关重启后此页面将无法访问。",
     pendingRestart: "重启网关以应用：{names}。",
     pendingEnv: "以下设置由环境变量指定，优先于已保存的值：{names}。",

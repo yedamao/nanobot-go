@@ -573,7 +573,11 @@ single host (`/32` for IPv4, `/128` for IPv6) over whole ranges:
 ```
 
 A bare address (`"192.168.1.20"`) means that host only. An entry that is
-not an address or CIDR range is a config error. `web_fetch` connects
+not an address or CIDR range is a config error. The WebUI's Status
+dialog edits the list too (one entry per line); a list saved there
+applies to the running gateway at once, with no restart: `web_fetch`,
+MCP HTTP servers (new connections; servers not connected are retried)
+and channel media downloads share one policy. `web_fetch` connects
 directly and ignores `HTTP(S)_PROXY`; MCP clients honour an environment
 proxy, in which case the URL is checked locally and the proxy connects.
 
@@ -1124,9 +1128,9 @@ and press Enter. Each reply is a full agent turn, tools included.
   (`{"provider","catalog_kind","status","message","source","models":[{"id","label"}]}`)
   never holds a key. The lists are advisory and may lag the providers:
   any model ID can still be typed and saved.
-  **Save changes nothing in the running gateway: restart it to apply
-  them.** The page says which saved settings differ from the running
-  ones.
+  **Save changes nothing in the running gateway, except the SSRF
+  whitelist: restart it to apply the others.** The page says which
+  saved settings differ from the running ones.
 
   | Setting | Config field | Values |
   | --- | --- | --- |
@@ -1141,14 +1145,16 @@ and press Enter. Each reply is a full agent turn, tools included.
   | `tools.image_generation.model` | `tools.imageGeneration.model` | as `model`; required when enabled |
   | `tools.image_generation.default_aspect_ratio` / `default_image_size` | `tools.imageGeneration.defaultAspectRatio` / `defaultImageSize` | non-empty, no spaces, at most 32 bytes |
   | `tools.image_generation.max_images_per_turn` | `tools.imageGeneration.maxImagesPerTurn` | 1–8 |
+  | `tools.ssrf_whitelist` | `tools.ssrfWhitelist` | list (at most 64) of IP addresses or CIDR ranges, at most 64 bytes each; sent whole, `[]` clears it; applied at once (see [Network access](#network-access-ssrf-protection)) |
   | `channels.<name>.enabled` | `channels.<name>.enabled` | true / false, for `telegram`, `weixin` and `websocket` sections already in the file |
 
   `GET /ui/settings` reads the file and answers
-  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":"","image_generation":{"enabled":false,"provider":"openrouter","model":"openai/gpt-5.4-image-2","default_aspect_ratio":"1:1","default_image_size":"1K","max_images_per_turn":4}},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"],"image_generation_provider":["openrouter","openai"]}}`.
+  `{"settings":{"model":"...","provider":"auto","fallbackModels":[{"provider":"openai","model":"gpt-6-luna"}],"tools":{"exec":true,"web_fetch":true,"exec_sandbox":"","image_generation":{"enabled":false,"provider":"openrouter","model":"openai/gpt-5.4-image-2","default_aspect_ratio":"1:1","default_image_size":"1K","max_images_per_turn":4},"ssrf_whitelist":[]},"channels":{"websocket":{"enabled":true}}},"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":["auto","anthropic","openai","deepseek","openrouter"],"exec_sandbox":["","seatbelt"],"image_generation_provider":["openrouter","openai"]}}`.
   `PATCH /ui/settings` (local or signed in, same-origin only) takes the
   changed fields in the same shape, e.g. `{"tools":{"exec":false}}`,
   and answers the new view; `restart_required` lists the saved settings
-  that differ from the running gateway's, `env_overrides` the ones
+  that differ from the running gateway's, `applied` the ones of this
+  change the running gateway took on at once, `env_overrides` the ones
   `NANOBOT_GO_MODEL`/`NANOBOT_GO_PROVIDER` override (the environment
   still wins after a restart). Unknown keys, wrongly cased keys, nulls,
   bad values and any key that looks secret (`apiKey`, `token`,

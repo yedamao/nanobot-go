@@ -14,6 +14,11 @@ export function diffSettings(saved: Settings, draft: Settings): SettingsPatch {
   if (draft.tools.exec_sandbox !== saved.tools.exec_sandbox) tools.exec_sandbox = draft.tools.exec_sandbox;
   const image = diffImageGeneration(saved.tools.image_generation, draft.tools.image_generation);
   if (Object.keys(image).length) tools.image_generation = image;
+  const whitelist = whitelistLines(draft.tools.ssrf_whitelist);
+  const savedWhitelist = saved.tools.ssrf_whitelist ?? [];
+  if (whitelist.length !== savedWhitelist.length || whitelist.some((e, i) => e !== savedWhitelist[i])) {
+    tools.ssrf_whitelist = whitelist;
+  }
   if (Object.keys(tools).length) patch.tools = tools;
   const channels: Record<string, { enabled: boolean }> = {};
   for (const [name, ch] of Object.entries(draft.channels)) {
@@ -34,6 +39,21 @@ function diffImageGeneration(saved: ImageGenerationSettings, draft: ImageGenerat
   }
   if (draft.max_images_per_turn !== saved.max_images_per_turn) patch.max_images_per_turn = draft.max_images_per_turn;
   return patch;
+}
+
+// whitelistLines returns the SSRF whitelist entries of a draft, which
+// holds the textarea's lines as typed: trimmed, without blank lines.
+export function whitelistLines(lines: string[] | null): string[] {
+  return (lines ?? []).map((l) => l.trim()).filter((l) => l !== "");
+}
+
+// savedText is the note after a save: which settings the running gateway
+// took on at once, and which wait for a restart.
+export function savedText(view: SettingsView, t: Translator = enT): string {
+  const pending = pendingText(view, t);
+  const applied = view.applied ?? [];
+  if (applied.length) return t("status.savedApplied", { names: applied.join(", "), pending }).trim();
+  return t("status.saved", { pending }).trim();
 }
 
 // pendingText says which saved settings wait for a restart and which an

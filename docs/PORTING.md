@@ -116,9 +116,12 @@ in which we port them.
     `retried`/`connected`/`failed`/`configured`, `tools_removed`,
     `requires_restart` only once the Manager is closing). Differences:
     disabled servers stay in the set (state `disabled`) rather than being
-    filtered out; there is no proxy setting to compare, and a changed
-    `tools.ssrfWhitelist` still needs a restart (the policy is fixed at
-    gateway start).
+    filtered out; there is no proxy setting to compare. A
+    `tools.ssrfWhitelist` saved from the WebUI settings is applied to
+    the running policy (the Manager shares the gateway's
+    `*security.Policy`) and triggers such a reload, so servers it had
+    refused are retried; one edited in config.json still needs a
+    restart.
   - Not ported: resources and prompts as tools, `tools/list_changed`.
 
 Phase 2 is complete; phase 3 is in progress.
@@ -473,14 +476,22 @@ Phase 2 is complete; phase 3 is in progress.
     `websocket.Options.Settings` is set) read and save `model`,
     `provider`, `tools.exec`, `tools.web_fetch`, `tools.exec_sandbox`,
     `tools.image_generation` (enabled, provider, model, default aspect
-    ratio and size, max images per turn) and `channels.<name>.enabled` (configured telegram/weixin/websocket
+    ratio and size, max images per turn), `tools.ssrf_whitelist`
+    (`tools.ssrfWhitelist`, each entry checked with
+    `security.ParseWhitelist`) and `channels.<name>.enabled` (configured telegram/weixin/websocket
     sections only). The channel checks the body against an exact key
     schema and refuses secret-looking key names at any depth; the
     gateway's `webSettings` loads the config file afresh, mutates only
     those fields in place (a channel's `RawMessage` keeps its other
     keys), validates and saves it. Changes apply on restart: the view
     lists `restart_required` (saved differs from running) and
-    `env_overrides`. The Status dialog has a form for them.
+    `env_overrides`. The exception is the SSRF whitelist, hot-applied
+    like nanobot's `settings_runtime` `tools.ssrf_whitelist`:
+    `Policy.SetWhitelist` swaps the list of the one policy web_fetch,
+    MCP, image generation and the channels share, the view lists it in
+    `applied` instead of `restart_required`, and an MCP reload retries
+    servers that are not connected. The Status dialog has a form for
+    them (the whitelist as a textarea, one entry per line).
   - Done (simplified): Models page (`#/models`). The settings whitelist
     also takes `fallbackModels` (ordered `{provider, model}` list,
     replaced whole; `[]` clears), checked like `model`/`provider` and
@@ -774,9 +785,9 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18next and its many locales, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
-    provider OAuth/custom-provider forms, channel tokens and allow lists, SSRF whitelist,
-    MCP servers and OAuth, hot-applying saved
-    settings), topics list,
+    provider OAuth/custom-provider forms, channel tokens and allow lists,
+    MCP servers and OAuth, hot-applying saved settings other than the SSRF
+    whitelist), topics list,
     chat archive, pins, search, bulk delete, generated titles,
     cleanup on delete (automations, cron jobs, memory tied to the chat),
     listing other channels' sessions,
@@ -1541,7 +1552,9 @@ Phase 2 is complete; phase 3 is in progress.
   depth.
 - **No global whitelist.** nanobot's `configure_ssrf_whitelist` sets
   module state at config load; nanobot-go passes a `*security.Policy` to
-  the tools that need it.
+  the tools that need it. The gateway builds one and shares it, so
+  `Policy.SetWhitelist` (from the WebUI settings) changes it for all of
+  them at once; dials and checks read it under a lock.
 - **Invalid whitelist entries are config errors.** nanobot silently skips
   them. A bare address is accepted as a single host, and host bits are
   ignored (`10.1.2.3/8` is `10.0.0.0/8`), as with nanobot's

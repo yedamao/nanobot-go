@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/nanobot-go/internal/security"
 )
 
 const (
@@ -86,7 +88,7 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 		Tools: websocket.ToolSettings{Exec: true, WebFetch: true, ImageGeneration: websocket.ImageGenerationSettings{
 			Provider: config.DefaultImageProvider, Model: config.DefaultImageModel, DefaultAspectRatio: config.DefaultImageAspectRatio,
 			DefaultImageSize: config.DefaultImageSize, MaxImagesPerTurn: config.DefaultMaxImagesPerTurn,
-		}},
+		}, SSRFWhitelist: []string{}},
 		Channels: map[string]websocket.ChannelSettings{"telegram": {}, "websocket": {Enabled: true}},
 	}
 	if !reflect.DeepEqual(v.Settings, want) || len(v.RestartRequired) != 0 || len(v.EnvOverrides) != 0 {
@@ -281,6 +283,90 @@ func TestWebSettingsImageGeneration(t *testing.T) {
 	}))
 	if err != nil || len(v.RestartRequired) != 0 {
 		t.Errorf("revert = %+v, %v", v.RestartRequired, err)
+	}
+}
+
+func ssrfPatch(list ...string) websocket.SettingsPatch {
+	return websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{SSRFWhitelist: &list}}
+}
+
+func TestWebSettingsSSRFWhitelist(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, nil)
+
+	// Without a running policy (no gateway) the change waits for a restart.
+	v, err := s.UpdateSettings(ssrfPatch(" 10.19.3.17 ", "100.64.0.0/10"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"10.19.3.17", "100.64.0.0/10"}
+	if !slices.Equal(v.Settings.Tools.SSRFWhitelist, want) || !slices.Equal(v.RestartRequired, []string{"tools.ssrf_whitelist"}) || len(v.Applied) != 0 {
+		t.Errorf("after update: %v, restart %v, applied %v", v.Settings.Tools.SSRFWhitelist, v.RestartRequired, v.Applied)
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(cfg.Tools.SSRFWhitelist, want) || cfg.Providers.Anthropic.APIKey != fileSecret+"-anthropic" {
+		t.Errorf("saved whitelist = %v", cfg.Tools.SSRFWhitelist)
+	}
+	if v, err = s.UpdateSettings(ssrfPatch()); err != nil || len(v.Settings.Tools.SSRFWhitelist) != 0 || len(v.RestartRequired) != 0 {
+		t.Errorf("clear = %+v, %v", v, err)
+	}
+
+	for _, list := range [][]string{{"10.0.0.0/33"}, {"example.com"}, {""}, {strings.Repeat("1", maxSSRFEntryLen+1)},
+		slices.Repeat([]string{"10.0.0.1"}, maxSSRFWhitelist+1)} {
+		if _, err := s.UpdateSettings(ssrfPatch(list...)); !errors.Is(err, websocket.ErrInvalidSettings) {
+			t.Errorf("%.40q: err = %v", list, err)
+		}
+	}
+	if _, err := s.UpdateSettings(ssrfPatch("10.0.0.1", "bad")); err == nil || !strings.Contains(err.Error(), "tools.ssrf_whitelist[1]") {
+		t.Errorf("bad entry error = %v", err)
+	}
+}
+
+func TestWebSettingsSSRFWhitelistHotApply(t *testing.T) {
+	path := writeSettingsConfig(t)
+	s := runningSettings(t, path, nil)
+	s.ssrf = &security.Policy{}
+	applied := make(chan struct{}, 4)
+	s.ssrfApplied = func() { applied <- struct{}{} }
+	ip := netip.MustParseAddr("10.19.3.17")
+	if s.ssrf.Allow(ip) {
+		t.Fatal("private address allowed before the change")
+	}
+
+	v, err := s.UpdateSettings(ssrfPatch("10.19.3.17"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(v.Applied, []string{"tools.ssrf_whitelist"}) || len(v.RestartRequired) != 0 {
+		t.Errorf("applied %v, restart %v", v.Applied, v.RestartRequired)
+	}
+	if !s.ssrf.Allow(ip) || s.ssrf.Allow(netip.MustParseAddr("10.19.3.18")) {
+		t.Error("running policy did not take the new whitelist")
+	}
+	<-applied
+	if v, err = s.Settings(); err != nil || len(v.RestartRequired) != 0 || len(v.Applied) != 0 {
+		t.Errorf("GET after apply = %+v, %v", v, err)
+	}
+
+	// The same list again changes nothing; another change does not apply.
+	if v, _ = s.UpdateSettings(ssrfPatch("10.19.3.17")); len(v.Applied) != 0 {
+		t.Errorf("unchanged list applied %v", v.Applied)
+	}
+	if v, _ = s.UpdateSettings(websocket.SettingsPatch{Tools: &websocket.ToolSettingsPatch{Exec: ptr(false)}}); len(v.Applied) != 0 {
+		t.Errorf("exec change applied %v", v.Applied)
+	}
+	if _, err := s.UpdateSettings(ssrfPatch("nope")); err == nil || !s.ssrf.Allow(ip) {
+		t.Errorf("invalid list: err %v, running policy changed", err)
+	}
+	if v, _ = s.UpdateSettings(ssrfPatch()); !slices.Equal(v.Applied, []string{"tools.ssrf_whitelist"}) || s.ssrf.Allow(ip) {
+		t.Errorf("clearing: applied %v, still allowed %v", v.Applied, s.ssrf.Allow(ip))
+	}
+	<-applied
+	if len(applied) != 0 {
+		t.Errorf("%d extra retries", len(applied))
 	}
 }
 

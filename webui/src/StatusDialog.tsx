@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { getSettings, getStatus, saveSettings, type ImageGenerationSettings, type Settings, type SettingsChoices, type Status } from "./api";
 import { RestartGateway } from "./RestartGateway";
-import { diffSettings, duration, pendingText, withCurrent } from "./settings";
+import { diffSettings, duration, pendingText, savedText, withCurrent } from "./settings";
 import { useT } from "./i18n";
 
 type Note = { kind: "" | "ok" | "error"; text: string };
@@ -112,7 +112,7 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
       setSaved(view.settings);
       setDraft(view.settings);
       setChoices(view.choices);
-      setNote({ kind: "ok", text: t("status.saved", { pending: pendingText(view, t) }).trim() });
+      setNote({ kind: "ok", text: savedText(view, t) });
       setRestartPending((view.restart_required ?? []).length > 0);
     } catch (err) {
       setNote({ kind: "error", text: t("common.notSaved", { message: (err as Error).message }) });
@@ -235,6 +235,18 @@ export function StatusDialog({ open, onClose }: { open: boolean; onClose: () => 
               </p>
             </div>
           )}
+          <label>
+            {t("status.ssrfWhitelist")}
+            <textarea
+              id="set-ssrf-whitelist"
+              rows={3}
+              spellCheck={false}
+              placeholder={"100.64.0.0/10\n10.19.3.17"}
+              value={(draft?.tools.ssrf_whitelist ?? []).join("\n")}
+              onChange={(ev) => edit((d) => ({ ...d, tools: { ...d.tools, ssrf_whitelist: ev.target.value.split("\n") } }))}
+            />
+          </label>
+          <p className="status-note">{t("status.ssrfWhitelistHint")}</p>
           <div id="set-channels">
             {draft &&
               Object.keys(draft.channels)

@@ -328,7 +328,9 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	// reads the registry on every request.
 	rt.loop = loop
 	rt.sessions = sessions
-	rt.mcp = a.newMCP(cfg, reg, logger, f.verbose, mcp.WithOAuthStore(mcpOAuthStore(s.configPath, logger)))
+	// The MCP servers share web_fetch's policy, so a whitelist change
+	// applied to it reaches them too.
+	rt.mcp = a.newMCP(cfg, reg, logger, f.verbose, mcp.WithOAuthStore(mcpOAuthStore(s.configPath, logger)), mcp.WithSSRFPolicy(ssrf))
 	deliver := opts.cronDeliver
 	if deliver == nil {
 		deliver = func(context.Context, bus.OutboundMessage) error {

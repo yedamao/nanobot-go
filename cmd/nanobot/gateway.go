@@ -143,6 +143,16 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	rt.skills.SetPersist(settings.saveDisabledSkills)
 	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv, a.probeMCP)
 	mcpStore.reload = rt.mcp.Reload
+	// A whitelist saved from the WebUI applies at once: web_fetch, the
+	// MCP servers and the channels share rt.ssrf. Servers it refused are
+	// retried.
+	settings.ssrf = rt.ssrf
+	settings.ssrfApplied = func() {
+		res, _ := mcpStore.hotReload(context.Background())
+		if len(res.Retried) > 0 {
+			log.Info("mcp: retried servers after SSRF whitelist change", "retried", res.Retried, "connected", res.Connected, "failed", res.Failed)
+		}
+	}
 	oauthFlows := mcpStore.enableOAuth(mcpOAuthStore(rt.configPath, log), func(ctx context.Context, u *url.URL) error {
 		_, err := rt.ssrf.CheckTarget(ctx, u)
 		return err

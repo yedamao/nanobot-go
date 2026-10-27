@@ -147,9 +147,13 @@ export const en = {
     imageKeyLink: "Providers page",
     imageKeyAfter: ". Restart the gateway after saving.",
     channel: "{name} channel",
+    ssrfWhitelist: "SSRF whitelist",
+    ssrfWhitelistHint:
+      "Private or internal IP addresses and CIDR ranges, one per line, that web_fetch, MCP servers and media downloads may reach (e.g. 100.64.0.0/10 for Tailscale). Applies to the running gateway at once; MCP servers that failed are retried.",
     savedNote:
-      "Saved to config.json; the gateway uses saved settings after a restart. Keys, tokens and allow lists are edited in config.json only.",
+      "Saved to config.json; the gateway uses saved settings after a restart, except the SSRF whitelist, which applies at once. Keys, tokens and allow lists are edited in config.json only.",
     saved: "Saved — restart the gateway to apply. {pending}",
+    savedApplied: "Saved. Applied to the running gateway: {names}. {pending}",
     disableWebsocket: "Disable the websocket channel?\n\nThis page will be gone after the gateway restarts.",
     pendingRestart: "Restart the gateway to apply: {names}.",
     pendingEnv: "Set by an environment variable, which wins over the saved value: {names}.",

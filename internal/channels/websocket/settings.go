@@ -36,7 +36,8 @@ type SettingsStore interface {
 
 // Settings is the whitelist of settings the page may edit, as saved in
 // the config file. It never holds key material, tokens, allow lists,
-// headers, environment values or paths.
+// headers, environment values or paths; the SSRF whitelist holds IP
+// ranges only.
 type Settings struct {
 	Model    string `json:"model"`
 	Provider string `json:"provider"`
@@ -63,6 +64,10 @@ type ToolSettings struct {
 	// ImageGeneration is the generate_image tool's setting; its
 	// provider's key stays in providers.<provider>.apiKey.
 	ImageGeneration ImageGenerationSettings `json:"image_generation"`
+	// SSRFWhitelist is tools.ssrfWhitelist: the IP addresses and CIDR
+	// ranges web_fetch, MCP HTTP servers and media downloads may reach
+	// although they are private or internal.
+	SSRFWhitelist []string `json:"ssrf_whitelist"`
 }
 
 // ImageGenerationSettings are the editable fields of
@@ -87,8 +92,12 @@ type SettingsView struct {
 	Settings Settings `json:"settings"`
 	// RestartRequired lists the settings, as dotted paths such as
 	// "tools.exec", whose saved value differs from the running gateway's.
-	// Settings take effect only when the gateway restarts.
+	// Settings take effect only when the gateway restarts, except those
+	// in Applied.
 	RestartRequired []string `json:"restart_required"`
+	// Applied lists the settings of this change that the running gateway
+	// took on at once (tools.ssrf_whitelist); empty for GET.
+	Applied []string `json:"applied"`
 	// EnvOverrides lists the settings an environment variable overrides,
 	// so their saved value is not used while it is set.
 	EnvOverrides []string        `json:"env_overrides"`
@@ -123,6 +132,9 @@ type ToolSettingsPatch struct {
 	WebFetch        *bool                 `json:"web_fetch"`
 	ExecSandbox     *string               `json:"exec_sandbox"`
 	ImageGeneration *ImageGenerationPatch `json:"image_generation"`
+	// SSRFWhitelist, when set, replaces the whole list; an empty list
+	// clears it.
+	SSRFWhitelist *[]string `json:"ssrf_whitelist"`
 }
 
 // ImageGenerationPatch changes ImageGenerationSettings.
@@ -149,7 +161,7 @@ var patchSchema = map[string]any{
 	"fallbackModels": []any{map[string]any{"provider": nil, "model": nil}},
 	"tools": map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil, "image_generation": map[string]any{
 		"enabled": nil, "provider": nil, "model": nil, "default_aspect_ratio": nil, "default_image_size": nil, "max_images_per_turn": nil,
-	}},
+	}, "ssrf_whitelist": []any{nil}},
 	"channels": map[string]any{"*": map[string]any{"enabled": nil}},
 }
 
@@ -281,10 +293,13 @@ func fillSettings(v SettingsView) SettingsView {
 	if v.Settings.FallbackModels == nil {
 		v.Settings.FallbackModels = []FallbackModel{}
 	}
+	if v.Settings.Tools.SSRFWhitelist == nil {
+		v.Settings.Tools.SSRFWhitelist = []string{}
+	}
 	if v.Settings.Channels == nil {
 		v.Settings.Channels = map[string]ChannelSettings{}
 	}
-	for _, l := range []*[]string{&v.RestartRequired, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox, &v.Choices.ImageGenerationProvider} {
+	for _, l := range []*[]string{&v.RestartRequired, &v.Applied, &v.EnvOverrides, &v.Choices.Provider, &v.Choices.ExecSandbox, &v.Choices.ImageGenerationProvider} {
 		if *l == nil {
 			*l = []string{}
 		}

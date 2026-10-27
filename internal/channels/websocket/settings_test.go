@@ -64,6 +64,13 @@ func TestParseSettingsPatch(t *testing.T) {
 		*ig.DefaultAspectRatio != "16:9" || *ig.DefaultImageSize != "2K" || *ig.MaxImagesPerTurn != 2 {
 		t.Errorf("image generation patch = %+v", ig)
 	}
+	if p, err := ParseSettingsPatch([]byte(`{"tools":{"ssrf_whitelist":["10.19.3.17","100.64.0.0/10"]}}`)); err != nil || p.Tools == nil ||
+		p.Tools.SSRFWhitelist == nil || !slices.Equal(*p.Tools.SSRFWhitelist, []string{"10.19.3.17", "100.64.0.0/10"}) {
+		t.Errorf("ssrf whitelist patch = %+v, %v", p, err)
+	}
+	if p, err := ParseSettingsPatch([]byte(`{"tools":{"ssrf_whitelist":[]}}`)); err != nil || p.Tools.SSRFWhitelist == nil || len(*p.Tools.SSRFWhitelist) != 0 {
+		t.Errorf("clearing ssrf whitelist patch = %+v, %v", p, err)
+	}
 	if p, err := ParseSettingsPatch([]byte(`{"fallbackModels":[]}`)); err != nil || p.FallbackModels == nil || len(*p.FallbackModels) != 0 {
 		t.Errorf("clearing fallback patch = %+v, %v", p, err)
 	}
@@ -86,6 +93,11 @@ func TestParseSettingsPatch(t *testing.T) {
 		`{"tools":{"exec":{"enable":true}}}`,
 		`{"tools":{"mcpServers":{}}}`,
 		`{"tools":{"ssrfWhitelist":[]}}`,
+		`{"tools":{"ssrf_whitelist":null}}`,
+		`{"tools":{"ssrf_whitelist":"10.0.0.1"}}`,
+		`{"tools":{"ssrf_whitelist":[null]}}`,
+		`{"tools":{"ssrf_whitelist":[1]}}`,
+		`{"tools":{"ssrf_whitelist":[{"cidr":"10.0.0.1"}]}}`,
 		`{"tools":{"exec_sandbox":null}}`,
 		`{"tools":{"image_generation":true}}`,
 		`{"tools":{"image_generation":{"enabled":"yes"}}}`,
@@ -156,8 +168,8 @@ func TestSettingsEndpoints(t *testing.T) {
 
 	code, body := do(http.MethodGet, "", "", "")
 	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":"",` +
-		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0}},"channels":{}},` +
-		`"restart_required":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[]}}` + "\n"
+		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0},"ssrf_whitelist":[]},"channels":{}},` +
+		`"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[]}}` + "\n"
 	if code != http.StatusOK || body != want {
 		t.Errorf("GET = %d\n%s\nwant\n%s", code, body, want)
 	}

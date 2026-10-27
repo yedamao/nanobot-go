@@ -349,3 +349,30 @@ func TestCheckRedirect(t *testing.T) {
 		}
 	}
 }
+
+func TestPolicySetWhitelist(t *testing.T) {
+	p := &Policy{}
+	ip := netip.MustParseAddr("10.19.3.17")
+	if p.Allow(ip) {
+		t.Fatal("private address allowed")
+	}
+	wl := []netip.Prefix{netip.MustParsePrefix("10.19.3.17/32")}
+	p.SetWhitelist(wl)
+	wl[0] = netip.MustParsePrefix("192.168.0.0/16") // SetWhitelist keeps its own copy
+	if !p.Allow(ip) || p.Allow(netip.MustParseAddr("192.168.1.1")) {
+		t.Error("whitelist not applied")
+	}
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			for range 100 {
+				p.Allow(ip)
+				p.SetWhitelist(nil)
+			}
+		})
+	}
+	wg.Wait()
+	if p.Allow(ip) {
+		t.Error("cleared whitelist still allows")
+	}
+}

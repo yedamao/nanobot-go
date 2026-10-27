@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Settings } from "./api.ts";
-import { diffSettings, duration, pendingText, withCurrent } from "./settings.ts";
+import { diffSettings, duration, pendingText, savedText, whitelistLines, withCurrent } from "./settings.ts";
 
 const saved: Settings = {
   model: "deepseek-chat",
@@ -19,6 +19,7 @@ const saved: Settings = {
       default_image_size: "1K",
       max_images_per_turn: 4,
     },
+    ssrf_whitelist: ["100.64.0.0/10"],
   },
   channels: { websocket: { enabled: true }, telegram: { enabled: false } },
 };
@@ -54,6 +55,33 @@ test("image generation fields are patched trimmed and on their own", () => {
   assert.deepEqual(diffSettings(saved, draft), {
     tools: { image_generation: { enabled: true, provider: "openai", model: "gpt-image-1", max_images_per_turn: 2 } },
   });
+});
+
+test("the SSRF whitelist is patched as a whole list, trimmed, without blank lines", () => {
+  const draft = clone(saved);
+  draft.tools.ssrf_whitelist = [" 100.64.0.0/10 ", "", "  "];
+  assert.deepEqual(diffSettings(saved, draft), {});
+  draft.tools.ssrf_whitelist = ["100.64.0.0/10", " 10.19.3.17", ""];
+  assert.deepEqual(diffSettings(saved, draft), { tools: { ssrf_whitelist: ["100.64.0.0/10", "10.19.3.17"] } });
+  draft.tools.ssrf_whitelist = [""];
+  assert.deepEqual(diffSettings(saved, draft), { tools: { ssrf_whitelist: [] } });
+  assert.deepEqual(diffSettings({ ...saved, tools: { ...saved.tools, ssrf_whitelist: null } }, draft), {});
+  assert.deepEqual(whitelistLines(null), []);
+});
+
+test("savedText names the settings applied at once", () => {
+  const view = {
+    settings: saved,
+    restart_required: [],
+    applied: ["tools.ssrf_whitelist"],
+    env_overrides: null,
+    choices: { provider: null, exec_sandbox: null, image_generation_provider: null },
+  };
+  assert.equal(savedText(view), "Saved. Applied to the running gateway: tools.ssrf_whitelist.");
+  assert.equal(
+    savedText({ ...view, applied: null, restart_required: ["tools.exec"] }),
+    "Saved — restart the gateway to apply. Restart the gateway to apply: tools.exec.",
+  );
 });
 
 test("pendingText tolerates null lists", () => {
