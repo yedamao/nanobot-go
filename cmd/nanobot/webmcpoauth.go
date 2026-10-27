@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"time"
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/config"
 	"github.com/yedamao/nanobot-go/internal/mcp"
 )
 
-// mcpActivateTimeout bounds reconnecting a server after its sign-in.
-const mcpActivateTimeout = 30 * time.Second
+// mcpReloadTimeout bounds applying the saved MCP servers to the running
+// gateway: servers connect concurrently, each within its connect
+// timeout.
+const mcpReloadTimeout = 2 * mcp.DefaultConnectTimeout
 
 // The WebUI's OAuth sign-in (websocket.MCPOAuth), ported from nanobot's
 // webui/mcp_oauth_api.py: a flow connects the saved server alone through
 // a throwaway Manager that may send the user through the browser; once
-// that stores the credentials, the running gateway reconnects the server
-// if it runs it as saved, and otherwise needs a restart.
+// that stores the credentials, the running gateway reloads the saved
+// servers, which connects it.
 
 var errOAuthUnavailable = &websocket.MCPOAuthError{Message: "MCP OAuth is not available.", Status: http.StatusConflict}
 
@@ -120,30 +121,22 @@ func (s *webMCP) connectOAuth(ctx context.Context, name string, browser *mcp.OAu
 }
 
 // activateOAuth is the flows' OAuthActivateFunc: the running gateway
-// reconnects the server if it runs it as saved.
+// reloads the saved servers, connecting the signed-in one.
 func (s *webMCP) activateOAuth(ctx context.Context, name string) mcp.HotReload {
-	restart := mcp.HotReload{RequiresRestart: true, Message: "Signed in. Restart the gateway to connect " + name + "."}
-	if s.reconnect == nil {
-		return restart
+	res, live := s.hotReload(ctx)
+	if !live || res.RequiresRestart {
+		return mcp.HotReload{RequiresRestart: true, Message: "Signed in. Restart the gateway to connect " + name + "."}
 	}
-	s.settings.mu.Lock()
-	cfg, err := config.Load(s.settings.path)
-	s.settings.mu.Unlock()
-	if err != nil {
-		return restart
+	st, ok := s.states()[name]
+	switch {
+	case ok && st.State == mcp.StateConnected:
+		return mcp.HotReload{OK: true, Message: name + " connected."}
+	case ok && st.State == mcp.StateDisabled:
+		return mcp.HotReload{OK: true, Message: "Signed in. Enable " + name + " to connect it."}
+	case ok && st.Err != nil:
+		return mcp.HotReload{Message: s.scrub("Signed in, but "+name+" could not connect: "+st.Err.Error(), s.runningServers()[name])}
 	}
-	saved, ok := cfg.Tools.MCPServers[name]
-	running, wasRunning := s.running[name]
-	if !ok || !wasRunning || !running.IsEnabled() || !sameMCPServer(saved, ok, running, wasRunning) {
-		return restart
-	}
-	ctx, cancel := context.WithTimeout(ctx, mcpActivateTimeout)
-	defer cancel()
-	if err := s.reconnect(ctx, name); err != nil {
-		return mcp.HotReload{RequiresRestart: true,
-			Message: s.scrub("Signed in, but "+name+" could not connect: "+err.Error(), running)}
-	}
-	return mcp.HotReload{OK: true, Message: name + " connected."}
+	return mcp.HotReload{Message: "Signed in, but " + name + " did not connect."}
 }
 
 func oauthFlowView(st mcp.OAuthFlowStatus, err error) (websocket.MCPOAuthFlow, error) {

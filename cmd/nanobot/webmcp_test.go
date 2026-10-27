@@ -149,10 +149,10 @@ func TestWebMCPEnableReplaceDelete(t *testing.T) {
 		}
 	}
 
-	if err := s.DeleteMCPServer("srv"); err != nil {
-		t.Fatal(err)
+	if r, err := s.DeleteMCPServer("srv"); err != nil || r != nil {
+		t.Fatalf("delete = %v, reload %+v", err, r)
 	}
-	if err := s.DeleteMCPServer("srv"); !errors.Is(err, websocket.ErrMCPNotFound) {
+	if _, err := s.DeleteMCPServer("srv"); !errors.Is(err, websocket.ErrMCPNotFound) {
 		t.Errorf("second delete = %v", err)
 	}
 	list, err := s.MCPServers()
@@ -294,5 +294,60 @@ func TestWebMCPTestServer(t *testing.T) {
 	s.probe = nil
 	if _, err := s.TestMCPServer(context.Background(), "demo"); err == nil {
 		t.Error("without a probe: no error")
+	}
+}
+
+// With a running gateway, changes apply to its Manager: the list stops
+// asking for a restart.
+func TestWebMCPHotReload(t *testing.T) {
+	path := writeSettingsConfig(t)
+	cfg, err := config.Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reg := tools.NewRegistry()
+	m := mcp.NewManager(cfg.Tools.MCPServers, reg, nil, mcp.WithTransport(probeTransport(t)), mcp.WithConnectTimeout(5*time.Second))
+	t.Cleanup(func() { _ = m.Close() })
+	_ = m.Connect(context.Background())
+	s := runningMCP(t, path, m.Status)
+	s.reload = m.Reload
+
+	v, err := s.SetMCPServerEnabled("srv", false)
+	if err != nil || v.RestartRequired || v.State != "disabled" || v.Reload == nil || !v.Reload.OK ||
+		!slices.Equal(v.Reload.Changed, []string{"srv"}) {
+		t.Fatalf("disable = %+v, %v", v, err)
+	}
+	v, created, err := s.PutMCPServer("demo", websocket.MCPServerInput{Command: "demo"})
+	if err != nil || !created || v.RestartRequired || v.State != "connected" || !slices.Equal(v.Tools, []string{"mcp_demo_echo"}) ||
+		v.Reload == nil || !v.Reload.OK || v.Reload.Message != "MCP config reloaded without restarting the gateway." {
+		t.Fatalf("add = %+v, %v", v, err)
+	}
+	if !slices.Equal(reg.Names(), []string{"mcp_demo_echo"}) {
+		t.Errorf("registered %v", reg.Names())
+	}
+	list, err := s.MCPServers()
+	if err != nil || len(list.RestartRequired) != 0 || len(list.Servers) != 2 {
+		t.Errorf("list = %+v, %v", list, err)
+	}
+
+	r, err := s.DeleteMCPServer("demo")
+	if err != nil || r == nil || !r.OK || !slices.Equal(r.Removed, []string{"demo"}) || r.ToolsRemoved != 1 {
+		t.Fatalf("delete = %+v, %v", r, err)
+	}
+	if len(reg.Names()) != 0 {
+		t.Errorf("registered after delete %v", reg.Names())
+	}
+	if list, _ := s.MCPServers(); len(list.RestartRequired) != 0 || len(list.Servers) != 1 {
+		t.Errorf("list after delete = %+v", list)
+	}
+	if res, live, err := s.ReloadMCP(context.Background()); err != nil || !live || !res.OK || res.Message != "MCP config is already live." {
+		t.Errorf("reload = %+v, %t, %v", res, live, err)
+	}
+
+	// A closed Manager cannot apply changes: they need a restart.
+	_ = m.Close()
+	v, _, err = s.PutMCPServer("demo", websocket.MCPServerInput{Command: "demo"})
+	if err != nil || !v.RestartRequired || v.Reload == nil || !v.Reload.RequiresRestart {
+		t.Errorf("after close = %+v, %v", v, err)
 	}
 }

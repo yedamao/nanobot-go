@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MCPServer } from "./api.ts";
-import { buildMCPInput, canAuthorizeMCP, canTestMCP, emptyMCPForm, mcpBadges, mcpOAuthNote, mcpTarget, mcpTestNote, oauthFlowActive, parsePairs } from "./mcp.ts";
+import { buildMCPInput, canAuthorizeMCP, canTestMCP, emptyMCPForm, mcpBadges, mcpDoneNote, mcpOAuthNote, mcpTarget, mcpTestNote, oauthFlowActive, parsePairs } from "./mcp.ts";
 
 test("parsePairs reads env and header lines", () => {
   assert.deepEqual(parsePairs("A=1\n\n B = x=y \n"), { pairs: { A: "1", B: "x=y" } });
@@ -82,4 +82,12 @@ test("mcpOAuthNote follows the flow", () => {
     kind: "error",
     text: "Sign-in failed: Authorization was not completed (access_denied).",
   });
+});
+
+test("mcpDoneNote adds the gateway's reload message", () => {
+  assert.equal(mcpDoneNote("Saved fs", undefined), "Saved fs");
+  assert.equal(mcpDoneNote("Saved fs", { name: "fs" }), "Saved fs");
+  const reload = { ok: true, message: "MCP config reloaded without restarting the gateway.", requires_restart: false };
+  assert.equal(mcpDoneNote("Saved fs", { reload }), "Saved fs. MCP config reloaded without restarting the gateway.");
+  assert.equal(mcpDoneNote("", { reload }), reload.message);
 });

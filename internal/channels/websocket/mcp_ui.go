@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"errors"
 	"net/http"
 )
@@ -10,6 +11,9 @@ const (
 	// and DELETE /ui/mcp/{name} create or replace, enable/disable and
 	// remove one (tools.mcpServers in the config file).
 	MCPPath = "/ui/mcp"
+	// MCPReloadPath (POST) reconciles the running gateway's MCP
+	// connections with the saved config.
+	MCPReloadPath = MCPPath + "/reload"
 	// maxMCPBody caps the JSON body of an MCP server mutation.
 	maxMCPBody = 64 << 10
 )
@@ -25,13 +29,40 @@ var (
 
 // MCPStore reads and changes tools.mcpServers. Implementations must load
 // the config fresh from disk for every change and write back only that
-// section, and must never return env or header values.
+// section, and must never return env or header values. When a gateway
+// runs, a change is applied to it (hot reload), reported in Reload.
 type MCPStore interface {
 	MCPServers() (MCPList, error)
 	// PutMCPServer creates or replaces a server; created reports which.
 	PutMCPServer(name string, in MCPServerInput) (view MCPServerView, created bool, err error)
 	SetMCPServerEnabled(name string, enabled bool) (MCPServerView, error)
-	DeleteMCPServer(name string) error
+	// DeleteMCPServer removes a server; the reload is nil without a
+	// running gateway.
+	DeleteMCPServer(name string) (*MCPReload, error)
+}
+
+// MCPReloader is implemented by an MCPStore that can apply the saved
+// config to the running gateway on demand (POST /ui/mcp/reload).
+type MCPReloader interface {
+	// ReloadMCP reports false when there is no running gateway.
+	ReloadMCP(ctx context.Context) (MCPReload, bool, error)
+}
+
+// MCPReload reports applying the saved MCP servers to the running
+// gateway, as nanobot's MCP hot reload does.
+type MCPReload struct {
+	OK      bool   `json:"ok"`
+	Message string `json:"message"`
+	// RequiresRestart is set when the gateway could not apply the config.
+	RequiresRestart bool     `json:"requires_restart"`
+	Added           []string `json:"added"`
+	Changed         []string `json:"changed"`
+	Removed         []string `json:"removed"`
+	Retried         []string `json:"retried"`
+	Connected       []string `json:"connected"`
+	Failed          []string `json:"failed"`
+	Configured      []string `json:"configured"`
+	ToolsRemoved    int      `json:"tools_removed"`
 }
 
 // MCPList is the body of GET /ui/mcp.
@@ -41,8 +72,8 @@ type MCPList struct {
 	// included; without it every state is "unknown".
 	Live bool `json:"live"`
 	// RestartRequired names the servers whose saved config differs from
-	// the one the gateway runs with, including removed ones. MCP servers
-	// connect when the gateway starts, so changes need a restart.
+	// the one the gateway runs with, including removed ones: changes the
+	// running gateway could not apply.
 	RestartRequired []string `json:"restart_required"`
 }
 
@@ -85,6 +116,9 @@ type MCPServerView struct {
 	RestartRequired bool `json:"restart_required"`
 	// Removed marks a server the gateway runs that is no longer saved.
 	Removed bool `json:"removed,omitempty"`
+	// Reload reports applying a change to the running gateway; nil
+	// without one.
+	Reload *MCPReload `json:"reload,omitempty"`
 }
 
 // MCPServerInput is the body of PUT /ui/mcp/{name}; it mirrors
@@ -153,13 +187,39 @@ func (c *Channel) patchMCP(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, v)
 }
 
-// deleteMCP answers DELETE /ui/mcp/{name}.
+// deleteMCPBody is the body of DELETE /ui/mcp/{name} when the change was
+// applied to the running gateway.
+type deleteMCPBody struct {
+	Reload *MCPReload `json:"reload"`
+}
+
+// deleteMCP answers DELETE /ui/mcp/{name}: 200 with the reload, or 204
+// without a running gateway.
 func (c *Channel) deleteMCP(w http.ResponseWriter, r *http.Request) {
-	if err := c.mcp.DeleteMCPServer(r.PathValue("name")); err != nil {
+	reload, err := c.mcp.DeleteMCPServer(r.PathValue("name"))
+	if err != nil {
 		c.mcpError(w, "delete", err)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	if reload == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	writeJSON(w, deleteMCPBody{Reload: reload})
+}
+
+// reloadMCP answers POST /ui/mcp/reload: 409 without a running gateway.
+func (c *Channel) reloadMCP(w http.ResponseWriter, r *http.Request) {
+	res, live, err := c.mcp.(MCPReloader).ReloadMCP(r.Context())
+	if err != nil {
+		c.mcpError(w, "reload", err)
+		return
+	}
+	if !live {
+		http.Error(w, "no running gateway to reload", http.StatusConflict)
+		return
+	}
+	writeJSON(w, res)
 }
 
 // mcpError answers a failed MCP request. Only ErrInvalidMCP errors are

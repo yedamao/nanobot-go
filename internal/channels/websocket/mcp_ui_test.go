@@ -1,6 +1,7 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -49,12 +50,48 @@ func (f *fakeMCP) SetMCPServerEnabled(name string, on bool) (MCPServerView, erro
 	return v, nil
 }
 
-func (f *fakeMCP) DeleteMCPServer(name string) error {
+func (f *fakeMCP) DeleteMCPServer(name string) (*MCPReload, error) {
 	if _, ok := f.servers[name]; !ok {
-		return ErrMCPNotFound
+		return nil, ErrMCPNotFound
 	}
 	delete(f.servers, name)
-	return nil
+	return nil, nil
+}
+
+// liveMCP is a fakeMCP with a running gateway to reload.
+type liveMCP struct {
+	fakeMCP
+	reloads int
+}
+
+func (f *liveMCP) DeleteMCPServer(name string) (*MCPReload, error) {
+	if _, err := f.fakeMCP.DeleteMCPServer(name); err != nil {
+		return nil, err
+	}
+	return &MCPReload{OK: true, Message: "reloaded", Removed: []string{name}}, nil
+}
+
+func (f *liveMCP) ReloadMCP(context.Context) (MCPReload, bool, error) {
+	f.reloads++
+	return MCPReload{OK: true, Message: "MCP config is already live."}, true, nil
+}
+
+func TestMCPReloadRoutes(t *testing.T) {
+	h := newHarnessWith(t, false, Options{Host: "127.0.0.1", MCP: &fakeMCP{servers: map[string]MCPServerView{}}})
+	if code, _ := skillsRequest(t, h, http.MethodPost, MCPReloadPath, ""); code != http.StatusMethodNotAllowed && code != http.StatusNotFound {
+		t.Errorf("reload without a reloader = %d", code)
+	}
+
+	store := &liveMCP{fakeMCP: fakeMCP{servers: map[string]MCPServerView{"fs": {Name: "fs"}}}}
+	h = newHarnessWith(t, false, Options{Host: "127.0.0.1", MCP: store})
+	code, body := skillsRequest(t, h, http.MethodPost, MCPReloadPath, "")
+	if code != http.StatusOK || !strings.Contains(string(body), `"message":"MCP config is already live."`) || store.reloads != 1 {
+		t.Errorf("reload = %d %s", code, body)
+	}
+	code, body = skillsRequest(t, h, http.MethodDelete, MCPPath+"/fs", "")
+	if code != http.StatusOK || !strings.Contains(string(body), `"reload":{"ok":true,"message":"reloaded"`) {
+		t.Errorf("live delete = %d %s", code, body)
+	}
 }
 
 func TestMCPRoutes(t *testing.T) {

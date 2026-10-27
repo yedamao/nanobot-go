@@ -439,6 +439,9 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 		mux.Handle("PUT "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.putMCP))))
 		mux.Handle("PATCH "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.patchMCP))))
 		mux.Handle("DELETE "+MCPPath+"/{name}", a.protect(sameOrigin.Handler(http.HandlerFunc(c.deleteMCP))))
+		if _, ok := c.mcp.(MCPReloader); ok {
+			mux.Handle("POST "+MCPReloadPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.reloadMCP))))
+		}
 	}
 	if c.mcpTester != nil {
 		mux.Handle("POST "+MCPTestPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.testMCP))))

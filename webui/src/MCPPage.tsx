@@ -6,6 +6,7 @@ import {
   listMCP,
   mcpOAuthStatus,
   putMCPServer,
+  reloadMCP,
   setMCPServerEnabled,
   startMCPOAuth,
   testMCPServer,
@@ -19,6 +20,7 @@ import {
   canTestMCP,
   emptyMCPForm,
   mcpBadges,
+  mcpDoneNote,
   mcpOAuthNote,
   mcpTarget,
   mcpTestNote,
@@ -71,8 +73,7 @@ export function MCPPage() {
     setBusy(key);
     setNote("");
     try {
-      await change();
-      setNote(done);
+      setNote(mcpDoneNote(done, await change(), t));
       await load();
       return true;
     } catch (err) {
@@ -200,6 +201,11 @@ export function MCPPage() {
         <button type="button" onClick={() => void load()} disabled={busy !== null}>
           {t("common.refresh")}
         </button>
+        {list?.live && (
+          <button type="button" onClick={() => void act("+reload", "", () => reloadMCP().then((reload) => ({ reload })))} disabled={busy !== null}>
+            {t("mcp.reload")}
+          </button>
+        )}
       </header>
       {error && <p className="page-error">{t("mcp.loadError", { error })}</p>}
       {note && <p className="page-note">{note}</p>}

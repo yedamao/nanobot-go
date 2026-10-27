@@ -104,9 +104,22 @@ in which we port them.
     connects without credentials are `authorization_required` with no
     network request; `oauthflow.go` ports the start/status/complete/
     cancel flows, redirect URI rules and callback validation.
-  - Not ported: resources and prompts as tools, hot reload
-    (`MCPProvider.reload`; after an OAuth sign-in only a server running
-    as saved is reconnected), `tools/list_changed`.
+  - Done: hot reload (`MCPProvider.reload` → `Manager.Reload`,
+    `internal/mcp/reload.go`): diffs the live servers against the saved
+    set; removed/changed servers have their tools unregistered and their
+    connection closed (a replaced server never reconnects, so a stale
+    tool cannot revive the old config); added/changed servers and
+    unchanged enabled ones that are not connected (retried) connect
+    concurrently; OAuth servers without credentials are not dialed and
+    stay `authorization_required` (not failed). It returns nanobot's
+    result shape (`ok`, `message`, `added`/`changed`/`removed`/
+    `retried`/`connected`/`failed`/`configured`, `tools_removed`,
+    `requires_restart` only once the Manager is closing). Differences:
+    disabled servers stay in the set (state `disabled`) rather than being
+    filtered out; there is no proxy setting to compare, and a changed
+    `tools.ssrfWhitelist` still needs a restart (the policy is fixed at
+    gateway start).
+  - Not ported: resources and prompts as tools, `tools/list_changed`.
 
 Phase 2 is complete; phase 3 is in progress.
 
@@ -708,9 +721,15 @@ Phase 2 is complete; phase 3 is in progress.
     (names only). `PUT /ui/mcp/{name}` creates/replaces (validated by
     `Config.Validate`, saved env/headers kept when omitted), `PATCH`
     `{"enabled":bool}` and `DELETE` edit the config under the settings'
-    lock (`cmd/nanobot/webmcp.go`). `restart_required` lists servers whose
-    saved config differs from the running one: changes apply on gateway
-    restart. Connection test done: `POST /ui/mcp/{name}/test` (each
+    lock (`cmd/nanobot/webmcp.go`), then hot-reload the running gateway's
+    `mcp.Manager` (`webMCP.hotReload`, serialized, always from the
+    freshly loaded config) and update the running snapshot, reporting
+    the result as `reload` on the response (`DELETE` answers 200
+    `{reload}` with a gateway, 204 without); `POST /ui/mcp/reload` (the
+    page's **Reload connections**) forces a reconcile, e.g. to retry
+    failed servers. `restart_required` lists servers whose saved config
+    differs from the running one: only when there is no live gateway or
+    the reload could not run. Connection test done: `POST /ui/mcp/{name}/test` (each
     card's Test button) connects the saved server alone through a
     throwaway `mcp.Manager` (same SSRF policy, 15s timeout, whitelist
     ignored), lists its tools and closes it; the running Manager is not
@@ -722,8 +741,7 @@ Phase 2 is complete; phase 3 is in progress.
     are scrubbed of secrets. OAuth servers get an auth mode, a
     signed-in/needs-sign-in state and **Sign in** (start, open the
     authorization URL, poll, paste the callback for a remote HTTP WebUI).
-    Gaps vs nanobot: no hot reload (only a reconnect after an OAuth
-    sign-in), no preset catalog/marketplace or Cursor/Claude config
+    Gaps vs nanobot: no preset catalog/marketplace or Cursor/Claude config
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
   - Done (simplified): WebUI i18n (`webui/src/i18n/`).
@@ -933,8 +951,8 @@ Phase 2 is complete; phase 3 is in progress.
   shape, background connects never prompt, the same flow statuses and
   redirect rules), with these gaps: sign-in covers saved servers only
   (no presets materialized on first click); after it, the running gateway
-  reconnects the server only if it runs it as saved, otherwise a restart
-  is needed (no hot reload); the callback origin comes from the
+  hot-reloads the saved servers, connecting the signed-in one; the
+  callback origin comes from the
   request's Host and TLS, not forwarded headers, so a TLS-terminating
   proxy gets the paste-the-callback flow; clients register dynamically
   (no client ID metadata document or pre-registered client settings);

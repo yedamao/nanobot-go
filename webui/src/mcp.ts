@@ -1,4 +1,4 @@
-import type { MCPOAuthFlow, MCPServer, MCPServerInput, MCPTestResult } from "./api.ts";
+import type { MCPOAuthFlow, MCPReload, MCPServer, MCPServerInput, MCPTestResult } from "./api.ts";
 import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** The MCP page's add form. */
@@ -113,6 +113,14 @@ export function mcpBadges(s: MCPServer, t: Translator = enT): string[] {
   else if (!s.enabled) out.push(t("common.disabled"));
   if (s.restart_required) out.push(t("common.restartRequired"));
   return out;
+}
+
+/** mcpDoneNote is the note after a change: done, followed by how the
+ * running gateway applied it, if one did. */
+export function mcpDoneNote(done: string, result: unknown, t: Translator = enT): string {
+  const reload = (result as { reload?: MCPReload } | undefined)?.reload;
+  if (!reload?.message) return done;
+  return done ? t("mcp.withReload", { done, message: reload.message }) : reload.message;
 }
 
 /** canTestMCP reports whether a server can be tested: saved and enabled

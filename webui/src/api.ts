@@ -362,8 +362,9 @@ export async function deleteSkill(name: string): Promise<void> {
 // connection states. Env and header values are never sent, only their
 // names. PUT /ui/mcp/{name} creates (201) or replaces (200) a server,
 // PATCH /ui/mcp/{name} {"enabled":bool} turns one on or off and DELETE
-// /ui/mcp/{name} removes it (204). MCP servers connect when the gateway
-// starts: changes need a restart (restart_required).
+// /ui/mcp/{name} removes it (204, or 200 {reload}). With a running
+// gateway each change is applied to it without a restart (reload);
+// restart_required marks changes it could not apply.
 export interface MCPServer {
   name: string;
   enabled: boolean;
@@ -386,6 +387,23 @@ export interface MCPServer {
   tools?: string[];
   restart_required: boolean;
   removed?: boolean;
+  /** How a change was applied to the running gateway. */
+  reload?: MCPReload;
+}
+
+/** The running gateway's MCP hot reload (POST /ui/mcp/reload). */
+export interface MCPReload {
+  ok: boolean;
+  message: string;
+  requires_restart: boolean;
+  added?: string[];
+  changed?: string[];
+  removed?: string[];
+  retried?: string[];
+  connected?: string[];
+  failed?: string[];
+  configured?: string[];
+  tools_removed?: number;
 }
 
 export interface MCPList {
@@ -435,8 +453,15 @@ export async function setMCPServerEnabled(name: string, enabled: boolean): Promi
   return (await mcpRequest(name, "PATCH", { enabled })).json();
 }
 
-export async function deleteMCPServer(name: string): Promise<void> {
-  await mcpRequest(name, "DELETE");
+export async function deleteMCPServer(name: string): Promise<{ reload?: MCPReload }> {
+  const resp = await mcpRequest(name, "DELETE");
+  return resp.status === 204 ? {} : resp.json();
+}
+
+export async function reloadMCP(): Promise<MCPReload> {
+  const resp = await fetch("mcp/reload", { method: "POST" });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
 }
 
 // POST /ui/mcp/{name}/test connects the saved server on its own, lists

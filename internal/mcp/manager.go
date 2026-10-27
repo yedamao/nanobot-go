@@ -4,8 +4,9 @@
 //
 // The application owns a Manager, not the agent loop: it creates one with
 // the shared tool registry, calls Connect before the first turn and Close
-// at shutdown. Tools are registered and unregistered while the agent may
-// be running; the registry is safe for that.
+// at shutdown; Reload applies a changed server set in between. Tools are
+// registered and unregistered while the agent may be running; the
+// registry is safe for that.
 package mcp
 
 import (
@@ -74,6 +75,9 @@ type ServerStatus struct {
 // errClosed is returned once the Manager is closed.
 var errClosed = errors.New("MCP manager is closed")
 
+// errRetired is returned for a server Reload removed or replaced.
+var errRetired = errors.New("MCP server was reconfigured")
+
 // Option configures a Manager.
 type Option func(*Manager)
 
@@ -134,7 +138,12 @@ type Manager struct {
 	browsers       map[string]*OAuthBrowser
 	client         *sdk.Client
 
-	servers []*server // sorted by name; the slice is never modified
+	// mu guards servers, which is sorted by name. Reload replaces the
+	// slice; it is never modified in place.
+	mu      sync.Mutex
+	servers []*server
+	// reloadMu serializes Reload.
+	reloadMu sync.Mutex
 
 	// ctx outlives every session (SSE streams are bound to the context
 	// they are opened with); Close cancels it.
@@ -163,6 +172,7 @@ type server struct {
 	registered bool     // tools were registered (on the first connect)
 	tools      []string // registered names, sorted
 	failedAt   time.Time
+	retired    bool // removed or replaced by Reload: never connects again
 }
 
 // conn is one live session. Calls are bound to ctx, so close can cancel
@@ -204,13 +214,24 @@ func NewManager(servers map[string]config.MCPServerConfig, reg *tools.Registry, 
 	m.client = sdk.NewClient(&sdk.Implementation{Name: "nanobot-go", Version: m.version},
 		&sdk.ClientOptions{Logger: logger, Capabilities: &sdk.ClientCapabilities{}})
 	for _, name := range slices.Sorted(maps.Keys(servers)) {
-		s := &server{name: name, cfg: servers[name], state: StatePending}
-		if !s.cfg.IsEnabled() {
-			s.state = StateDisabled
-		}
-		m.servers = append(m.servers, s)
+		m.servers = append(m.servers, newServer(name, servers[name]))
 	}
 	return m
+}
+
+func newServer(name string, cfg config.MCPServerConfig) *server {
+	s := &server{name: name, cfg: cfg, state: StatePending}
+	if !cfg.IsEnabled() {
+		s.state = StateDisabled
+	}
+	return s
+}
+
+// snapshot returns the current servers.
+func (m *Manager) snapshot() []*server {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.servers
 }
 
 // Connect connects every enabled server that is not connected yet,
@@ -219,7 +240,7 @@ func NewManager(servers map[string]config.MCPServerConfig, reg *tools.Registry, 
 // error only if ctx ends first.
 func (m *Manager) Connect(ctx context.Context) error {
 	var wg sync.WaitGroup
-	for _, s := range m.servers {
+	for _, s := range m.snapshot() {
 		if s.cfg.IsEnabled() {
 			wg.Go(func() { _, _ = m.connect(ctx, s, nil) })
 		}
@@ -239,6 +260,10 @@ func (m *Manager) connect(ctx context.Context, s *server, stale *conn) (*conn, e
 		return nil, errClosed
 	}
 	s.mu.Lock()
+	if s.retired {
+		s.mu.Unlock()
+		return nil, errRetired
+	}
 	cur := s.conn
 	if cur != nil && cur != stale {
 		s.mu.Unlock()
@@ -551,7 +576,7 @@ func (m *Manager) session(ctx context.Context, s *server) (*conn, error) {
 // the reconnect backoff: after a browser sign-in stored its credentials.
 // A disabled or unknown server is an error.
 func (m *Manager) Reconnect(ctx context.Context, name string) error {
-	for _, s := range m.servers {
+	for _, s := range m.snapshot() {
 		if s.name != name {
 			continue
 		}
@@ -578,8 +603,9 @@ func (m *Manager) spawn(f func()) bool {
 
 // Status reports every configured server, sorted by name.
 func (m *Manager) Status() []ServerStatus {
-	out := make([]ServerStatus, 0, len(m.servers))
-	for _, s := range m.servers {
+	servers := m.snapshot()
+	out := make([]ServerStatus, 0, len(servers))
+	for _, s := range servers {
 		s.mu.Lock()
 		out = append(out, ServerStatus{
 			Name:      s.name,
@@ -600,11 +626,13 @@ func (m *Manager) Status() []ServerStatus {
 func (m *Manager) Close() error {
 	m.closeOnce.Do(func() {
 		m.goMu.Lock()
+		m.mu.Lock() // a Reload after this sees closed and adds no servers
 		m.closed.Store(true)
+		m.mu.Unlock()
 		m.goMu.Unlock()
 
 		var conns []*conn
-		for _, s := range m.servers {
+		for _, s := range m.snapshot() {
 			s.mu.Lock()
 			if s.conn != nil {
 				conns = append(conns, s.conn)

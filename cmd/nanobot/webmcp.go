@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
@@ -37,15 +38,23 @@ var secretValueRE = regexp.MustCompile(`^(sk-|ghp_|gho_|github_pat_|xox[abp]-|gl
 // webMCP is the WebUI's MCP server store (/ui/mcp). Like webSettings it
 // loads the config file afresh for every change, sets only
 // tools.mcpServers on it and saves it, under the settings' lock so the
-// two never save over each other's change. Servers connect when the
-// gateway starts: running holds the servers it started with, and live
-// their connection states, to report which saved ones differ.
+// two never save over each other's change. With a running gateway, each
+// change is then applied to it (reload, as nanobot's hot reload): running
+// holds the servers it runs, and live their connection states, to report
+// which saved ones differ.
 type webMCP struct {
 	settings *webSettings
-	running  map[string]config.MCPServerConfig
+	// runMu guards running.
+	runMu   sync.Mutex
+	running map[string]config.MCPServerConfig
 	// live returns the running Manager's states; nil when there is none.
-	live   func() []mcp.ServerStatus
-	getenv func(string) string
+	live func() []mcp.ServerStatus
+	// reload applies a server set to the running Manager (Manager.Reload);
+	// nil when there is none. reloadMu serializes reloads, so the last
+	// one applies the latest saved config.
+	reload   func(context.Context, map[string]config.MCPServerConfig) (mcp.ReloadResult, error)
+	reloadMu sync.Mutex
+	getenv   func(string) string
 	// probe returns a throwaway Manager for cfg's MCP servers, connecting
 	// within mcpTestTimeout unless opts say otherwise; nil disables
 	// TestMCPServer and OAuth sign-in.
@@ -55,9 +64,6 @@ type webMCP struct {
 	oauth *mcp.OAuthStore
 	// flows runs the WebUI's OAuth sign-ins (see enableOAuth).
 	flows *mcp.OAuthFlows
-	// reconnect connects a server of the running Manager after its
-	// sign-in; nil when there is none.
-	reconnect func(ctx context.Context, name string) error
 }
 
 // newWebMCP returns the MCP store sharing settings' config file and lock.
@@ -65,14 +71,73 @@ func newWebMCP(settings *webSettings, running map[string]config.MCPServerConfig,
 	return &webMCP{settings: settings, running: maps.Clone(running), live: live, getenv: getenv, probe: probe}
 }
 
-// enableOAuth turns on OAuth sign-in with credentials in store; reconnect
-// (may be nil) activates a signed-in server in the running gateway, and
-// checkAuthURL vets authorization URLs before the page opens them. Close
+// enableOAuth turns on OAuth sign-in with credentials in store;
+// checkAuthURL vets authorization URLs before the page opens them. A
+// signed-in server is activated by reloading the running gateway. Close
 // the returned flows at shutdown.
-func (s *webMCP) enableOAuth(store *mcp.OAuthStore, reconnect func(context.Context, string) error, checkAuthURL func(context.Context, *url.URL) error) *mcp.OAuthFlows {
-	s.oauth, s.reconnect = store, reconnect
+func (s *webMCP) enableOAuth(store *mcp.OAuthStore, checkAuthURL func(context.Context, *url.URL) error) *mcp.OAuthFlows {
+	s.oauth = store
 	s.flows = mcp.NewOAuthFlows(s.connectOAuth, s.activateOAuth, checkAuthURL)
 	return s.flows
+}
+
+// hotReload applies the saved servers to the running gateway, which then
+// runs them, and reports how; live is false without a running gateway.
+// It loads the config itself, so of concurrent changes the last reload
+// applies all of them.
+func (s *webMCP) hotReload(ctx context.Context) (res mcp.ReloadResult, live bool) {
+	if s.reload == nil {
+		return mcp.ReloadResult{}, false
+	}
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	s.settings.mu.Lock()
+	cfg, err := config.Load(s.settings.path)
+	s.settings.mu.Unlock()
+	if err != nil {
+		slog.Warn("MCP hot reload could not read config", "error", err)
+		return mcp.ReloadResult{Message: "Could not reload MCP config. Restart the gateway to pick up changes.", RequiresRestart: true}, true
+	}
+	ctx, cancel := context.WithTimeout(ctx, mcpReloadTimeout)
+	defer cancel()
+	res, err = s.reload(ctx, cfg.Tools.MCPServers)
+	if err != nil {
+		return res, true
+	}
+	s.runMu.Lock()
+	s.running = maps.Clone(cfg.Tools.MCPServers)
+	s.runMu.Unlock()
+	return res, true
+}
+
+// reloadView is hotReload for a mutation's response; nil without a
+// running gateway.
+func (s *webMCP) reloadView() *websocket.MCPReload {
+	res, live := s.hotReload(context.Background())
+	if !live {
+		return nil
+	}
+	v := reloadView(res)
+	return &v
+}
+
+func reloadView(r mcp.ReloadResult) websocket.MCPReload {
+	return websocket.MCPReload{OK: r.OK, Message: r.Message, RequiresRestart: r.RequiresRestart,
+		Added: r.Added, Changed: r.Changed, Removed: r.Removed, Retried: r.Retried,
+		Connected: r.Connected, Failed: r.Failed, Configured: r.Configured, ToolsRemoved: r.ToolsRemoved}
+}
+
+// ReloadMCP implements websocket.MCPReloader.
+func (s *webMCP) ReloadMCP(ctx context.Context) (websocket.MCPReload, bool, error) {
+	res, live := s.hotReload(ctx)
+	return reloadView(res), live, nil
+}
+
+// runningServers returns the servers the gateway runs.
+func (s *webMCP) runningServers() map[string]config.MCPServerConfig {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	return s.running
 }
 
 // MCPServers implements websocket.MCPStore.
@@ -85,9 +150,10 @@ func (s *webMCP) MCPServers() (websocket.MCPList, error) {
 	}
 	saved := cfg.Tools.MCPServers
 	states := s.states()
+	running := s.runningServers()
 	out := websocket.MCPList{Servers: []websocket.MCPServerView{}, Live: states != nil, RestartRequired: []string{}}
 	names := slices.Collect(maps.Keys(saved))
-	for name, r := range s.running {
+	for name, r := range running {
 		if _, ok := saved[name]; !ok && r.IsEnabled() {
 			names = append(names, name)
 		}
@@ -161,7 +227,10 @@ func (s *webMCP) PutMCPServer(name string, in websocket.MCPServerInput) (websock
 	if dropCredentials {
 		s.forgetCredentials(name)
 	}
-	return s.view(name, cfg.Tools.MCPServers, s.states()), created, nil
+	reload := s.reloadView()
+	v := s.view(name, cfg.Tools.MCPServers, s.states())
+	v.Reload = reload
+	return v, created, nil
 }
 
 // SetMCPServerEnabled implements websocket.MCPStore.
@@ -181,11 +250,14 @@ func (s *webMCP) SetMCPServerEnabled(name string, enabled bool) (websocket.MCPSe
 	if err != nil {
 		return websocket.MCPServerView{}, err
 	}
-	return s.view(name, cfg.Tools.MCPServers, s.states()), nil
+	reload := s.reloadView()
+	v := s.view(name, cfg.Tools.MCPServers, s.states())
+	v.Reload = reload
+	return v, nil
 }
 
 // DeleteMCPServer implements websocket.MCPStore.
-func (s *webMCP) DeleteMCPServer(name string) error {
+func (s *webMCP) DeleteMCPServer(name string) (*websocket.MCPReload, error) {
 	_, err := s.update(func(servers map[string]config.MCPServerConfig) error {
 		if _, ok := servers[name]; !ok {
 			return websocket.ErrMCPNotFound
@@ -193,10 +265,11 @@ func (s *webMCP) DeleteMCPServer(name string) error {
 		delete(servers, name)
 		return nil
 	})
-	if err == nil {
-		s.forgetCredentials(name)
+	if err != nil {
+		return nil, err
 	}
-	return err
+	s.forgetCredentials(name)
+	return s.reloadView(), nil
 }
 
 // forgetCredentials deletes name's OAuth credentials and stops its
@@ -215,8 +288,7 @@ func (s *webMCP) forgetCredentials(name string) {
 
 // TestMCPServer implements websocket.MCPTester: it connects the saved
 // server alone through a Manager of its own, lists its tools (ignoring
-// enabledTools) and closes it, as the gateway would connect it after a
-// restart. The running gateway's connections are untouched and nothing
+// enabledTools) and closes it, as the gateway would connect it. The running gateway's connections are untouched and nothing
 // is saved. A disabled server, or one needing an unset ${VAR}, is not
 // dialed.
 func (s *webMCP) TestMCPServer(ctx context.Context, name string) (websocket.MCPTestResult, error) {
@@ -335,7 +407,7 @@ func (s *webMCP) states() map[string]mcp.ServerStatus {
 // secrets.
 func (s *webMCP) view(name string, saved map[string]config.MCPServerConfig, states map[string]mcp.ServerStatus) websocket.MCPServerView {
 	srv, ok := saved[name]
-	running, wasRunning := s.running[name]
+	running, wasRunning := s.runningServers()[name]
 	if !ok {
 		srv = running
 	}
@@ -478,7 +550,8 @@ func redactMCPURL(raw string) string {
 }
 
 var (
-	_ websocket.MCPStore  = (*webMCP)(nil)
-	_ websocket.MCPTester = (*webMCP)(nil)
-	_ websocket.MCPOAuth  = (*webMCP)(nil)
+	_ websocket.MCPStore    = (*webMCP)(nil)
+	_ websocket.MCPTester   = (*webMCP)(nil)
+	_ websocket.MCPOAuth    = (*webMCP)(nil)
+	_ websocket.MCPReloader = (*webMCP)(nil)
 )

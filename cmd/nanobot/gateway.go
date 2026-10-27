@@ -142,7 +142,8 @@ func (a *app) gateway(ctx context.Context, args []string) (err error) {
 	settings := newWebSettings(rt.configPath, rt.cfg, a.getenv)
 	rt.skills.SetPersist(settings.saveDisabledSkills)
 	mcpStore := newWebMCP(settings, rt.cfg.Tools.MCPServers, rt.mcp.Status, a.getenv, a.probeMCP)
-	oauthFlows := mcpStore.enableOAuth(mcpOAuthStore(rt.configPath, log), rt.mcp.Reconnect, func(ctx context.Context, u *url.URL) error {
+	mcpStore.reload = rt.mcp.Reload
+	oauthFlows := mcpStore.enableOAuth(mcpOAuthStore(rt.configPath, log), func(ctx context.Context, u *url.URL) error {
 		_, err := rt.ssrf.CheckTarget(ctx, u)
 		return err
 	})

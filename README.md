@@ -503,8 +503,8 @@ servers will not redirect to, the callback goes to
 to paste the URL the browser lands on. Tokens are stored in
 `auth/mcp.json` next to the config file (mode 0600), bound to the server
 name and URL, never in the config; they are refreshed when they expire.
-After a sign-in the running gateway connects the server right away if it
-runs it as saved; otherwise restart it.
+After a sign-in the running gateway connects the server right away, no
+restart needed.
 
 Background connections (gateway start, `nanobot agent`, `status --mcp`)
 never open a browser: a server without credentials shows **needs
@@ -521,12 +521,21 @@ state, error and tools, adds stdio (`command`, args, env) or HTTP (`url`,
 type, headers) servers, toggles `enabled` and removes servers. Env and
 header values are saved but never sent back to the browser (only their
 names), nor are URL credentials or query strings or secret-looking args
-(`--token X`, `KEY=…`, `sk-…`); prefer `${VAR}` references. Servers
-connect when the gateway starts, so changes show **restart required**
-until it is restarted. The API: `GET /ui/mcp`; `PUT /ui/mcp/{name}`
-creates (201) or replaces (200) a server, keeping the saved env/headers
-when the body omits them; `PATCH /ui/mcp/{name}` `{"enabled":bool}`;
-`DELETE /ui/mcp/{name}` (204); OAuth sign-in is `POST
+(`--token X`, `KEY=…`, `sk-…`); prefer `${VAR}` references. When the
+gateway is running, changes apply to it right away without a restart
+(hot reload): added, changed and re-enabled servers connect, removed and
+disabled ones are disconnected and their tools removed, and unchanged
+servers keep their connections. An OAuth server still needs **Sign in**
+before it connects. **Reload connections** retries servers that failed
+to connect. **restart required** shows only when the change could not
+be applied (no running gateway). The API: `GET /ui/mcp`; `PUT
+/ui/mcp/{name}` creates (201) or replaces (200) a server, keeping the
+saved env/headers when the body omits them; `PATCH /ui/mcp/{name}`
+`{"enabled":bool}`; `DELETE /ui/mcp/{name}` (204, or 200 `{"reload"}`
+with a running gateway); mutations with a running gateway include
+`reload` (`ok`, `message`, `added`/`changed`/`removed`/`retried`/
+`connected`/`failed`, `requires_restart`); `POST /ui/mcp/reload`
+reconciles on demand; OAuth sign-in is `POST
 /ui/mcp/{name}/oauth/start` `{"reset":bool}`, `GET
 /ui/mcp/{name}/oauth/status?flow_id=`, `POST
 /ui/mcp/{name}/oauth/complete` `{"flow_id","callback_url"}` and `POST

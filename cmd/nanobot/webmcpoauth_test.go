@@ -20,7 +20,7 @@ const linearURL = "https://mcp.example.test/linear"
 
 // oauthMCP returns an MCP store whose config adds the OAuth server
 // "linear" (running as saved), with credentials in the data directory.
-func oauthMCP(t *testing.T, reconnect func(context.Context, string) error) (*webMCP, *mcp.OAuthStore, string) {
+func oauthMCP(t *testing.T) (*webMCP, *mcp.OAuthStore, string) {
 	t.Helper()
 	path := writeSettingsConfig(t)
 	cfg, err := config.Load(path)
@@ -38,7 +38,7 @@ func oauthMCP(t *testing.T, reconnect func(context.Context, string) error) (*web
 		return mcp.NewManager(cfg.Tools.MCPServers, tools.NewRegistry(), nil, opts...)
 	}
 	store := mcp.NewOAuthStore(config.MCPOAuthPath(path), nil)
-	flows := s.enableOAuth(store, reconnect, nil)
+	flows := s.enableOAuth(store, nil)
 	t.Cleanup(flows.Close)
 	return s, store, path
 }
@@ -74,7 +74,7 @@ func viewOf(t *testing.T, s *webMCP, name string) websocket.MCPServerView {
 }
 
 func TestWebMCPOAuthView(t *testing.T) {
-	s, store, path := oauthMCP(t, nil)
+	s, store, path := oauthMCP(t)
 	v := viewOf(t, s, "linear")
 	if v.Auth != "oauth" || v.OAuth != mcp.OAuthAuthorizationRequired || v.State != string(mcp.StateAuthorizationRequired) {
 		t.Errorf("linear = %+v", v)
@@ -92,7 +92,7 @@ func TestWebMCPOAuthView(t *testing.T) {
 }
 
 func TestWebMCPOAuthCredentialsFollowConfig(t *testing.T) {
-	s, store, path := oauthMCP(t, nil)
+	s, store, path := oauthMCP(t)
 	seedCredentials(t, path, "linear", linearURL)
 
 	// Replacing the server as it was keeps the credentials.
@@ -122,7 +122,7 @@ func TestWebMCPOAuthCredentialsFollowConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	seedCredentials(t, path, "linear", linearURL)
-	if err := s.DeleteMCPServer("linear"); err != nil {
+	if _, err := s.DeleteMCPServer("linear"); err != nil {
 		t.Fatal(err)
 	}
 	if store.HasCredentials("linear", linearURL) {
@@ -138,7 +138,7 @@ func TestWebMCPOAuthCredentialsFollowConfig(t *testing.T) {
 }
 
 func TestWebMCPOAuthStartChecks(t *testing.T) {
-	s, _, _ := oauthMCP(t, nil)
+	s, _, _ := oauthMCP(t)
 	var oe *websocket.MCPOAuthError
 	if _, err := s.StartMCPOAuth("srv", "http://127.0.0.1:18790/auth/mcp/callback", false); !errors.As(err, &oe) || oe.Status != http.StatusConflict {
 		t.Errorf("header server = %v", err)
@@ -159,30 +159,42 @@ func TestWebMCPOAuthStartChecks(t *testing.T) {
 
 func TestWebMCPOAuthActivate(t *testing.T) {
 	ctx := context.Background()
-	s, _, _ := oauthMCP(t, nil)
+	s, _, _ := oauthMCP(t)
 	if h := s.activateOAuth(ctx, "linear"); h.OK || !h.RequiresRestart {
 		t.Errorf("without a running Manager: %+v", h)
 	}
 
-	var reconnected []string
-	s, _, _ = oauthMCP(t, func(_ context.Context, name string) error {
-		reconnected = append(reconnected, name)
-		return nil
-	})
-	if h := s.activateOAuth(ctx, "linear"); !h.OK || h.RequiresRestart {
-		t.Errorf("running as saved: %+v", h)
+	// With a running gateway, the saved servers are reloaded.
+	var reloaded []config.MCPServerConfig
+	live := mcp.ServerStatus{Name: "linear", State: mcp.StateConnected}
+	var reloadErr error
+	s.live = func() []mcp.ServerStatus { return []mcp.ServerStatus{live} }
+	s.reload = func(_ context.Context, next map[string]config.MCPServerConfig) (mcp.ReloadResult, error) {
+		reloaded = append(reloaded, next["linear"])
+		if reloadErr != nil {
+			return mcp.ReloadResult{RequiresRestart: true}, reloadErr
+		}
+		return mcp.ReloadResult{OK: true}, nil
 	}
-	if len(reconnected) != 1 || reconnected[0] != "linear" {
-		t.Errorf("reconnected %v", reconnected)
+	if h := s.activateOAuth(ctx, "linear"); !h.OK || h.RequiresRestart || h.Message != "linear connected." {
+		t.Errorf("running: %+v", h)
 	}
-	// Saved differently from how it runs: restart.
+	if len(reloaded) != 1 || reloaded[0].URL != linearURL {
+		t.Errorf("reloaded %v", reloaded)
+	}
+	// Saved differently from how it started: the reload applies it.
 	if _, _, err := s.PutMCPServer("linear", websocket.MCPServerInput{URL: linearURL + "/v2", Auth: "oauth"}); err != nil {
 		t.Fatal(err)
 	}
-	if h := s.activateOAuth(ctx, "linear"); h.OK || !h.RequiresRestart {
-		t.Errorf("changed since start: %+v", h)
+	if h := s.activateOAuth(ctx, "linear"); !h.OK || len(reloaded) != 3 || reloaded[2].URL != linearURL+"/v2" {
+		t.Errorf("changed: %+v, reloaded %v", h, reloaded)
 	}
-	if len(reconnected) != 1 {
-		t.Errorf("reconnected a changed server: %v", reconnected)
+	live = mcp.ServerStatus{Name: "linear", State: mcp.StateFailed, Err: errors.New("boom")}
+	if h := s.activateOAuth(ctx, "linear"); h.OK || h.RequiresRestart || h.Message != "Signed in, but linear could not connect: boom" {
+		t.Errorf("failed: %+v", h)
+	}
+	reloadErr = errors.New("MCP manager is closed")
+	if h := s.activateOAuth(ctx, "linear"); h.OK || !h.RequiresRestart {
+		t.Errorf("closing: %+v", h)
 	}
 }
