@@ -78,7 +78,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 
 Not yet: other chat channels (Slack, Discord, WeCom, ...), local
 triggers, the fuller WebUI (provider OAuth logins, custom providers, a
-model catalog, MCP presets/OAuth/apps, a skill marketplace, ...). See
+model catalog, MCP presets/apps, a skill marketplace, ...). See
 [docs/PORTING.md](docs/PORTING.md) for the roadmap.
 
 ## Quickstart
@@ -454,6 +454,7 @@ keys mirror nanobot's:
 | `type` | `stdio`, `streamableHttp` or `sse`. Optional: `command` means stdio, a `url` ending in `/sse` means SSE, any other `url` streamable HTTP. |
 | `command`, `args`, `env`, `cwd` | Start a stdio server. Set exactly one of `command` and `url`. |
 | `url`, `headers` | Reach an HTTP server; headers go with every request. |
+| `auth` | `"oauth"` signs an HTTP or SSE server in through the browser (see below) instead of a token in `headers`. Default: headers only. |
 | `toolTimeout` | Seconds before a tool call is abandoned (default 30). |
 | `enabledTools` | Tools to expose, by their name on the server (`search_repositories`) or the agent's name (`mcp_github_search_repositories`). Default `["*"]`, all tools; `[]` exposes none. |
 | `enabled` | `false` keeps the entry but does not connect (default `true`). |
@@ -480,8 +481,39 @@ servers without connecting; `nanobot status --mcp` connects, reports
 each server's state and tool count or error, and disconnects.
 `nanobot dream` never uses MCP tools.
 
-MCP resources and prompts are not exposed yet, nor is OAuth; use a header
-with a token instead.
+MCP resources and prompts are not exposed yet.
+
+#### OAuth servers
+
+Remote servers that use MCP authorization (OAuth 2.1), such as hosted
+Linear, Notion or GitHub MCP endpoints, take `"auth": "oauth"` instead of
+a token header:
+
+```json
+{"tools": {"mcpServers": {"linear": {"url": "https://mcp.linear.app/mcp", "auth": "oauth"}}}}
+```
+
+Sign in from the WebUI's **MCP** page with **Sign in**: nanobot-go
+discovers the server's authorization server, registers itself
+(dynamic client registration, PKCE), and opens the sign-in page. The
+browser returns to the gateway at `/auth/mcp/callback`; when the WebUI
+is reached over plain HTTP from another machine, which authorization
+servers will not redirect to, the callback goes to
+`http://127.0.0.1:<port>/auth/mcp/callback` instead and the page asks you
+to paste the URL the browser lands on. Tokens are stored in
+`auth/mcp.json` next to the config file (mode 0600), bound to the server
+name and URL, never in the config; they are refreshed when they expire.
+After a sign-in the running gateway connects the server right away if it
+runs it as saved; otherwise restart it.
+
+Background connections (gateway start, `nanobot agent`, `status --mcp`)
+never open a browser: a server without credentials shows **needs
+sign-in** (`authorization_required`) and is skipped, and one whose
+refresh token the authorization server refuses drops its tokens and
+waits for a new sign-in. Removing the server, turning `auth` off or
+changing its `url` deletes its stored credentials. A configured
+`Authorization` header is ignored for OAuth servers; other headers are
+still sent to the MCP server (never to the authorization server).
 
 The WebUI's **MCP** page (`#/mcp`) edits `tools.mcpServers`: it lists
 each server with its transport, command or URL, the running gateway's
@@ -494,8 +526,14 @@ connect when the gateway starts, so changes show **restart required**
 until it is restarted. The API: `GET /ui/mcp`; `PUT /ui/mcp/{name}`
 creates (201) or replaces (200) a server, keeping the saved env/headers
 when the body omits them; `PATCH /ui/mcp/{name}` `{"enabled":bool}`;
-`DELETE /ui/mcp/{name}` (204). Mutations are same-origin only and need
-the same sign-in as the rest of `/ui/`.
+`DELETE /ui/mcp/{name}` (204); OAuth sign-in is `POST
+/ui/mcp/{name}/oauth/start` `{"reset":bool}`, `GET
+/ui/mcp/{name}/oauth/status?flow_id=`, `POST
+/ui/mcp/{name}/oauth/complete` `{"flow_id","callback_url"}` and `POST
+/ui/mcp/{name}/oauth/cancel` `{"flow_id"}`. Mutations are same-origin
+only and need the same sign-in as the rest of `/ui/`; the
+`/auth/mcp/callback` landing page needs none (the flow's one-time state
+is its credential).
 
 HTTP and SSE servers are subject to the same private-address block as
 `web_fetch` (see below): a server on `localhost`, your LAN or a tailnet

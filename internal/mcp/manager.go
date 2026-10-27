@@ -55,6 +55,9 @@ const (
 	StateFailed    State = "failed"
 	StateDisabled  State = "disabled" // enabled: false in the config
 	StateClosed    State = "closed"
+	// StateAuthorizationRequired: an OAuth server without usable
+	// credentials, waiting for a browser sign-in from the WebUI.
+	StateAuthorizationRequired State = "authorization_required"
 )
 
 // ServerStatus describes one configured server.
@@ -99,6 +102,23 @@ func WithLookupEnv(f func(string) (string, bool)) Option {
 	return func(m *Manager) { m.lookupEnv = f }
 }
 
+// WithOAuthStore sets where OAuth servers' credentials are kept
+// (config.MCPOAuthPath). Without it, OAuth servers stay
+// StateAuthorizationRequired.
+func WithOAuthStore(st *OAuthStore) Option { return func(m *Manager) { m.oauth = st } }
+
+// WithOAuthBrowser lets server name authorize in the browser through b
+// when it has no valid credentials. Only a user-started attempt (the
+// WebUI's sign-in) passes it; background connections never prompt.
+func WithOAuthBrowser(name string, b *OAuthBrowser) Option {
+	return func(m *Manager) {
+		if m.browsers == nil {
+			m.browsers = map[string]*OAuthBrowser{}
+		}
+		m.browsers[name] = b
+	}
+}
+
 // Manager owns the connections to the configured MCP servers and their
 // tool registrations. It is safe for concurrent use.
 type Manager struct {
@@ -110,6 +130,8 @@ type Manager struct {
 	stderr         io.Writer
 	version        string
 	lookupEnv      func(string) (string, bool)
+	oauth          *OAuthStore
+	browsers       map[string]*OAuthBrowser
 	client         *sdk.Client
 
 	servers []*server // sorted by name; the slice is never modified
@@ -242,6 +264,11 @@ func (m *Manager) connect(ctx context.Context, s *server, stale *conn) (*conn, e
 	defer s.mu.Unlock()
 	if err != nil {
 		s.state, s.err, s.failedAt = StateFailed, err, time.Now()
+		if errors.Is(err, ErrAuthorizationRequired) {
+			s.state = StateAuthorizationRequired
+			m.logger.Info("MCP server is waiting for browser authorization", "server", s.name)
+			return nil, err
+		}
 		m.logger.Info("MCP server failed to connect", "server", s.name, "error", err)
 		return nil, err
 	}
@@ -298,9 +325,22 @@ func (m *Manager) open(ctx context.Context, s *server, cfg config.MCPServerConfi
 	if m.stderr != nil {
 		stderr = io.MultiWriter(tail, m.stderr)
 	}
+	var oa *oauthAuth
+	if cfg.UsesOAuth() {
+		if t := cfg.Transport(); t != config.MCPStreamableHTTP && t != config.MCPSSE {
+			return nil, nil, fmt.Errorf("OAuth needs a %s or %s server", config.MCPStreamableHTTP, config.MCPSSE)
+		}
+		var err error
+		if oa, err = m.newOAuth(s.name, cfg); err != nil {
+			return nil, nil, err
+		}
+	}
 	transport, err := m.newTransport(s.name, cfg, stderr)
 	if err != nil {
 		return nil, nil, err
+	}
+	if oa != nil {
+		wrapOAuth(transport, oa)
 	}
 	deadline := time.Now().Add(m.connectTimeout)
 
@@ -505,6 +545,23 @@ func (m *Manager) session(ctx context.Context, s *server) (*conn, error) {
 		return nil, err
 	}
 	return m.connect(ctx, s, nil)
+}
+
+// Reconnect connects server name now if it is not connected, ignoring
+// the reconnect backoff: after a browser sign-in stored its credentials.
+// A disabled or unknown server is an error.
+func (m *Manager) Reconnect(ctx context.Context, name string) error {
+	for _, s := range m.servers {
+		if s.name != name {
+			continue
+		}
+		if !s.cfg.IsEnabled() {
+			return fmt.Errorf("MCP server %s is disabled", name)
+		}
+		_, err := m.connect(ctx, s, nil)
+		return err
+	}
+	return fmt.Errorf("no MCP server %s", name)
 }
 
 // spawn runs f in a goroutine that Close waits for. It reports false,

@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
+	"net/url"
 	"os/exec"
 	"reflect"
 	"regexp"
@@ -45,13 +47,32 @@ type webMCP struct {
 	live   func() []mcp.ServerStatus
 	getenv func(string) string
 	// probe returns a throwaway Manager for cfg's MCP servers, connecting
-	// within mcpTestTimeout; nil disables TestMCPServer.
-	probe func(cfg *config.Config) *mcp.Manager
+	// within mcpTestTimeout unless opts say otherwise; nil disables
+	// TestMCPServer and OAuth sign-in.
+	probe func(cfg *config.Config, opts ...mcp.Option) *mcp.Manager
+
+	// oauth holds OAuth servers' credentials; nil without OAuth support.
+	oauth *mcp.OAuthStore
+	// flows runs the WebUI's OAuth sign-ins (see enableOAuth).
+	flows *mcp.OAuthFlows
+	// reconnect connects a server of the running Manager after its
+	// sign-in; nil when there is none.
+	reconnect func(ctx context.Context, name string) error
 }
 
 // newWebMCP returns the MCP store sharing settings' config file and lock.
-func newWebMCP(settings *webSettings, running map[string]config.MCPServerConfig, live func() []mcp.ServerStatus, getenv func(string) string, probe func(*config.Config) *mcp.Manager) *webMCP {
+func newWebMCP(settings *webSettings, running map[string]config.MCPServerConfig, live func() []mcp.ServerStatus, getenv func(string) string, probe func(*config.Config, ...mcp.Option) *mcp.Manager) *webMCP {
 	return &webMCP{settings: settings, running: maps.Clone(running), live: live, getenv: getenv, probe: probe}
+}
+
+// enableOAuth turns on OAuth sign-in with credentials in store; reconnect
+// (may be nil) activates a signed-in server in the running gateway, and
+// checkAuthURL vets authorization URLs before the page opens them. Close
+// the returned flows at shutdown.
+func (s *webMCP) enableOAuth(store *mcp.OAuthStore, reconnect func(context.Context, string) error, checkAuthURL func(context.Context, *url.URL) error) *mcp.OAuthFlows {
+	s.oauth, s.reconnect = store, reconnect
+	s.flows = mcp.NewOAuthFlows(s.connectOAuth, s.activateOAuth, checkAuthURL)
+	return s.flows
 }
 
 // MCPServers implements websocket.MCPStore.
@@ -90,7 +111,7 @@ func (s *webMCP) PutMCPServer(name string, in websocket.MCPServerInput) (websock
 	if slices.Contains(in.Args, redacted) {
 		return websocket.MCPServerView{}, false, fmt.Errorf("%w: args hold a redacted value (%s); send the real value", websocket.ErrInvalidMCP, redacted)
 	}
-	var created bool
+	var created, dropCredentials bool
 	cfg, err := s.update(func(servers map[string]config.MCPServerConfig) error {
 		old, exists := servers[name]
 		created = !exists
@@ -100,6 +121,7 @@ func (s *webMCP) PutMCPServer(name string, in websocket.MCPServerInput) (websock
 			Args:         in.Args,
 			Cwd:          strings.TrimSpace(in.Cwd),
 			URL:          strings.TrimSpace(in.URL),
+			Auth:         strings.TrimSpace(in.Auth),
 			ToolTimeout:  in.ToolTimeout,
 			EnabledTools: in.EnabledTools,
 			Enabled:      in.Enabled,
@@ -127,11 +149,17 @@ func (s *webMCP) PutMCPServer(name string, in websocket.MCPServerInput) (websock
 		} else if *in.Enabled {
 			srv.Enabled = nil // the default
 		}
+		// Like nanobot, credentials go when OAuth is turned off or the
+		// server moves.
+		dropCredentials = old.UsesOAuth() && (!srv.UsesOAuth() || old.URL != srv.URL)
 		servers[name] = srv
 		return nil
 	})
 	if err != nil {
 		return websocket.MCPServerView{}, false, err
+	}
+	if dropCredentials {
+		s.forgetCredentials(name)
 	}
 	return s.view(name, cfg.Tools.MCPServers, s.states()), created, nil
 }
@@ -165,7 +193,24 @@ func (s *webMCP) DeleteMCPServer(name string) error {
 		delete(servers, name)
 		return nil
 	})
+	if err == nil {
+		s.forgetCredentials(name)
+	}
 	return err
+}
+
+// forgetCredentials deletes name's OAuth credentials and stops its
+// sign-ins. A failure is logged: the config change already happened.
+func (s *webMCP) forgetCredentials(name string) {
+	if s.flows != nil {
+		s.flows.CancelName(name)
+	}
+	if s.oauth == nil {
+		return
+	}
+	if _, err := s.oauth.DeleteCredentials(name); err != nil {
+		slog.Warn("delete MCP OAuth credentials", "server", name, "error", err)
+	}
 }
 
 // TestMCPServer implements websocket.MCPTester: it connects the saved
@@ -200,7 +245,11 @@ func (s *webMCP) TestMCPServer(ctx context.Context, name string) (websocket.MCPT
 
 	srv.EnabledTools = nil
 	cfg.Tools.MCPServers = map[string]config.MCPServerConfig{name: srv}
-	m := s.probe(cfg)
+	var opts []mcp.Option
+	if s.oauth != nil {
+		opts = append(opts, mcp.WithOAuthStore(s.oauth))
+	}
+	m := s.probe(cfg, opts...)
 	defer m.Close()
 	if err := m.Connect(ctx); err != nil {
 		return websocket.MCPTestResult{Status: websocket.MCPTestError, Message: "The test of " + name + " was canceled."}, nil
@@ -217,6 +266,9 @@ func (s *webMCP) TestMCPServer(ctx context.Context, name string) (websocket.MCPT
 		}
 		return websocket.MCPTestResult{OK: true, Status: websocket.MCPTestOK,
 			Message: fmt.Sprintf("%s connected with %d %s.", name, len(st.Tools), noun), Tools: st.Tools}, nil
+	case st.State == mcp.StateAuthorizationRequired:
+		return websocket.MCPTestResult{Status: websocket.MCPTestNotConfigured,
+			Message: name + " needs authorization: sign in to it first."}, nil
 	case st.Err == nil:
 		return websocket.MCPTestResult{Status: websocket.MCPTestError, Message: name + " did not complete an MCP handshake."}, nil
 	}
@@ -296,12 +348,19 @@ func (s *webMCP) view(name string, saved map[string]config.MCPServerConfig, stat
 		Args:            redactArgs(srv.Args),
 		Cwd:             srv.Cwd,
 		URL:             redactMCPURL(srv.URL),
+		Auth:            srv.Auth,
 		EnvKeys:         slices.Sorted(maps.Keys(srv.Env)),
 		HeaderKeys:      slices.Sorted(maps.Keys(srv.Headers)),
 		ToolTimeout:     srv.ToolTimeout,
 		EnabledTools:    srv.EnabledTools,
 		RestartRequired: !sameMCPServer(srv, ok, running, wasRunning),
 		Removed:         !ok,
+	}
+	if ok && srv.UsesOAuth() && s.oauth != nil {
+		v.OAuth = mcp.OAuthAuthorizationRequired
+		if s.hasCredentials(name, srv) {
+			v.OAuth = mcp.OAuthAuthorized
+		}
 	}
 	switch st, live := states[name]; {
 	case states == nil:
@@ -421,4 +480,5 @@ func redactMCPURL(raw string) string {
 var (
 	_ websocket.MCPStore  = (*webMCP)(nil)
 	_ websocket.MCPTester = (*webMCP)(nil)
+	_ websocket.MCPOAuth  = (*webMCP)(nil)
 )

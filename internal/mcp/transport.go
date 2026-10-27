@@ -70,12 +70,27 @@ func newTransport(cfg config.MCPServerConfig, stderr io.Writer, policy *security
 		cmd.Stderr = stderr
 		return &sdk.CommandTransport{Command: cmd, TerminateDuration: stdioTerminateWait}, nil
 	case config.MCPStreamableHTTP:
-		return &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers, policy)}, nil
+		return &sdk.StreamableClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(httpHeaders(cfg), policy)}, nil
 	case config.MCPSSE:
-		return &sdk.SSEClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(cfg.Headers, policy)}, nil
+		return &sdk.SSEClientTransport{Endpoint: cfg.URL, HTTPClient: httpClient(httpHeaders(cfg), policy)}, nil
 	default:
 		return nil, fmt.Errorf("unknown MCP transport %q", t)
 	}
+}
+
+// httpHeaders are the headers to send: with OAuth, all but
+// Authorization, which carries the OAuth token instead.
+func httpHeaders(cfg config.MCPServerConfig) map[string]string {
+	if !cfg.UsesOAuth() {
+		return cfg.Headers
+	}
+	out := map[string]string{}
+	for k, v := range cfg.Headers {
+		if !strings.EqualFold(k, "Authorization") {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 func stdioEnv(extra map[string]string) []string {

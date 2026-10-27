@@ -89,8 +89,24 @@ in which we port them.
     `Registry.RegisterEach` and a variadic `Unregister` so a server's tools
     appear and disappear atomically; CLI wiring in `agent` (connect before
     the first turn, close after the loop) and `status [--mcp]`.
-  - Not ported: OAuth (`auth: "oauth"`), resources and prompts as tools,
-    hot reload (`MCPProvider.reload`), `tools/list_changed`.
+  - Done: OAuth (`auth: "oauth"`, `mcp_oauth.py`,
+    `webui/mcp_oauth_api.py`): `internal/mcp/oauthstore.go` keeps
+    nanobot's `auth/mcp.json` store (version, `servers[name]` with
+    `server_fingerprint` = SHA-256 of the trimmed URL, `write_lease`,
+    tokens, `expires_at`, `token_issuer`, `client_info`,
+    `oauth_metadata`, `oauth_issuer`, `redirect_uri`; `generations`
+    rotated on delete) under a file lock with atomic writes;
+    `oauth.go` wraps the go-sdk `auth.AuthorizationCodeHandler` (DCR +
+    PKCE, reusing the stored client) for browser attempts and refreshes
+    stored tokens itself (per-server refresh lock, lease-checked commit,
+    invalid_grant clears tokens, invalid_client/unauthorized_client also
+    the client, 404 the metadata, other failures keep them); background
+    connects without credentials are `authorization_required` with no
+    network request; `oauthflow.go` ports the start/status/complete/
+    cancel flows, redirect URI rules and callback validation.
+  - Not ported: resources and prompts as tools, hot reload
+    (`MCPProvider.reload`; after an OAuth sign-in only a server running
+    as saved is reconnected), `tools/list_changed`.
 
 Phase 2 is complete; phase 3 is in progress.
 
@@ -703,8 +719,11 @@ Phase 2 is complete; phase 3 is in progress.
     Providers test: disabled servers and unset `${VAR}`s are
     `not_configured` without dialing, HTTP 401/403 is `rejected`, a
     missing command/timeout/dial/handshake failure is `error`; messages
-    are scrubbed of secrets. Gaps vs nanobot: no hot reload/reconnect,
-    no OAuth, no preset catalog/marketplace or Cursor/Claude config
+    are scrubbed of secrets. OAuth servers get an auth mode, a
+    signed-in/needs-sign-in state and **Sign in** (start, open the
+    authorization URL, poll, paste the callback for a remote HTTP WebUI).
+    Gaps vs nanobot: no hot reload (only a reconnect after an OAuth
+    sign-in), no preset catalog/marketplace or Cursor/Claude config
     import, no in-place edit form (PUT supports it), no per-tool toggles
     beyond `enabledTools`.
   - Done (simplified): WebUI i18n (`webui/src/i18n/`).
@@ -733,7 +752,7 @@ Phase 2 is complete; phase 3 is in progress.
     zh-TW/ja/fr/… yet.
   - Next WebUI slices: a richer layout and components (nanobot's
     Radix/Tailwind UI), a model catalog/picker, provider OAuth and
-    custom providers, MCP presets/OAuth/apps, marketplace skills.
+    custom providers, MCP presets/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18next and its many locales, KaTeX/Mermaid), settings/models/apps/marketplace pages
     (settings beyond the whitelist, the full model catalog and picker,
@@ -910,9 +929,21 @@ Phase 2 is complete; phase 3 is in progress.
 
 ### MCP
 
-- **No OAuth yet.** nanobot's `auth: "oauth"` (browser authorization,
-  tokens stored outside the config) is not ported; the key is rejected as
-  unknown. Put a token in `headers`, ideally as `${VAR}`.
+- **OAuth differences.** `auth: "oauth"` follows nanobot (same store
+  shape, background connects never prompt, the same flow statuses and
+  redirect rules), with these gaps: sign-in covers saved servers only
+  (no presets materialized on first click); after it, the running gateway
+  reconnects the server only if it runs it as saved, otherwise a restart
+  is needed (no hot reload); the callback origin comes from the
+  request's Host and TLS, not forwarded headers, so a TLS-terminating
+  proxy gets the paste-the-callback flow; clients register dynamically
+  (no client ID metadata document or pre-registered client settings);
+  token refreshes do not send the RFC 8707 `resource` parameter; the
+  discovered authorization server metadata is recorded from the SDK's
+  discovery responses (the SDK does not expose it), and refreshes use
+  the stored token endpoint, so nanobot's 401-then-refresh workaround is
+  not needed; Windows has no cross-process file lock. "Sign in again"
+  resets the tokens and client, as nanobot's `reset`.
 - **Tools only.** With `enabledTools: ["*"]` nanobot also registers each
   resource as a read-only `mcp_<server>_resource_<name>` tool and each
   prompt as `mcp_<server>_prompt_<name>`. nanobot-go skips both: each needs

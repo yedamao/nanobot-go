@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { MCPServer } from "./api.ts";
-import { buildMCPInput, canTestMCP, emptyMCPForm, mcpBadges, mcpTarget, mcpTestNote, parsePairs } from "./mcp.ts";
+import { buildMCPInput, canAuthorizeMCP, canTestMCP, emptyMCPForm, mcpBadges, mcpOAuthNote, mcpTarget, mcpTestNote, oauthFlowActive, parsePairs } from "./mcp.ts";
 
 test("parsePairs reads env and header lines", () => {
   assert.deepEqual(parsePairs("A=1\n\n B = x=y \n"), { pairs: { A: "1", B: "x=y" } });
@@ -52,4 +52,34 @@ test("mcpTestNote", () => {
     text: "Test failed: web refused access (HTTP 401/403): check its headers.",
   });
   assert.deepEqual(mcpTestNote({ ok: false, status: "error", message: "" }), { kind: "error", text: "Test failed: The test failed." });
+});
+
+test("buildMCPInput sends auth oauth instead of headers", () => {
+  const form = { ...emptyMCPForm, name: "linear", kind: "http" as const, url: "https://mcp.linear.app/mcp", auth: "oauth" as const, headers: "Authorization: Bearer x" };
+  assert.deepEqual(buildMCPInput(form), { name: "linear", input: { enabled: true, url: "https://mcp.linear.app/mcp", auth: "oauth" } });
+  const headers = buildMCPInput({ ...form, auth: "headers" });
+  assert.ok("input" in headers && headers.input.auth === undefined && headers.input.headers?.Authorization === "Bearer x");
+});
+
+test("OAuth servers get a badge and can be signed in", () => {
+  const s = { name: "linear", enabled: true, transport: "streamableHttp", enabled_tools: null, state: "authorization_required", restart_required: false, auth: "oauth", oauth: "authorization_required" as const };
+  assert.deepEqual(mcpBadges(s), ["streamableHttp", "OAuth"]);
+  assert.equal(canAuthorizeMCP(s), true);
+  assert.equal(canAuthorizeMCP({ ...s, removed: true }), false);
+  assert.equal(canAuthorizeMCP({ ...s, auth: undefined }), false);
+});
+
+test("mcpOAuthNote follows the flow", () => {
+  const f = { flow_id: "f", name: "linear", status: "authorization_required" as const, expires_in: 300 };
+  assert.equal(oauthFlowActive(f), true);
+  assert.equal(mcpOAuthNote(f).kind, "");
+  assert.match(mcpOAuthNote({ ...f, completion_input: "callback_url" }).text, /paste the callback URL/);
+  assert.deepEqual(mcpOAuthNote({ ...f, status: "connected" }), { kind: "ok", text: "linear is signed in and connected." });
+  const authorized = { ...f, status: "authorized" as const, hot_reload: { ok: false, message: "Signed in. Restart the gateway to connect linear.", requires_restart: true } };
+  assert.equal(oauthFlowActive(authorized), false);
+  assert.equal(mcpOAuthNote(authorized).text, "Signed in. Restart the gateway to connect linear.");
+  assert.deepEqual(mcpOAuthNote({ ...f, status: "failed", error: "Authorization was not completed (access_denied)." }), {
+    kind: "error",
+    text: "Sign-in failed: Authorization was not completed (access_denied).",
+  });
 });

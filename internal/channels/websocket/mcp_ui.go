@@ -59,6 +59,11 @@ type MCPServerView struct {
 	Args    []string `json:"args,omitempty"`
 	Cwd     string   `json:"cwd,omitempty"`
 	URL     string   `json:"url,omitempty"`
+	// Auth is "oauth" for a server signed in through the browser.
+	Auth string `json:"auth,omitempty"`
+	// OAuth is, for an OAuth server, "authorized" when credentials are
+	// stored and "authorization_required" when it needs a sign-in.
+	OAuth string `json:"oauth,omitempty"`
 	// EnvKeys and HeaderKeys are the names of the configured env
 	// variables and headers, sorted.
 	EnvKeys    []string `json:"env_keys,omitempty"`
@@ -68,7 +73,7 @@ type MCPServerView struct {
 	// EnabledTools is the tool whitelist; null exposes every tool.
 	EnabledTools []string `json:"enabled_tools"`
 	// State is the running gateway's connection state: connected,
-	// failed, disabled, pending, closed, "not_running" for a server the
+	// failed, disabled, pending, closed, authorization_required, "not_running" for a server the
 	// gateway started without, or "unknown" when not Live.
 	State string `json:"state"`
 	// Error is the last connection error, with secrets removed.
@@ -94,6 +99,7 @@ type MCPServerInput struct {
 	Cwd          string             `json:"cwd"`
 	URL          string             `json:"url"`
 	Headers      *map[string]string `json:"headers"`
+	Auth         string             `json:"auth"`
 	ToolTimeout  int                `json:"toolTimeout"`
 	EnabledTools []string           `json:"enabledTools"`
 	Enabled      *bool              `json:"enabled"`
@@ -113,7 +119,7 @@ func (c *Channel) serveMCP(w http.ResponseWriter, _ *http.Request) {
 func (c *Channel) putMCP(w http.ResponseWriter, r *http.Request) {
 	var in MCPServerInput
 	if err := decodeJSONBody(r, &in, maxMCPBody); err != nil {
-		http.Error(w, "body must be an MCP server object (type, command, args, env, cwd, url, headers, toolTimeout, enabledTools, enabled)", http.StatusBadRequest)
+		http.Error(w, "body must be an MCP server object (type, command, args, env, cwd, url, headers, auth, toolTimeout, enabledTools, enabled)", http.StatusBadRequest)
 		return
 	}
 	v, created, err := c.mcp.PutMCPServer(r.PathValue("name"), in)

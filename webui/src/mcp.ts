@@ -1,4 +1,4 @@
-import type { MCPServer, MCPServerInput, MCPTestResult } from "./api.ts";
+import type { MCPOAuthFlow, MCPServer, MCPServerInput, MCPTestResult } from "./api.ts";
 import { enT, type Invalid, type Translator } from "./i18n/translate.ts";
 
 /** The MCP page's add form. */
@@ -13,6 +13,9 @@ export interface MCPForm {
   url: string;
   /** "" infers streamableHttp or sse from the url. */
   type: "" | "streamableHttp" | "sse";
+  /** How an HTTP server is authorized: static headers or an OAuth
+   * browser sign-in. */
+  auth: "headers" | "oauth";
   /** Name: value (or Name=value) per line. */
   headers: string;
   toolTimeout: string;
@@ -29,6 +32,7 @@ export const emptyMCPForm: MCPForm = {
   env: "",
   url: "",
   type: "",
+  auth: "headers",
   headers: "",
   toolTimeout: "",
   enabledTools: "",
@@ -76,9 +80,14 @@ export function buildMCPInput(form: MCPForm): { name: string; input: MCPServerIn
     if (!/^https?:\/\/./.test(url)) return { error: { key: "mcp.validation.url" } };
     input.url = url;
     if (form.type) input.type = form.type;
-    const headers = parsePairs(form.headers, true);
-    if ("error" in headers) return headers;
-    if (Object.keys(headers.pairs).length) input.headers = headers.pairs;
+    if (form.auth === "oauth") {
+      // The OAuth token replaces an Authorization header.
+      input.auth = "oauth";
+    } else {
+      const headers = parsePairs(form.headers, true);
+      if ("error" in headers) return headers;
+      if (Object.keys(headers.pairs).length) input.headers = headers.pairs;
+    }
   }
   if (form.toolTimeout.trim()) {
     const n = Number(form.toolTimeout);
@@ -99,6 +108,7 @@ export function mcpTarget(s: MCPServer): string {
 /** mcpBadges are the badges shown next to a server's name. */
 export function mcpBadges(s: MCPServer, t: Translator = enT): string[] {
   const out = [s.transport];
+  if (s.auth === "oauth") out.push(t("mcp.badges.oauth"));
   if (s.removed) out.push(t("mcp.badges.removed"));
   else if (!s.enabled) out.push(t("common.disabled"));
   if (s.restart_required) out.push(t("common.restartRequired"));
@@ -115,4 +125,34 @@ export function canTestMCP(s: MCPServer): boolean {
 export function mcpTestNote(r: MCPTestResult, t: Translator = enT): { kind: "ok" | "error"; text: string } {
   const message = r.message || t(r.ok ? "mcp.testConnected" : "common.testFailedDefault");
   return { kind: r.ok ? "ok" : "error", text: t(r.ok ? "common.testPassed" : "common.testFailed", { message }) };
+}
+
+/** canAuthorizeMCP reports whether a server can be signed in: a saved
+ * OAuth server. */
+export function canAuthorizeMCP(s: MCPServer): boolean {
+  return !s.removed && s.auth === "oauth";
+}
+
+/** oauthFlowActive reports whether a sign-in still needs polling. */
+export function oauthFlowActive(f: MCPOAuthFlow): boolean {
+  return f.status === "starting" || f.status === "authorization_required" || f.status === "connecting";
+}
+
+/** mcpOAuthNote is a card's note for a sign-in's state. */
+export function mcpOAuthNote(f: MCPOAuthFlow, t: Translator = enT): { kind: "" | "ok" | "error"; text: string } {
+  switch (f.status) {
+    case "starting":
+      return { kind: "", text: t("mcp.oauth.starting") };
+    case "authorization_required":
+      return { kind: "", text: t(f.completion_input === "callback_url" ? "mcp.oauth.waitingPaste" : "mcp.oauth.waiting") };
+    case "connecting":
+      return { kind: "", text: t("mcp.oauth.connecting") };
+    case "connected":
+      return { kind: "ok", text: t("mcp.oauth.connected", { name: f.name }) };
+    case "authorized":
+      return { kind: "ok", text: f.hot_reload?.message || t("mcp.oauth.authorized", { name: f.name }) };
+    case "cancelled":
+      return { kind: "", text: t("mcp.oauth.cancelled") };
+  }
+  return { kind: "error", text: t("mcp.oauth.failed", { message: f.error || t("mcp.oauth.failedDefault") }) };
 }

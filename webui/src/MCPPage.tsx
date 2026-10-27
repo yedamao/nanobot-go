@@ -1,6 +1,30 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { deleteMCPServer, listMCP, putMCPServer, setMCPServerEnabled, testMCPServer, type MCPList, type MCPServer } from "./api";
-import { buildMCPInput, canTestMCP, emptyMCPForm, mcpBadges, mcpTarget, mcpTestNote, type MCPForm } from "./mcp";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  cancelMCPOAuth,
+  completeMCPOAuth,
+  deleteMCPServer,
+  listMCP,
+  mcpOAuthStatus,
+  putMCPServer,
+  setMCPServerEnabled,
+  startMCPOAuth,
+  testMCPServer,
+  type MCPList,
+  type MCPOAuthFlow,
+  type MCPServer,
+} from "./api";
+import {
+  buildMCPInput,
+  canAuthorizeMCP,
+  canTestMCP,
+  emptyMCPForm,
+  mcpBadges,
+  mcpOAuthNote,
+  mcpTarget,
+  mcpTestNote,
+  oauthFlowActive,
+  type MCPForm,
+} from "./mcp";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useT, type MessageKey } from "./i18n";
 
@@ -15,6 +39,18 @@ export function MCPPage() {
   // being tested.
   const [tests, setTests] = useState<Record<string, { kind: "" | "ok" | "error"; text: string }>>({});
   const [testing, setTesting] = useState<string | null>(null);
+  // flows holds each server's latest sign-in; pastes the callback URLs
+  // typed for manual completion.
+  const [flows, setFlows] = useState<Record<string, MCPOAuthFlow>>({});
+  const [flowErrors, setFlowErrors] = useState<Record<string, string>>({});
+  const [pastes, setPastes] = useState<Record<string, string>>({});
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setError("");
@@ -64,6 +100,71 @@ export function MCPPage() {
     setTests((prev) => ({ ...prev, [s.name]: note }));
     setTesting(null);
   };
+  const setFlow = (name: string, f: MCPOAuthFlow) => setFlows((prev) => ({ ...prev, [name]: f }));
+  const setFlowError = (name: string, msg: string) => setFlowErrors((prev) => ({ ...prev, [name]: msg }));
+
+  // poll follows a sign-in until it ends, then reloads the list.
+  const poll = async (name: string, flow: MCPOAuthFlow) => {
+    let f = flow;
+    while (mounted.current && oauthFlowActive(f)) {
+      await new Promise((r) => setTimeout(r, 1500));
+      if (!mounted.current) return;
+      try {
+        f = await mcpOAuthStatus(name, f.flow_id);
+      } catch (err) {
+        setFlowError(name, (err as Error).message);
+        return;
+      }
+      setFlow(name, f);
+    }
+    if (mounted.current) await load();
+  };
+
+  const authorize = async (s: MCPServer, reset: boolean) => {
+    setFlowError(s.name, "");
+    // Open the window now, while the click allows it; the sign-in page
+    // is loaded into it once the gateway has its URL.
+    const win = window.open("about:blank", "_blank");
+    let f: MCPOAuthFlow;
+    try {
+      f = await startMCPOAuth(s.name, reset);
+    } catch (err) {
+      win?.close();
+      setFlowError(s.name, (err as Error).message);
+      return;
+    }
+    setFlow(s.name, f);
+    if (f.authorization_url && win) {
+      win.opener = null;
+      win.location.href = f.authorization_url;
+    } else {
+      win?.close();
+    }
+    void poll(s.name, f);
+  };
+
+  const complete = async (s: MCPServer) => {
+    const f = flows[s.name];
+    if (!f) return;
+    setFlowError(s.name, "");
+    try {
+      setFlow(s.name, await completeMCPOAuth(s.name, f.flow_id, (pastes[s.name] ?? "").trim()));
+      setPastes((prev) => ({ ...prev, [s.name]: "" }));
+    } catch (err) {
+      setFlowError(s.name, (err as Error).message);
+    }
+  };
+
+  const cancelFlow = async (s: MCPServer) => {
+    const f = flows[s.name];
+    if (!f) return;
+    try {
+      setFlow(s.name, await cancelMCPOAuth(s.name, f.flow_id));
+    } catch (err) {
+      setFlowError(s.name, (err as Error).message);
+    }
+  };
+
   const remove = (s: MCPServer) => {
     if (!confirm(t("mcp.removeConfirm", { name: s.name }))) return;
     void act(s.name, t("mcp.removed", { name: s.name }), () => deleteMCPServer(s.name));
@@ -138,6 +239,15 @@ export function MCPPage() {
                       >
                         {t(testing === s.name ? "common.testing" : "common.test")}
                       </button>
+                      {canAuthorizeMCP(s) && (
+                        <button
+                          type="button"
+                          disabled={busy !== null || (!!flows[s.name] && oauthFlowActive(flows[s.name]))}
+                          onClick={() => void authorize(s, s.oauth === "authorized")}
+                        >
+                          {t(s.oauth === "authorized" ? "mcp.oauth.signInAgain" : "mcp.oauth.signIn")}
+                        </button>
+                      )}
                       <button type="button" disabled={busy !== null || testing === s.name} onClick={() => void toggle(s)}>
                         {t(s.enabled ? "common.disable" : "common.enable")}
                       </button>
@@ -148,8 +258,13 @@ export function MCPPage() {
                   )}
                 </div>
                 <code className="skill-path">{mcpTarget(s)}</code>
-                {!!(s.env_keys?.length || s.header_keys?.length || s.enabled_tools || s.tool_timeout) && (
+                {!!(s.env_keys?.length || s.header_keys?.length || s.enabled_tools || s.tool_timeout || s.oauth) && (
                   <p>
+                    {s.oauth
+                      ? t("mcp.oauth.status", {
+                          state: t(s.oauth === "authorized" ? "mcp.oauth.authorizedState" : "mcp.oauth.requiredState"),
+                        })
+                      : ""}
                     {s.env_keys?.length ? t("mcp.env", { keys: s.env_keys.join(", ") }) : ""}
                     {s.header_keys?.length ? t("mcp.headers", { keys: s.header_keys.join(", ") }) : ""}
                     {s.enabled_tools ? t("mcp.toolsAllowed", { tools: s.enabled_tools.join(", ") || t("common.none") }) : ""}
@@ -158,6 +273,18 @@ export function MCPPage() {
                 )}
                 {s.error && <p className="page-error">{s.error}</p>}
                 {s.tools && s.tools.length > 0 && <p>{t("mcp.tools", { tools: s.tools.join(", ") })}</p>}
+                {!s.removed && flows[s.name] && <OAuthPanel
+                  flow={flows[s.name]}
+                  paste={pastes[s.name] ?? ""}
+                  onPaste={(v) => setPastes((prev) => ({ ...prev, [s.name]: v }))}
+                  onComplete={() => void complete(s)}
+                  onCancel={() => void cancelFlow(s)}
+                />}
+                {!s.removed && flowErrors[s.name] && (
+                  <p className="page-error" role="status">
+                    {t("mcp.oauth.failed", { message: flowErrors[s.name] })}
+                  </p>
+                )}
                 {!s.removed && tests[s.name] && (
                   <p className={tests[s.name].kind === "error" ? "page-error" : "page-note"} role="status">
                     {tests[s.name].text}
@@ -211,10 +338,21 @@ export function MCPPage() {
                   <option value="sse">sse</option>
                 </select>
               </label>
-              <label htmlFor="mcp-headers">
-                {t("mcp.fields.headers")}
-                <textarea id="mcp-headers" rows={2} value={form.headers} placeholder="Authorization: Bearer ${TOKEN}" onChange={(e) => set({ headers: e.target.value })} />
+              <label htmlFor="mcp-auth">
+                {t("mcp.fields.auth")}
+                <select id="mcp-auth" value={form.auth} onChange={(e) => set({ auth: e.target.value as MCPForm["auth"] })}>
+                  <option value="headers">{t("mcp.fields.authHeaders")}</option>
+                  <option value="oauth">{t("mcp.fields.authOAuth")}</option>
+                </select>
               </label>
+              {form.auth === "headers" ? (
+                <label htmlFor="mcp-headers">
+                  {t("mcp.fields.headers")}
+                  <textarea id="mcp-headers" rows={2} value={form.headers} placeholder="Authorization: Bearer ${TOKEN}" onChange={(e) => set({ headers: e.target.value })} />
+                </label>
+              ) : (
+                <p className="page-empty">{t("mcp.oauth.help")}</p>
+              )}
             </>
           )}
           <label htmlFor="mcp-tools">
@@ -240,5 +378,51 @@ export function MCPPage() {
         <Fill text={t("mcp.help")} vars={{ ref: <code>${"{VAR}"}</code> }} />
       </p>
     </section>
+  );
+}
+
+// OAuthPanel shows a sign-in in progress: the sign-in link, the paste
+// box for a callback the gateway cannot receive, and the outcome.
+function OAuthPanel(props: {
+  flow: MCPOAuthFlow;
+  paste: string;
+  onPaste: (v: string) => void;
+  onComplete: () => void;
+  onCancel: () => void;
+}) {
+  const t = useT();
+  const { flow } = props;
+  const note = mcpOAuthNote(flow, t);
+  const waiting = flow.status === "authorization_required";
+  return (
+    <div className="mcp-oauth" role="status">
+      <p className={note.kind === "error" ? "page-error" : "page-note"}>{note.text}</p>
+      {waiting && flow.authorization_url && (
+        <p>
+          <a href={flow.authorization_url} target="_blank" rel="noopener noreferrer">
+            {t("mcp.oauth.open")}
+          </a>
+        </p>
+      )}
+      {waiting && flow.completion_input === "callback_url" && (
+        <>
+          <p className="page-empty">
+            <Fill text={t("mcp.oauth.pasteHelp")} vars={{ uri: <code>{flow.redirect_uri ?? ""}</code> }} />
+          </p>
+          <label>
+            {t("mcp.oauth.pasteLabel")}
+            <input type="url" value={props.paste} onChange={(e) => props.onPaste(e.target.value)} />
+          </label>
+          <button type="button" disabled={!props.paste.trim()} onClick={props.onComplete}>
+            {t("mcp.oauth.complete")}
+          </button>
+        </>
+      )}
+      {oauthFlowActive(flow) && (
+        <button type="button" onClick={props.onCancel}>
+          {t("mcp.oauth.cancel")}
+        </button>
+      )}
+    </div>
   );
 }

@@ -244,6 +244,9 @@ type Options struct {
 	// MCPTester probes saved MCP servers for POST /ui/mcp/{name}/test.
 	// Nil leaves that path unmounted (404).
 	MCPTester MCPTester
+	// MCPOAuth signs OAuth MCP servers in for /ui/mcp/{name}/oauth/* and
+	// GET /auth/mcp/callback. Nil leaves those paths unmounted (404).
+	MCPOAuth MCPOAuth
 	// Gateway reports on and restarts the gateway for /ui/gateway. Nil
 	// leaves those paths unmounted (404).
 	Gateway GatewayControl
@@ -334,6 +337,7 @@ type Channel struct {
 	models    ModelCatalog
 	tester    ProviderTester
 	mcpTester MCPTester
+	mcpOAuth  MCPOAuth
 	gateway   GatewayControl
 	// channelConfig is Options.ChannelConfig.
 	channelConfig ChannelConfigStore
@@ -369,7 +373,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
-	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, tester: opts.ProviderTester, mcpTester: opts.MCPTester, gateway: opts.Gateway, channelConfig: opts.ChannelConfig, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
+	return &Channel{bus: deps.Bus, log: log, sessions: opts.Sessions, status: opts.Status, settings: opts.Settings, skills: opts.Skills, workspace: opts.Workspace, cron: opts.Cron, pairing: opts.Pairing, mcp: opts.MCP, providers: opts.Providers, models: opts.Models, tester: opts.ProviderTester, mcpTester: opts.MCPTester, mcpOAuth: opts.MCPOAuth, gateway: opts.Gateway, channelConfig: opts.ChannelConfig, auth: a, conns: map[string]map[*websocket.Conn]struct{}{}}, nil
 }
 
 // Name implements channels.Channel.
@@ -438,6 +442,15 @@ func (c *Channel) Mount(mux *http.ServeMux) {
 	}
 	if c.mcpTester != nil {
 		mux.Handle("POST "+MCPTestPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.testMCP))))
+	}
+	if c.mcpOAuth != nil {
+		mux.Handle("POST "+MCPOAuthStartPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.startMCPOAuth))))
+		mux.Handle("GET "+MCPOAuthStatusPath, a.protect(http.HandlerFunc(c.mcpOAuthStatus)))
+		mux.Handle("POST "+MCPOAuthCompletePath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.completeMCPOAuth))))
+		mux.Handle("POST "+MCPOAuthCancelPath, a.protect(sameOrigin.Handler(http.HandlerFunc(c.cancelMCPOAuth))))
+		// The authorization server's redirect: the flow's state is the
+		// credential, as in nanobot.
+		mux.Handle("GET "+MCPOAuthCallbackPath, a.public(http.HandlerFunc(c.mcpOAuthCallback)))
 	}
 	if c.providers != nil {
 		mux.Handle("GET "+ProvidersPath, a.protect(http.HandlerFunc(c.serveProviders)))

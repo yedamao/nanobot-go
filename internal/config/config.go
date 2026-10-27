@@ -332,6 +332,12 @@ func SessionsDir(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "sessions")
 }
 
+// MCPOAuthPath returns the MCP OAuth credential store for a config file:
+// auth/mcp.json next to it, as nanobot keeps it in its data directory.
+func MCPOAuthPath(configPath string) string {
+	return filepath.Join(filepath.Dir(configPath), "auth", "mcp.json")
+}
+
 // ExpandHome replaces a leading ~ with the user's home directory.
 func ExpandHome(p string) (string, error) {
 	if p != "~" && !strings.HasPrefix(p, "~/") {

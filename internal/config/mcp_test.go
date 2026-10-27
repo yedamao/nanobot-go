@@ -104,6 +104,12 @@ func TestValidateMCP(t *testing.T) {
 		{"bad header name", MCPServerConfig{URL: "https://h", Headers: map[string]string{"Bad Header": "v"}}, "", "invalid header name"},
 		{"negative timeout", MCPServerConfig{Command: "srv", ToolTimeout: -1}, "", "toolTimeout"},
 		{"empty tool name", MCPServerConfig{Command: "srv", EnabledTools: []string{""}}, "", "enabledTools[0]"},
+		{"oauth http", MCPServerConfig{URL: "https://h/mcp", Auth: MCPAuthOAuth}, "", ""},
+		{"oauth sse", MCPServerConfig{Type: MCPSSE, URL: "https://h/sse", Auth: MCPAuthOAuth}, "", ""},
+		{"oauth with headers", MCPServerConfig{URL: "https://h/mcp", Auth: MCPAuthOAuth, Headers: map[string]string{"X-Team": "a"}}, "", ""},
+		{"oauth stdio", MCPServerConfig{Command: "srv", Auth: MCPAuthOAuth}, "", "auth oauth needs a url"},
+		{"oauth typed stdio", MCPServerConfig{Type: MCPStdio, Command: "srv", Auth: MCPAuthOAuth}, "", "auth oauth needs a url"},
+		{"unknown auth", MCPServerConfig{URL: "https://h/mcp", Auth: "bearer"}, "", `auth "bearer" must be empty or "oauth"`},
 		{"disabled is still validated", MCPServerConfig{Enabled: new(false)}, "", "command or url is required"},
 	}
 	for _, tt := range tests {
@@ -122,6 +128,24 @@ func TestValidateMCP(t *testing.T) {
 				t.Errorf("Validate() = %v, want containing %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestLoadMCPAuth(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(path, []byte(`{"tools":{"mcpServers":{"linear":{"url":"https://mcp.linear.app/mcp","auth":"oauth"}}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	s := cfg.Tools.MCPServers["linear"]
+	if s.Auth != MCPAuthOAuth || !s.UsesOAuth() {
+		t.Errorf("auth = %q, want oauth", s.Auth)
+	}
+	if got := MCPOAuthPath(path); got != filepath.Join(filepath.Dir(path), "auth", "mcp.json") {
+		t.Errorf("MCPOAuthPath = %q", got)
 	}
 }
 

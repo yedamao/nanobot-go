@@ -373,6 +373,10 @@ export interface MCPServer {
   args?: string[];
   cwd?: string;
   url?: string;
+  /** "oauth" for a server signed in through the browser. */
+  auth?: string;
+  /** For an OAuth server: whether credentials are stored. */
+  oauth?: "authorized" | "authorization_required";
   env_keys?: string[];
   header_keys?: string[];
   tool_timeout?: number;
@@ -399,6 +403,8 @@ export interface MCPServerInput {
   cwd?: string;
   url?: string;
   headers?: Record<string, string>;
+  /** "oauth", or omitted for headers only. */
+  auth?: string;
   toolTimeout?: number;
   enabledTools?: string[];
   enabled?: boolean;
@@ -448,6 +454,51 @@ export async function testMCPServer(name: string): Promise<MCPTestResult> {
   const resp = await fetch("mcp/" + encodeURIComponent(name) + "/test", { method: "POST" });
   if (!resp.ok) throw await requestError(resp);
   return resp.json();
+}
+
+// POST /ui/mcp/{name}/oauth/start begins a browser sign-in for an OAuth
+// server; GET .../oauth/status?flow_id= polls it, POST .../oauth/complete
+// takes the callback URL pasted from the browser (completion_input
+// "callback_url", for a WebUI the callback cannot reach) and POST
+// .../oauth/cancel stops it. The authorization server sends the browser
+// back to /auth/mcp/callback.
+export interface MCPOAuthFlow {
+  flow_id: string;
+  name: string;
+  status: "starting" | "authorization_required" | "connecting" | "authorized" | "connected" | "failed" | "cancelled";
+  expires_in: number;
+  completion_input?: "callback_url";
+  authorization_url?: string;
+  redirect_uri?: string;
+  error?: string;
+  hot_reload?: { ok: boolean; message?: string; requires_restart?: boolean };
+}
+
+async function mcpOAuthRequest(name: string, action: string, body?: unknown, query = ""): Promise<MCPOAuthFlow> {
+  const resp = await fetch("mcp/" + encodeURIComponent(name) + "/oauth/" + action + query, {
+    method: body === undefined ? "GET" : "POST",
+    headers: body === undefined ? {} : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+    cache: "no-store",
+  });
+  if (!resp.ok) throw await requestError(resp);
+  return resp.json();
+}
+
+export function startMCPOAuth(name: string, reset = false): Promise<MCPOAuthFlow> {
+  return mcpOAuthRequest(name, "start", { reset });
+}
+
+export function mcpOAuthStatus(name: string, flowId: string): Promise<MCPOAuthFlow> {
+  return mcpOAuthRequest(name, "status", undefined, "?flow_id=" + encodeURIComponent(flowId));
+}
+
+export function completeMCPOAuth(name: string, flowId: string, callbackUrl: string): Promise<MCPOAuthFlow> {
+  return mcpOAuthRequest(name, "complete", { flow_id: flowId, callback_url: callbackUrl });
+}
+
+export function cancelMCPOAuth(name: string, flowId: string): Promise<MCPOAuthFlow> {
+  return mcpOAuthRequest(name, "cancel", { flow_id: flowId });
 }
 
 // GET /ui/providers lists the known providers' credentials: never an

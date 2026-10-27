@@ -105,7 +105,7 @@ func (a *app) status(ctx context.Context, args []string) error {
 	}
 	var live []mcp.ServerStatus
 	if *probeMCP && len(cfg.Tools.MCPServers) > 0 {
-		m := a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(statusMCPTimeout))
+		m := a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(statusMCPTimeout), mcp.WithOAuthStore(mcpOAuthStore(path, nil)))
 		err := m.Connect(ctx)
 		live = m.Status()
 		m.Close()

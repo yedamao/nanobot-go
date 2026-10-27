@@ -23,6 +23,10 @@ const DefaultMCPToolTimeout = 30
 // MCPAllTools in enabledTools exposes every tool a server offers.
 const MCPAllTools = "*"
 
+// MCPAuthOAuth in auth makes an HTTP server authorize with OAuth 2.1
+// (browser sign-in from the WebUI) instead of static headers.
+const MCPAuthOAuth = "oauth"
+
 var (
 	validMCPName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 	envVarRef    = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
@@ -47,6 +51,11 @@ type MCPServerConfig struct {
 	URL string `json:"url,omitempty"`
 	// Headers are sent with every HTTP request, e.g. Authorization.
 	Headers map[string]string `json:"headers,omitempty"`
+	// Auth is "" (headers only) or "oauth": the server is authorized in
+	// the browser from the WebUI and its tokens are kept in
+	// <data dir>/auth/mcp.json. An OAuth token replaces any configured
+	// Authorization header.
+	Auth string `json:"auth,omitempty"`
 	// ToolTimeout is the per-call timeout in seconds (0 means 30).
 	ToolTimeout int `json:"toolTimeout,omitempty"`
 	// EnabledTools lists the tools to expose, by their name on the server
@@ -72,6 +81,9 @@ func (m MCPServerConfig) Transport() string {
 	}
 	return MCPStreamableHTTP
 }
+
+// UsesOAuth reports whether the server authorizes with OAuth.
+func (m MCPServerConfig) UsesOAuth() bool { return m.Auth == MCPAuthOAuth }
 
 // IsEnabled reports whether the server should be connected.
 func (m MCPServerConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
@@ -183,6 +195,17 @@ func validateMCP(servers map[string]MCPServerConfig, bad func(string, ...any)) {
 			if strings.TrimSpace(k) == "" || strings.ContainsAny(k, ": \t\r\n") {
 				bad("%s.headers: invalid header name %q", p, k)
 			}
+		}
+		switch s.Auth {
+		case "":
+		case MCPAuthOAuth:
+			if !hasURL {
+				bad("%s: auth oauth needs a url", p)
+			} else if t := s.Transport(); t != MCPStreamableHTTP && t != MCPSSE {
+				bad("%s: auth oauth needs a %s or %s server", p, MCPStreamableHTTP, MCPSSE)
+			}
+		default:
+			bad("%s.auth %q must be empty or %q", p, s.Auth, MCPAuthOAuth)
 		}
 		if s.ToolTimeout < 0 {
 			bad("%s.toolTimeout must not be negative, got %d", p, s.ToolTimeout)

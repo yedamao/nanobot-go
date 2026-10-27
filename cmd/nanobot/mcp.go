@@ -45,12 +45,19 @@ func (a *app) newMCP(cfg *config.Config, reg *tools.Registry, logger *slog.Logge
 // probeMCP returns a throwaway Manager for cfg's servers, for the WebUI's
 // MCP test: its tools land in a registry of their own, and ${VAR}s are
 // looked up as the WebUI's other MCP views do.
-func (a *app) probeMCP(cfg *config.Config) *mcp.Manager {
+// opts come last, so they may override the test's connect timeout.
+func (a *app) probeMCP(cfg *config.Config, opts ...mcp.Option) *mcp.Manager {
 	lookup := func(k string) (string, bool) {
 		v := a.getenv(k)
 		return v, v != ""
 	}
-	return a.newMCP(cfg, tools.NewRegistry(), nil, false, mcp.WithConnectTimeout(mcpTestTimeout), mcp.WithLookupEnv(lookup))
+	opts = append([]mcp.Option{mcp.WithConnectTimeout(mcpTestTimeout), mcp.WithLookupEnv(lookup)}, opts...)
+	return a.newMCP(cfg, tools.NewRegistry(), nil, false, opts...)
+}
+
+// mcpOAuthStore is the OAuth credential store next to configPath.
+func mcpOAuthStore(configPath string, logger *slog.Logger) *mcp.OAuthStore {
+	return mcp.NewOAuthStore(config.MCPOAuthPath(configPath), logger)
 }
 
 // connectMCP connects the servers before the first turn. Ctrl-C stops
@@ -95,6 +102,8 @@ func describeState(st mcp.ServerStatus) string {
 	switch st.State {
 	case mcp.StateConnected:
 		return fmt.Sprintf("connected (%d tools)", len(st.Tools))
+	case mcp.StateAuthorizationRequired:
+		return "needs authorization (sign in from the WebUI's MCP page)"
 	case mcp.StateFailed:
 		msg := "unknown error"
 		if st.Err != nil {

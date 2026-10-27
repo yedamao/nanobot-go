@@ -227,7 +227,7 @@ func TestWebMCPTestServer(t *testing.T) {
 	path := writeSettingsConfig(t)
 	s := runningMCP(t, path, nil)
 	var dialed []string
-	s.probe = func(cfg *config.Config) *mcp.Manager {
+	s.probe = func(cfg *config.Config, _ ...mcp.Option) *mcp.Manager {
 		dialed = slices.AppendSeq(dialed, maps.Keys(cfg.Tools.MCPServers))
 		return mcp.NewManager(cfg.Tools.MCPServers, tools.NewRegistry(), nil,
 			mcp.WithTransport(probeTransport(t)), mcp.WithConnectTimeout(200*time.Millisecond), mcp.WithLookupEnv(s.lookupEnv))

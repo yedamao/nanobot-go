@@ -328,7 +328,7 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	// reads the registry on every request.
 	rt.loop = loop
 	rt.sessions = sessions
-	rt.mcp = a.newMCP(cfg, reg, logger, f.verbose)
+	rt.mcp = a.newMCP(cfg, reg, logger, f.verbose, mcp.WithOAuthStore(mcpOAuthStore(s.configPath, logger)))
 	deliver := opts.cronDeliver
 	if deliver == nil {
 		deliver = func(context.Context, bus.OutboundMessage) error {
