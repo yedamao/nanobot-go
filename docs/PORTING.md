@@ -158,14 +158,17 @@ Phase 2 is complete; phase 3 is in progress.
     and prepended (`reply_media + media_paths`; `[Reply to: photo]` when
     it has no caption). Outbound `OutboundMessage.Media` (send's media
     loop): local files, relative to the workspace, uploaded as multipart
-    `sendPhoto` (images by extension) or `sendDocument` (everything else,
-    and photos Telegram refuses with 400), with thread, reply parameters
+    by extension like `_get_media_type`: `sendPhoto` (jpg/jpeg/png/gif/
+    webp), `sendVideo` with `supports_streaming` (mp4/mov/avi/mkv/webm/
+    3gp), `sendVoice` (ogg), `sendAudio` (mp3/m4a/wav/aac) or
+    `sendDocument` (everything else, and any of those Telegram refuses
+    with 400), with thread, reply parameters
     and flood-control retries; up to 10 per reply; a failure sends
     `[Failed to send: name]`. Unlike nanobot, text that fits (1024 UTF-16
     units) is the first file's caption instead of a separate message.
     Remote `http(s)` media URLs are checked like nanobot's
     `validate_url_target` (`security.CheckURL` with
-    `tools.ssrfWhitelist`) and passed to `sendPhoto`/`sendDocument` as
+    `tools.ssrfWhitelist`) and passed to the same method as
     the URL itself (sent as form fields, not uploaded); the Bot API
     fetches them. A refused URL becomes `[Failed to send: name]`.
     Inbound voice notes and audio files (`msg.voice` / `msg.audio`):
@@ -225,8 +228,8 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported (Telegram): webhook mode, other inbound media
     (animations as such, locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
-    `[image: path]` part photos get in nanobot, sendVideo/sendVoice/
-    sendAudio (sent as documents), outbound media groups
+    `[image: path]` part photos get in nanobot, outbound video notes
+    (`sendVideoNote`) and animations (`sendAnimation`), outbound media groups
     (`sendMediaGroup`), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot

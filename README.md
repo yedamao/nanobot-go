@@ -265,7 +265,8 @@ agent calls `message` with `content` and `media`, a list of up to 10
 workspace paths (relative to the workspace or absolute; files outside it
 are refused, whatever `restrictToWorkspace` says) or `http://` /
 `https://` URLs. Telegram uploads files (`sendPhoto` for images,
-`sendDocument` otherwise) and the WebUI shows them in the message.
+`sendVideo`, `sendVoice` for `.ogg`, `sendAudio`, `sendDocument`
+otherwise) and the WebUI shows them in the message.
 URLs are checked by the channel when it sends them, with the same SSRF
 rules as `web_fetch` (loopback, private, link-local, CGNAT and metadata
 addresses are refused unless in `tools.ssrfWhitelist`; a refused URL
@@ -711,7 +712,9 @@ apply.
   shows literally but can never break delivery; long replies are split at
   newlines or spaces into messages of at most 4096 characters. Files of a
   reply (workspace paths, up to 10) are uploaded first: images with
-  `sendPhoto`, anything else (or a photo Telegram refuses) as a document;
+  `sendPhoto`, videos with `sendVideo`, `.ogg` with `sendVoice`, mp3/m4a/
+  wav/aac with `sendAudio`, anything else (or a file Telegram refuses
+  that way) as a document;
   text up to 1024 characters becomes the caption of the first one, longer
   text follows as messages. A file that cannot be sent is replaced by
   `[Failed to send: name]`. "typing…" shows while the agent works.

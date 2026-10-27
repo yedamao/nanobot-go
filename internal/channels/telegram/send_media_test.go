@@ -331,3 +331,114 @@ func TestSendRemoteMediaURLs(t *testing.T) {
 		t.Errorf("keyboard not on the last message: %v", msgs[1].Body)
 	}
 }
+
+func TestSendVideoVoiceAudio(t *testing.T) {
+	h := newHarness(t, nil)
+	files := map[string]string{"out/clip.mp4": "video bytes", "out/note.ogg": "voice bytes", "out/song.MP3": "audio bytes",
+		"out/talk.m4a": "m4a bytes", "out/movie.webm": "webm bytes"}
+	for rel, data := range files {
+		writeWS(t, h, rel, []byte(data))
+	}
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "media",
+		Media:    []string{"out/clip.mp4", "out/note.ogg", "out/song.MP3", "out/talk.m4a", "out/movie.webm"},
+		Metadata: map[string]any{"message_thread_id": int64(7)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	check := func(c apiCall, field, name string) {
+		t.Helper()
+		if c.FileField != field || c.FileName != name || string(c.File) != files["out/"+name] {
+			t.Errorf("%s uploaded %q as %q (%q), want %q as %q", c.Method, c.FileName, c.FileField, c.File, name, field)
+		}
+		if c.Body["chat_id"] != "42" || c.Body["message_thread_id"] != "7" {
+			t.Errorf("%s fields = %v", c.Method, c.Body)
+		}
+	}
+	videos, voices, audios := h.f.callsOf("sendVideo"), h.f.callsOf("sendVoice"), h.f.callsOf("sendAudio")
+	if len(videos) != 2 || len(voices) != 1 || len(audios) != 2 {
+		t.Fatalf("sendVideo %d, sendVoice %d, sendAudio %d; want 2, 1, 2", len(videos), len(voices), len(audios))
+	}
+	check(videos[0], "video", "clip.mp4")
+	check(videos[1], "video", "movie.webm")
+	check(voices[0], "voice", "note.ogg")
+	check(audios[0], "audio", "song.MP3")
+	check(audios[1], "audio", "talk.m4a")
+	for _, v := range videos {
+		if v.Body["supports_streaming"] != "true" {
+			t.Errorf("sendVideo without supports_streaming: %v", v.Body)
+		}
+	}
+	if videos[0].Body["caption"] != "media" || voices[0].Body["caption"] != nil {
+		t.Errorf("caption: video %v, voice %v; want it on the first file only", videos[0].Body["caption"], voices[0].Body["caption"])
+	}
+	if n := len(h.f.callsOf("sendDocument")) + len(h.f.callsOf("sendMessage")); n != 0 {
+		t.Errorf("sent %d documents or messages", n)
+	}
+}
+
+func TestSendTypedMediaFallsBackToDocument(t *testing.T) {
+	h := newHarness(t, nil)
+	writeWS(t, h, "a.ogg", []byte("not really opus"))
+	writeWS(t, h, "b.mp4", []byte("not really a video"))
+	h.f.reply = func(method string, n int) (int, string, bool) {
+		if method == "sendVoice" || method == "sendVideo" {
+			return 400, `{"ok":false,"error_code":400,"description":"Bad Request: wrong file type"}`, true
+		}
+		return 0, "", false
+	}
+	h.start(t)
+	if err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Media: []string{"a.ogg", "b.mp4"}}); err != nil {
+		t.Fatal(err)
+	}
+	docs := h.f.callsOf("sendDocument")
+	if len(docs) != 2 || docs[0].FileName != "a.ogg" || docs[0].FileField != "document" || docs[1].FileName != "b.mp4" {
+		t.Fatalf("sendDocument = %+v, want the refused voice note and video", docs)
+	}
+	if _, ok := docs[1].Body["supports_streaming"]; ok {
+		t.Errorf("document fallback kept supports_streaming: %v", docs[1].Body)
+	}
+	if n := len(h.f.callsOf("sendMessage")); n != 0 {
+		t.Errorf("sent %d failure notices", n)
+	}
+}
+
+func TestSendRemoteVideoVoiceAudio(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "look",
+		Media: []string{"https://cdn.example/v/clip.MOV?sig=1", "https://cdn.example/note.ogg",
+			"https://cdn.example/song.aac", "http://localhost/x.mp4"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	videos, voices, audios := h.f.callsOf("sendVideo"), h.f.callsOf("sendVoice"), h.f.callsOf("sendAudio")
+	if len(videos) != 1 || videos[0].Body["video"] != "https://cdn.example/v/clip.MOV?sig=1" || videos[0].File != nil ||
+		videos[0].Body["supports_streaming"] != "true" || videos[0].Body["caption"] != "look" {
+		t.Errorf("sendVideo = %+v", videos)
+	}
+	if len(voices) != 1 || voices[0].Body["voice"] != "https://cdn.example/note.ogg" || voices[0].File != nil {
+		t.Errorf("sendVoice = %+v", voices)
+	}
+	if len(audios) != 1 || audios[0].Body["audio"] != "https://cdn.example/song.aac" || audios[0].File != nil {
+		t.Errorf("sendAudio = %+v", audios)
+	}
+	msgs := h.f.callsOf("sendMessage")
+	if len(msgs) != 1 || msgs[0].Body["text"] != "[Failed to send: x.mp4]" {
+		t.Errorf("sendMessage = %+v, want the blocked URL's notice", msgs)
+	}
+}
+
+func TestOutboundMediaOf(t *testing.T) {
+	for name, want := range map[string]outboundMedia{
+		"a.PNG": asPhoto, "a.jpeg": asPhoto, "a.gif": asPhoto, "a.webp": asPhoto,
+		"a.mp4": asVideo, "a.mov": asVideo, "a.avi": asVideo, "a.mkv": asVideo, "a.webm": asVideo, "a.3gp": asVideo,
+		"a.ogg": asVoice, "a.mp3": asAudio, "a.m4a": asAudio, "a.wav": asAudio, "a.aac": asAudio,
+		"a.pdf": asDocument, "a.flac": asDocument, "noext": asDocument, "a.svg": asDocument,
+	} {
+		if got := outboundMediaOf(name); got != want {
+			t.Errorf("outboundMediaOf(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

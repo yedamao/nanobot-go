@@ -309,16 +309,52 @@ const (
 	// logged and left out.
 	maxOutboundFiles = 10
 	// maxUploadPhotoBytes and maxUploadBytes are the Bot API's upload
-	// limits for sendPhoto and sendDocument.
+	// limits for sendPhoto and for the other methods (sendDocument,
+	// sendVideo, sendVoice, sendAudio).
 	maxUploadPhotoBytes = 10 << 20
 	maxUploadBytes      = 50 << 20
 )
 
-// sendFile sends one file of an outbound message: an image (by
-// extension, like nanobot's _get_media_type) through sendPhoto, and
-// anything else, or a photo Telegram refuses (dimensions, size), through
-// sendDocument. Local files are uploaded; relative paths resolve against
-// the workspace. An http(s) URL is checked against the SSRF policy and
+// outboundMedia is how an outbound file is sent: its Bot API method and
+// the form field that carries the file.
+type outboundMedia struct{ method, field string }
+
+var (
+	asPhoto    = outboundMedia{"sendPhoto", "photo"}
+	asVideo    = outboundMedia{"sendVideo", "video"}
+	asVoice    = outboundMedia{"sendVoice", "voice"}
+	asAudio    = outboundMedia{"sendAudio", "audio"}
+	asDocument = outboundMedia{"sendDocument", "document"}
+)
+
+// outboundExts maps the extension of an outbound file other than an image
+// to how it is sent (nanobot's _get_media_type).
+var outboundExts = map[string]outboundMedia{
+	".mp4": asVideo, ".mov": asVideo, ".avi": asVideo, ".mkv": asVideo, ".webm": asVideo, ".3gp": asVideo,
+	".ogg": asVoice,
+	".mp3": asAudio, ".m4a": asAudio, ".wav": asAudio, ".aac": asAudio,
+}
+
+// outboundMediaOf returns how the file named name (a path or a URL's base
+// name) is sent, by its extension: images as photos, videos, .ogg as
+// voice notes, audio files, and anything else as a document.
+func outboundMediaOf(name string) outboundMedia {
+	if providers.IsImagePath(name) {
+		return asPhoto
+	}
+	if m, ok := outboundExts[strings.ToLower(path.Ext(name))]; ok {
+		return m
+	}
+	return asDocument
+}
+
+// sendFile sends one file of an outbound message by its extension (like
+// nanobot's _get_media_type): images through sendPhoto, videos through
+// sendVideo (supports_streaming), .ogg through sendVoice, audio files
+// through sendAudio, and anything else, or a file Telegram refuses with
+// one of those (400: dimensions, size, format), through sendDocument.
+// Local files are uploaded; relative paths resolve against the
+// workspace. An http(s) URL is checked against the SSRF policy and
 // handed to the Bot API, which fetches it (nanobot's
 // validate_url_target, then send_photo(url)). markup, when set, is the
 // inline keyboard of the message.
@@ -362,10 +398,13 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 		return fmt.Errorf("%w (limit %d bytes)", errTooLarge, maxUploadBytes)
 	}
 	name := filepath.Base(full)
-	return c.sendPhotoOrDocument(ctx, chatID, providers.IsImagePath(p) && len(data) <= maxUploadPhotoBytes,
-		func(ctx context.Context, method, field string) error {
-			return c.api.upload(ctx, method, fields, field, name, data, nil)
-		})
+	kind := outboundMediaOf(name)
+	if kind == asPhoto && len(data) > maxUploadPhotoBytes {
+		kind = asDocument
+	}
+	return c.sendMedia(ctx, chatID, kind, func(ctx context.Context, m outboundMedia) error {
+		return c.api.upload(ctx, m.method, mediaFields(fields, m), m.field, name, data, nil)
+	})
 }
 
 // mediaName is the file name of an outbound media path or URL.
@@ -377,35 +416,43 @@ func mediaName(p string) string {
 }
 
 // sendRemoteFile sends the file at the http(s) URL u by reference: the
-// photo or document field is the URL itself.
+// file field (photo, video, document, ...) is the URL itself.
 func (c *Channel) sendRemoteFile(ctx context.Context, chatID int64, fields map[string]string, u string) error {
 	if err := security.CheckURL(ctx, u, c.ssrf); err != nil {
 		return err
 	}
-	return c.sendPhotoOrDocument(ctx, chatID, providers.IsImagePath(security.URLName(u)),
-		func(ctx context.Context, method, field string) error {
-			f := maps.Clone(fields)
-			f[field] = u
-			return c.api.upload(ctx, method, f, "", "", nil, nil)
-		})
+	return c.sendMedia(ctx, chatID, outboundMediaOf(security.URLName(u)), func(ctx context.Context, m outboundMedia) error {
+		f := mediaFields(fields, m)
+		f[m.field] = u
+		return c.api.upload(ctx, m.method, f, "", "", nil, nil)
+	})
 }
 
-// sendPhotoOrDocument sends through sendPhoto when photo is set, falling
-// back to sendDocument when Telegram refuses the photo (400), and through
-// sendDocument otherwise. send makes one attempt with the method and its
-// file field.
-func (c *Channel) sendPhotoOrDocument(ctx context.Context, chatID int64, photo bool, send func(ctx context.Context, method, field string) error) error {
-	if photo {
+// mediaFields returns a copy of the form fields of a file sent as m, with
+// supports_streaming set for a video (as nanobot does).
+func mediaFields(fields map[string]string, m outboundMedia) map[string]string {
+	f := maps.Clone(fields)
+	if m == asVideo {
+		f["supports_streaming"] = "true"
+	}
+	return f
+}
+
+// sendMedia sends a file as kind, falling back to sendDocument when
+// Telegram refuses a photo, video, voice note or audio file (400). send
+// makes one attempt as the given kind.
+func (c *Channel) sendMedia(ctx context.Context, chatID int64, kind outboundMedia, send func(ctx context.Context, m outboundMedia) error) error {
+	if kind != asDocument {
 		err := c.retrySend(ctx, chatID, func(ctx context.Context) error {
-			return send(ctx, "sendPhoto", "photo")
+			return send(ctx, kind)
 		})
 		var ae *apiError
 		if !errors.As(err, &ae) || ae.Code != http.StatusBadRequest {
 			return err
 		}
-		c.log.Info("telegram: photo refused; sending it as a file", "chat_id", chatID, "error", err)
+		c.log.Info("telegram: "+kind.field+" refused; sending it as a file", "chat_id", chatID, "error", err)
 	}
 	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
-		return send(ctx, "sendDocument", "document")
+		return send(ctx, asDocument)
 	})
 }

@@ -28,9 +28,11 @@ type apiCall struct {
 	Method string
 	Body   map[string]any
 	// File and FileName are the uploaded file of a multipart request,
-	// whose other fields are in Body as strings.
-	File     []byte
-	FileName string
+	// whose other fields are in Body as strings; FileField is its form
+	// field.
+	File      []byte
+	FileName  string
+	FileField string
 }
 
 // fakeAPI is an in-process Bot API. getUpdates long-polls: it answers
@@ -86,9 +88,9 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 			for k, v := range r.MultipartForm.Value {
 				call.Body[k] = v[0]
 			}
-			for _, fhs := range r.MultipartForm.File {
+			for field, fhs := range r.MultipartForm.File {
 				fh := fhs[0]
-				call.FileName = fh.Filename
+				call.FileName, call.FileField = fh.Filename, field
 				if rd, err := fh.Open(); err == nil {
 					call.File, _ = io.ReadAll(rd)
 					rd.Close()
