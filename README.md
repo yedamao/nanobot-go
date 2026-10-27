@@ -265,10 +265,13 @@ agent calls `message` with `content` and `media`, a list of up to 10
 workspace paths (relative to the workspace or absolute; files outside it
 are refused, whatever `restrictToWorkspace` says) or `http://` /
 `https://` URLs. Telegram uploads files (`sendPhoto` for images,
-`sendAnimation` for GIFs, `sendVideo`, `sendVoice` for `.ogg`,
-`sendAudio`, `sendDocument` otherwise; neighbouring photos/videos,
+`sendAnimation` for GIFs, `sendVideo`, `sendVideoNote` for a video whose
+name contains `video_note` such as `clip.video_note.mp4`, `sendVoice` for
+`.ogg`, `sendAudio`, `sendDocument` otherwise; neighbouring photos/videos,
 documents or audio files go as one album with `sendMediaGroup`) and the
-WebUI shows them in the message.
+WebUI shows them in the message. Inbound video notes are saved as
+`media/telegram/<id>.video_note.mp4`, so echoing that path back sends a
+round video note again.
 URLs are checked by the channel when it sends them, with the same SSRF
 rules as `web_fetch` (loopback, private, link-local, CGNAT and metadata
 addresses are refused unless in `tools.ssrfWhitelist`; a refused URL
@@ -714,11 +717,14 @@ apply.
   shows literally but can never break delivery; long replies are split at
   newlines or spaces into messages of at most 4096 characters. Files of a
   reply (workspace paths, up to 10) are uploaded first: images with
-  `sendPhoto`, GIFs with `sendAnimation`, videos with `sendVideo`, `.ogg`
+  `sendPhoto`, GIFs with `sendAnimation`, videos with `sendVideo` (with
+  `sendVideoNote` when the name contains `video_note`), `.ogg`
   with `sendVoice`, mp3/m4a/
   wav/aac with `sendAudio`, anything else (or a file Telegram refuses
   that way) as a document;
-  text up to 1024 characters becomes the caption of the first one, longer
+  text up to 1024 characters becomes the caption of the first one (unless
+  it is a video note, which takes no caption: the text then follows as a
+  message), longer
   text follows as messages. A file that cannot be sent is replaced by
   `[Failed to send: name]`. "typing…" shows while the agent works.
 - **Buttons.** `inlineKeyboards: true` shows the `message` tool's

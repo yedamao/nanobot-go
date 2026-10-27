@@ -161,12 +161,18 @@ Phase 2 is complete; phase 3 is in progress.
     by extension like `_get_media_type`: `sendPhoto` (jpg/jpeg/png/
     webp), `sendAnimation` (gif; nanobot sends it as a photo),
     `sendVideo` with `supports_streaming` (mp4/mov/avi/mkv/webm/
-    3gp), `sendVoice` (ogg), `sendAudio` (mp3/m4a/wav/aac) or
-    `sendDocument` (everything else, and any of those Telegram refuses
-    with 400), with thread, reply parameters
+    3gp), `sendVideoNote` (new: a video whose base name contains
+    `video_note`, any case, e.g. `clip.video_note.mp4`; no caption, no
+    `supports_streaming`), `sendVoice` (ogg), `sendAudio` (mp3/m4a/wav/
+    aac) or `sendDocument` (everything else, and any of those Telegram
+    refuses with 400), with thread, reply parameters
     and flood-control retries; up to 10 per reply; a failure sends
     `[Failed to send: name]`. Unlike nanobot, text that fits (1024 UTF-16
-    units) is the first file's caption instead of a separate message.
+    units) is the first file's caption instead of a separate message,
+    unless the first file is a video note (the Bot API gives
+    `sendVideoNote` no caption): then the text follows as messages, and a
+    video note never takes the caption from a file before it that failed
+    (the next file does, or the text goes as a message).
     Remote `http(s)` media URLs are checked like nanobot's
     `validate_url_target` (`security.CheckURL` with
     `tools.ssrfWhitelist`) and passed to the same method as
@@ -175,7 +181,8 @@ Phase 2 is complete; phase 3 is in progress.
     Outbound albums (new: nanobot sends each file on its own): each run
     of 2-10 neighbouring files that Telegram can group goes as one
     `sendMediaGroup` (photos and videos together, documents with
-    documents, audio files with audio files; voice notes and GIFs never),
+    documents, audio files with audio files; voice notes, video notes
+    and GIFs never),
     local files uploaded as `attach://file<i>`, URLs by reference, the
     caption on the first item. A file that cannot be read or is blocked
     splits a run; the last file stays out when it carries the inline
@@ -200,7 +207,9 @@ Phase 2 is complete; phase 3 is in progress.
     cannot fetch larger files; nanobot has no cap of its own), to
     `media/telegram/<file_unique_id>.<ext>` (`_get_extension`: by MIME
     type, else `.mp4`) and attached as Media, with `[video: <path>]` /
-    `[video_note: <path>]` after the caption (nanobot tags both
+    `[video_note: <path>]` after the caption; a video note is saved as
+    `<file_unique_id>.video_note.mp4` so sending that path back goes
+    through `sendVideoNote` (nanobot tags both
     `[video: …]`); not transcribed. A caption that is a command skips
     the download; a failed one keeps the caption and drops a bare
     video; a replied-to one is prepended like a replied-to voice note.
@@ -239,8 +248,7 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported (Telegram): webhook mode, other inbound media
     (animations as such, locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
-    `[image: path]` part photos get in nanobot, outbound video notes
-    (`sendVideoNote`), Markdown to
+    `[image: path]` part photos get in nanobot, Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,

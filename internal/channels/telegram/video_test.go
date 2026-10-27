@@ -29,7 +29,7 @@ func videoNoteDM(id int64, caption string) update {
 
 const (
 	videoPath     = "media/telegram/AgADvid.mov"
-	videoNotePath = "media/telegram/AgADcircle.mp4"
+	videoNotePath = "media/telegram/AgADcircle.video_note.mp4"
 )
 
 // checkSavedVideo checks that rel is in the workspace with the fixture

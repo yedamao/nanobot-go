@@ -502,12 +502,115 @@ func TestSendAnimationFallsBackToDocument(t *testing.T) {
 	}
 }
 
+func TestSendVideoNote(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.ReplyToMessage = true })
+	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
+	writeWS(t, h, "out/hi.video_note.mp4", []byte("round bytes"))
+	writeWS(t, h, "out/clip.mp4", []byte("video bytes"))
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "hello there\n",
+		Media: []string{"out/hi.video_note.mp4", "https://cdn.example/n/x.video_note.mp4?sig=1",
+			"out/clip.mp4", "https://cdn.example/plain.mp4"},
+		Metadata: map[string]any{"message_thread_id": int64(7), "message_id": int64(99)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	notes := h.f.callsOf("sendVideoNote")
+	if len(notes) != 2 {
+		t.Fatalf("sendVideoNote = %+v, want the upload and the URL", notes)
+	}
+	up, remote := notes[0], notes[1]
+	if up.FileField != "video_note" || up.FileName != "hi.video_note.mp4" || string(up.File) != "round bytes" ||
+		up.Body["chat_id"] != "42" || up.Body["message_thread_id"] != "7" {
+		t.Errorf("uploaded sendVideoNote = %+v", up)
+	}
+	var rp replyParameters
+	if err := json.Unmarshal([]byte(up.Body["reply_parameters"].(string)), &rp); err != nil || rp.MessageID != 99 {
+		t.Errorf("reply_parameters = %v (%v)", up.Body["reply_parameters"], err)
+	}
+	if remote.Body["video_note"] != "https://cdn.example/n/x.video_note.mp4?sig=1" || remote.File != nil {
+		t.Errorf("remote sendVideoNote = %+v", remote)
+	}
+	for _, n := range notes {
+		for _, k := range []string{"caption", "supports_streaming"} {
+			if _, ok := n.Body[k]; ok {
+				t.Errorf("sendVideoNote has %s: %v", k, n.Body)
+			}
+		}
+	}
+	// The plain videos stay videos (an album) and the text, which the
+	// first file could not carry, follows as a message.
+	if got := sendMethods(h.f); !reflect.DeepEqual(got, []string{"sendVideoNote", "sendVideoNote", "sendMediaGroup", "sendMessage"}) {
+		t.Fatalf("sent %v", got)
+	}
+	items := albumItems(t, h.f.callsOf("sendMediaGroup")[0])
+	if len(items) != 2 || items[0].Type != "video" || !items[0].SupportsStreaming || items[0].Caption != "" ||
+		items[1].Media != "https://cdn.example/plain.mp4" {
+		t.Errorf("album = %+v", items)
+	}
+	if msgs := h.f.callsOf("sendMessage"); msgs[0].Body["text"] != "hello there" {
+		t.Errorf("sendMessage = %+v", msgs)
+	}
+}
+
+func TestSendVideoNoteLeavesCaptionToLaterFile(t *testing.T) {
+	h := newHarness(t, nil)
+	writeWS(t, h, "a.video_note.mp4", []byte("round"))
+	writeWS(t, h, "b.ogg", []byte("voice"))
+	h.start(t)
+	// The first file, which takes the caption, is missing; the video
+	// note after it passes the caption on to the voice note.
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "words",
+		Media: []string{"nope.png", "a.video_note.mp4", "b.ogg"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sendMethods(h.f); !reflect.DeepEqual(got, []string{"sendMessage", "sendVideoNote", "sendVoice"}) {
+		t.Fatalf("sent %v", got)
+	}
+	if n := h.f.callsOf("sendVideoNote")[0]; n.Body["caption"] != nil {
+		t.Errorf("video note took the caption: %v", n.Body)
+	}
+	if v := h.f.callsOf("sendVoice")[0]; v.Body["caption"] != "words" {
+		t.Errorf("voice caption = %v, want the text", v.Body["caption"])
+	}
+}
+
+func TestSendVideoNoteFallsBackToDocument(t *testing.T) {
+	h := newHarness(t, nil)
+	writeWS(t, h, "x.video_note.mp4", []byte("not square"))
+	h.f.reply = func(method string, n int) (int, string, bool) {
+		if method == "sendVideoNote" {
+			return 400, `{"ok":false,"error_code":400,"description":"Bad Request: wrong video note"}`, true
+		}
+		return 0, "", false
+	}
+	h.start(t)
+	if err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "note", Media: []string{"x.video_note.mp4"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := sendMethods(h.f); !reflect.DeepEqual(got, []string{"sendVideoNote", "sendDocument", "sendMessage"}) {
+		t.Fatalf("sent %v", got)
+	}
+	doc := h.f.callsOf("sendDocument")[0]
+	if doc.FileField != "document" || doc.FileName != "x.video_note.mp4" || doc.Body["supports_streaming"] != nil {
+		t.Errorf("sendDocument = %+v", doc)
+	}
+	if msg := h.f.callsOf("sendMessage")[0]; msg.Body["text"] != "note" {
+		t.Errorf("sendMessage = %+v, want the text", msg)
+	}
+}
+
 func TestOutboundMediaOf(t *testing.T) {
 	for name, want := range map[string]outboundMedia{
 		"a.PNG": asPhoto, "a.jpeg": asPhoto, "a.jpg": asPhoto, "a.webp": asPhoto, "a.gif": asAnimation, "a.GIF": asAnimation,
 		"a.mp4": asVideo, "a.mov": asVideo, "a.avi": asVideo, "a.mkv": asVideo, "a.webm": asVideo, "a.3gp": asVideo,
 		"a.ogg": asVoice, "a.mp3": asAudio, "a.m4a": asAudio, "a.wav": asAudio, "a.aac": asAudio,
 		"a.pdf": asDocument, "a.flac": asDocument, "noext": asDocument, "a.svg": asDocument,
+		"clip.video_note.mp4": asVideoNote, "foo_video_note.mp4": asVideoNote, "VIDEO_NOTE.mp4": asVideoNote,
+		"media/telegram/abc.video_note.mp4": asVideoNote, "x.Video_Note.MOV": asVideoNote, "n.video_note.webm": asVideoNote,
+		"video_note/clip.mp4": asVideo, "video_note.ogg": asVoice, "video_note.pdf": asDocument, "video_note.gif": asAnimation,
+		"videonote.mp4": asVideo, "clip.mp4": asVideo,
 	} {
 		if got := outboundMediaOf(name); got != want {
 			t.Errorf("outboundMediaOf(%q) = %v, want %v", name, got, want)

@@ -2,8 +2,9 @@
 // telegram). It talks to the Bot API directly over net/http: getMe
 // checks the token at start, getUpdates long-polls for messages, and
 // sendMessage delivers replies as plain text in chunks of at most 4096
-// characters; files of a reply go up through sendPhoto (images) or
-// sendDocument. Inbound photos, and the photo of a replied-to message,
+// characters; files of a reply go up by extension through sendPhoto,
+// sendAnimation, sendVideo, sendVideoNote (videos named "*video_note*"),
+// sendVoice, sendAudio, sendMediaGroup or sendDocument. Inbound photos, and the photo of a replied-to message,
 // are downloaded into the workspace (MediaDir) and attached to the turn,
 // so vision models see them; voice notes and audio files are saved there
 // too and stand in the text as their transcript (with a Transcriber) or
@@ -763,7 +764,7 @@ func (c *Channel) replyContext(r *message) string {
 // through sendPhoto, anything else as a document; at most
 // maxOutboundFiles), then its text, split into messages of at most 4096
 // characters. Text that fits in a caption (1024) rides on the first file
-// instead. A file that cannot be sent is replaced by a "[Failed to send:
+// instead, unless that is a video note, which takes no caption. A file that cannot be sent is replaced by a "[Failed to send:
 // name]" notice, like nanobot's, so a retry never repeats the files that
 // went through. Buttons (msg.Buttons) become an inline keyboard on the
 // last message sent when inlineKeyboards is on, and are written under
@@ -807,8 +808,11 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	} else if id, ok := metaInt(msg.Metadata, "message_id"); ok && c.cfg.ReplyToMessage {
 		reply = &replyParameters{MessageID: id, AllowSendingWithoutReply: true}
 	}
+	// A video note takes no caption: with one first, the text follows the
+	// files as messages.
 	caption := ""
-	if len(files) > 0 && text != "" && utf16Len(strings.Trim(text, " \n")) <= maxCaptionLen {
+	if len(files) > 0 && text != "" && utf16Len(strings.Trim(text, " \n")) <= maxCaptionLen &&
+		outboundMediaOf(mediaName(files[0])) != asVideoNote {
 		caption, text = strings.Trim(text, " \n"), ""
 	}
 	// Without text after the files the keyboard goes on the last file
@@ -825,12 +829,21 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 		if fileKB && i == len(files)-1 {
 			markup = kb
 		}
+		// A video note cannot carry the caption; a later file or a
+		// message will.
+		withCaption := loaded[i].kind != asVideoNote
 		err := loadErrs[i]
 		if err == nil {
-			err = c.sendFile(ctx, chatID, threadID, reply, markup, loaded[i], caption)
+			fileCaption := ""
+			if withCaption {
+				fileCaption = caption
+			}
+			err = c.sendFile(ctx, chatID, threadID, reply, markup, loaded[i], fileCaption)
 		}
 		if err == nil {
-			caption = ""
+			if withCaption {
+				caption = ""
+			}
 			return nil
 		}
 		if ctx.Err() != nil {

@@ -182,7 +182,8 @@ func clipOf(m *message) (clip, bool) {
 // ext is the file extension of a clip: by MIME type, then by kind (like
 // nanobot's _get_extension); a document without a known MIME type takes
 // the suffixes of its file name, else none; a sticker's comes from its
-// type.
+// type. A video note's is ".video_note.mp4", so that sending the saved
+// file back goes through sendVideoNote (see outboundMediaOf).
 func (k clip) ext() string {
 	mime := strings.ToLower(k.mimeType)
 	switch k.kind {
@@ -195,11 +196,13 @@ func (k clip) ext() string {
 			}
 		}
 		return nameExt(k.fileName)
-	case "video", "video_note":
+	case "video":
 		if ext, ok := videoExts[mime]; ok {
 			return ext
 		}
 		return ".mp4"
+	case "video_note":
+		return videoNoteMarker + ".mp4" // Telegram's are always MPEG4
 	}
 	if ext, ok := audioExts[mime]; ok {
 		return ext
@@ -239,7 +242,8 @@ func (k clip) transcribable() bool {
 }
 
 // downloadClip saves a voice note, audio file, document, video, video
-// note or sticker to MediaDir in the workspace as <file_unique_id>.<ext> (mode 0600)
+// note or sticker to MediaDir in the workspace as <file_unique_id>.<ext>
+// (<file_unique_id>.video_note.mp4 for a video note; mode 0600)
 // and returns its workspace-relative path with the content part that
 // stands for it: for audio, the transcript as "[transcription: …]" when
 // a Transcriber is set and returns text; else "[<kind>: <path>]", e.g.
@@ -310,7 +314,7 @@ const (
 	maxOutboundFiles = 10
 	// maxUploadPhotoBytes and maxUploadBytes are the Bot API's upload
 	// limits for sendPhoto and for the other methods (sendDocument,
-	// sendAnimation, sendVideo, sendVoice, sendAudio).
+	// sendAnimation, sendVideo, sendVideoNote, sendVoice, sendAudio).
 	maxUploadPhotoBytes = 10 << 20
 	maxUploadBytes      = 50 << 20
 )
@@ -323,6 +327,7 @@ var (
 	asPhoto     = outboundMedia{"sendPhoto", "photo"}
 	asAnimation = outboundMedia{"sendAnimation", "animation"}
 	asVideo     = outboundMedia{"sendVideo", "video"}
+	asVideoNote = outboundMedia{"sendVideoNote", "video_note"}
 	asVoice     = outboundMedia{"sendVoice", "voice"}
 	asAudio     = outboundMedia{"sendAudio", "audio"}
 	asDocument  = outboundMedia{"sendDocument", "document"}
@@ -339,12 +344,22 @@ var outboundExts = map[string]outboundMedia{
 	".mp3": asAudio, ".m4a": asAudio, ".wav": asAudio, ".aac": asAudio,
 }
 
+// videoNoteMarker in the base name of a video ("clip.video_note.mp4",
+// "my_video_note.mov", any case) has it sent as a round video note
+// (sendVideoNote) rather than a plain video. Inbound video notes are
+// saved with it.
+const videoNoteMarker = ".video_note"
+
 // outboundMediaOf returns how the file named name (a path or a URL's base
 // name) is sent, by its extension: GIFs as animations, other images as
-// photos, videos, .ogg as voice notes, audio files, and anything else as
+// photos, videos (as video notes when the base name contains
+// "video_note"), .ogg as voice notes, audio files, and anything else as
 // a document.
 func outboundMediaOf(name string) outboundMedia {
 	if m, ok := outboundExts[strings.ToLower(path.Ext(name))]; ok {
+		if m == asVideo && strings.Contains(strings.ToLower(path.Base(name)), videoNoteMarker[1:]) {
+			return asVideoNote
+		}
 		return m
 	}
 	if providers.IsImagePath(name) {
@@ -367,7 +382,8 @@ type outboundFile struct {
 // loadFile prepares the outbound file p by its extension (like nanobot's
 // _get_media_type): GIFs go through sendAnimation, other images through
 // sendPhoto (a local one over the photo upload limit as a document),
-// videos through sendVideo, .ogg through sendVoice, audio files through
+// videos through sendVideo (sendVideoNote when the name contains
+// "video_note"), .ogg through sendVoice, audio files through
 // sendAudio and anything else through sendDocument.
 // Local files are read; relative paths resolve against the workspace.
 // An http(s) URL is checked against the SSRF policy, to be handed to the
@@ -428,7 +444,7 @@ func sendFields(chatID, threadID int64, reply *replyParameters, markup *inlineKe
 }
 
 // sendFile sends one loaded file as its kind (a video with
-// supports_streaming), or through sendDocument when Telegram refuses it
+// supports_streaming, a video note without the caption it cannot take), or through sendDocument when Telegram refuses it
 // as that (400: dimensions, size, format). A local file is uploaded; a
 // remote one goes by reference, the file field (photo, animation, video,
 // document, ...) being the URL itself. markup, when set, is the inline
@@ -453,8 +469,8 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 
 // albumGroup returns the album a file sent as m can share with others
 // (sendMediaGroup): photos and videos mix, documents and audio files
-// each group only with their own kind, and voice notes and animations
-// never go in one (""), as the Bot API has it.
+// each group only with their own kind, and voice notes, video notes and
+// animations never go in one (""), as the Bot API has it.
 func albumGroup(m outboundMedia) string {
 	switch m {
 	case asPhoto, asVideo:
@@ -530,18 +546,22 @@ func mediaName(p string) string {
 }
 
 // mediaFields returns a copy of the form fields of a file sent as m, with
-// supports_streaming set for a video (as nanobot does).
+// supports_streaming set for a video (as nanobot does) and no caption for
+// a video note (sendVideoNote takes none).
 func mediaFields(fields map[string]string, m outboundMedia) map[string]string {
 	f := maps.Clone(fields)
-	if m == asVideo {
+	switch m {
+	case asVideo:
 		f["supports_streaming"] = "true"
+	case asVideoNote:
+		delete(f, "caption")
 	}
 	return f
 }
 
 // sendMedia sends a file as kind, falling back to sendDocument when
-// Telegram refuses a photo, animation, video, voice note or audio file
-// (400). send makes one attempt as the given kind.
+// Telegram refuses a photo, animation, video, video note, voice note or
+// audio file (400). send makes one attempt as the given kind.
 func (c *Channel) sendMedia(ctx context.Context, chatID int64, kind outboundMedia, send func(ctx context.Context, m outboundMedia) error) error {
 	if kind != asDocument {
 		err := c.retrySend(ctx, chatID, func(ctx context.Context) error {

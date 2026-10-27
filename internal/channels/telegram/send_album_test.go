@@ -170,6 +170,34 @@ func TestSendAlbumRuns(t *testing.T) {
 	}
 }
 
+func TestSendVideoNoteNotInAlbum(t *testing.T) {
+	h := newHarness(t, nil)
+	writeWS(t, h, "a.png", pngFixture)
+	writeWS(t, h, "n.video_note.mp4", []byte("round"))
+	writeWS(t, h, "b.png", pngFixture)
+	writeWS(t, h, "c.png", pngFixture)
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "split",
+		Media: []string{"a.png", "n.video_note.mp4", "b.png", "c.png"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The video note splits the photos: a single photo, the note on its
+	// own, then an album of the other two.
+	want := []string{"sendPhoto", "sendVideoNote", "sendMediaGroup"}
+	if got := sendMethods(h.f); !reflect.DeepEqual(got, want) {
+		t.Fatalf("sent %v, want %v", got, want)
+	}
+	if p := h.f.callsOf("sendPhoto")[0]; p.Body["caption"] != "split" {
+		t.Errorf("sendPhoto caption = %v", p.Body["caption"])
+	}
+	for _, it := range albumItems(t, h.f.callsOf("sendMediaGroup")[0]) {
+		if it.Type != "photo" {
+			t.Errorf("album item %+v", it)
+		}
+	}
+}
+
 func TestSendSingleFileNotAnAlbum(t *testing.T) {
 	h := newHarness(t, nil)
 	writeWS(t, h, "a.png", pngFixture)
