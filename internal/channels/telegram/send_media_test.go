@@ -430,9 +430,73 @@ func TestSendRemoteVideoVoiceAudio(t *testing.T) {
 	}
 }
 
+func TestSendAnimation(t *testing.T) {
+	h := newHarness(t, func(c *Config) { c.ReplyToMessage = true })
+	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
+	writeWS(t, h, "out/dance.gif", []byte("GIF89a fixture"))
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "wheee",
+		Media:    []string{"out/dance.gif", "https://cdn.example/g/spin.GIF?sig=1"},
+		Metadata: map[string]any{"message_thread_id": int64(7), "message_id": int64(99)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anims := h.f.callsOf("sendAnimation")
+	if len(anims) != 2 {
+		t.Fatalf("sendAnimation = %+v, want the upload and the URL", anims)
+	}
+	up, remote := anims[0], anims[1]
+	if up.FileField != "animation" || up.FileName != "dance.gif" || string(up.File) != "GIF89a fixture" ||
+		up.Body["caption"] != "wheee" || up.Body["chat_id"] != "42" || up.Body["message_thread_id"] != "7" {
+		t.Errorf("uploaded sendAnimation = %+v", up)
+	}
+	if _, ok := up.Body["supports_streaming"]; ok {
+		t.Errorf("sendAnimation has supports_streaming: %v", up.Body)
+	}
+	var rp replyParameters
+	if err := json.Unmarshal([]byte(up.Body["reply_parameters"].(string)), &rp); err != nil || rp.MessageID != 99 {
+		t.Errorf("reply_parameters = %v (%v)", up.Body["reply_parameters"], err)
+	}
+	if remote.Body["animation"] != "https://cdn.example/g/spin.GIF?sig=1" || remote.File != nil || remote.Body["caption"] != nil {
+		t.Errorf("remote sendAnimation = %+v", remote)
+	}
+	if n := len(h.f.callsOf("sendPhoto")) + len(h.f.callsOf("sendDocument")) + len(h.f.callsOf("sendMessage")); n != 0 {
+		t.Errorf("sent %d photos, documents or messages", n)
+	}
+}
+
+func TestSendAnimationFallsBackToDocument(t *testing.T) {
+	h := newHarness(t, nil)
+	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
+	writeWS(t, h, "bad.gif", []byte("not really a gif"))
+	h.f.reply = func(method string, n int) (int, string, bool) {
+		if method == "sendAnimation" {
+			return 400, `{"ok":false,"error_code":400,"description":"Bad Request: wrong file type"}`, true
+		}
+		return 0, "", false
+	}
+	h.start(t)
+	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "gif",
+		Media: []string{"bad.gif", "https://cdn.example/bad.gif"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(h.f.callsOf("sendAnimation")); n != 2 {
+		t.Errorf("sendAnimation called %d times, want 2", n)
+	}
+	docs := h.f.callsOf("sendDocument")
+	if len(docs) != 2 || docs[0].FileField != "document" || docs[0].FileName != "bad.gif" || docs[0].Body["caption"] != "gif" ||
+		docs[1].Body["document"] != "https://cdn.example/bad.gif" || docs[1].File != nil {
+		t.Fatalf("sendDocument = %+v, want the refused animations", docs)
+	}
+	if n := len(h.f.callsOf("sendMessage")); n != 0 {
+		t.Errorf("sent %d failure notices", n)
+	}
+}
+
 func TestOutboundMediaOf(t *testing.T) {
 	for name, want := range map[string]outboundMedia{
-		"a.PNG": asPhoto, "a.jpeg": asPhoto, "a.gif": asPhoto, "a.webp": asPhoto,
+		"a.PNG": asPhoto, "a.jpeg": asPhoto, "a.jpg": asPhoto, "a.webp": asPhoto, "a.gif": asAnimation, "a.GIF": asAnimation,
 		"a.mp4": asVideo, "a.mov": asVideo, "a.avi": asVideo, "a.mkv": asVideo, "a.webm": asVideo, "a.3gp": asVideo,
 		"a.ogg": asVoice, "a.mp3": asAudio, "a.m4a": asAudio, "a.wav": asAudio, "a.aac": asAudio,
 		"a.pdf": asDocument, "a.flac": asDocument, "noext": asDocument, "a.svg": asDocument,

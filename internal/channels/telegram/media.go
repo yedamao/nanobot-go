@@ -310,7 +310,7 @@ const (
 	maxOutboundFiles = 10
 	// maxUploadPhotoBytes and maxUploadBytes are the Bot API's upload
 	// limits for sendPhoto and for the other methods (sendDocument,
-	// sendVideo, sendVoice, sendAudio).
+	// sendAnimation, sendVideo, sendVoice, sendAudio).
 	maxUploadPhotoBytes = 10 << 20
 	maxUploadBytes      = 50 << 20
 )
@@ -320,39 +320,45 @@ const (
 type outboundMedia struct{ method, field string }
 
 var (
-	asPhoto    = outboundMedia{"sendPhoto", "photo"}
-	asVideo    = outboundMedia{"sendVideo", "video"}
-	asVoice    = outboundMedia{"sendVoice", "voice"}
-	asAudio    = outboundMedia{"sendAudio", "audio"}
-	asDocument = outboundMedia{"sendDocument", "document"}
+	asPhoto     = outboundMedia{"sendPhoto", "photo"}
+	asAnimation = outboundMedia{"sendAnimation", "animation"}
+	asVideo     = outboundMedia{"sendVideo", "video"}
+	asVoice     = outboundMedia{"sendVoice", "voice"}
+	asAudio     = outboundMedia{"sendAudio", "audio"}
+	asDocument  = outboundMedia{"sendDocument", "document"}
 )
 
-// outboundExts maps the extension of an outbound file other than an image
-// to how it is sent (nanobot's _get_media_type).
+// outboundExts maps the extension of an outbound file other than a still
+// image to how it is sent (nanobot's _get_media_type, except that a GIF
+// goes as an animation rather than a photo). It is checked before
+// providers.IsImagePath, which also counts .gif as an image.
 var outboundExts = map[string]outboundMedia{
+	".gif": asAnimation,
 	".mp4": asVideo, ".mov": asVideo, ".avi": asVideo, ".mkv": asVideo, ".webm": asVideo, ".3gp": asVideo,
 	".ogg": asVoice,
 	".mp3": asAudio, ".m4a": asAudio, ".wav": asAudio, ".aac": asAudio,
 }
 
 // outboundMediaOf returns how the file named name (a path or a URL's base
-// name) is sent, by its extension: images as photos, videos, .ogg as
-// voice notes, audio files, and anything else as a document.
+// name) is sent, by its extension: GIFs as animations, other images as
+// photos, videos, .ogg as voice notes, audio files, and anything else as
+// a document.
 func outboundMediaOf(name string) outboundMedia {
-	if providers.IsImagePath(name) {
-		return asPhoto
-	}
 	if m, ok := outboundExts[strings.ToLower(path.Ext(name))]; ok {
 		return m
+	}
+	if providers.IsImagePath(name) {
+		return asPhoto
 	}
 	return asDocument
 }
 
 // sendFile sends one file of an outbound message by its extension (like
-// nanobot's _get_media_type): images through sendPhoto, videos through
-// sendVideo (supports_streaming), .ogg through sendVoice, audio files
-// through sendAudio, and anything else, or a file Telegram refuses with
-// one of those (400: dimensions, size, format), through sendDocument.
+// nanobot's _get_media_type): GIFs through sendAnimation, other images
+// through sendPhoto, videos through sendVideo (supports_streaming), .ogg
+// through sendVoice, audio files through sendAudio, and anything else,
+// or a file Telegram refuses with one of those (400: dimensions, size,
+// format), through sendDocument.
 // Local files are uploaded; relative paths resolve against the
 // workspace. An http(s) URL is checked against the SSRF policy and
 // handed to the Bot API, which fetches it (nanobot's
@@ -416,7 +422,7 @@ func mediaName(p string) string {
 }
 
 // sendRemoteFile sends the file at the http(s) URL u by reference: the
-// file field (photo, video, document, ...) is the URL itself.
+// file field (photo, animation, video, document, ...) is the URL itself.
 func (c *Channel) sendRemoteFile(ctx context.Context, chatID int64, fields map[string]string, u string) error {
 	if err := security.CheckURL(ctx, u, c.ssrf); err != nil {
 		return err
@@ -439,8 +445,8 @@ func mediaFields(fields map[string]string, m outboundMedia) map[string]string {
 }
 
 // sendMedia sends a file as kind, falling back to sendDocument when
-// Telegram refuses a photo, video, voice note or audio file (400). send
-// makes one attempt as the given kind.
+// Telegram refuses a photo, animation, video, voice note or audio file
+// (400). send makes one attempt as the given kind.
 func (c *Channel) sendMedia(ctx context.Context, chatID int64, kind outboundMedia, send func(ctx context.Context, m outboundMedia) error) error {
 	if kind != asDocument {
 		err := c.retrySend(ctx, chatID, func(ctx context.Context) error {
