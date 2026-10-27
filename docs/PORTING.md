@@ -262,8 +262,8 @@ Phase 2 is complete; phase 3 is in progress.
   - Not ported (Telegram): webhook mode, other inbound media
     (locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
-    `[image: path]` part photos get in nanobot, Markdown to
-    HTML rendering, rich messages, streaming edits, reasoning/progress
+    `[image: path]` part photos get in nanobot, rich messages,
+    streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,
     polling-stall detection, the WebUI setup validator.
@@ -1058,16 +1058,32 @@ Phase 2 is complete; phase 3 is in progress.
   webhook still set on the bot is deleted at startup (pending updates are
   kept). Polling asks only for `message` updates, so edits, channel posts
   and callbacks are never received.
-- **Plain text out.** nanobot renders the model's Markdown to Telegram
-  HTML (with a plain-text fallback on a parse error) or to Bot API 10.1
-  rich messages. nanobot-go sends every reply as plain text with no
-  `parse_mode`: Markdown markers show literally, but no model output can
-  break delivery or inject markup. nanobot splits raw Markdown at 4000
-  characters with fence balancing; nanobot-go splits plain text at
-  Telegram's real limit, 4096 UTF-16 code units, at a newline, else a
-  space, else between characters (never inside a surrogate pair). If a
-  later chunk fails, the manager's retry resends the whole reply, so
-  earlier chunks can appear twice (as in nanobot).
+- **Markdown to HTML out.** Like nanobot's `_markdown_to_telegram_html`,
+  replies are rendered to Telegram HTML and sent with `parse_mode: HTML`:
+  fenced code (`` ``` `` and `~~~`, a longer fence holding a shorter
+  one, and one-line `` ```code``` ``) and pipe tables (as aligned text) become
+  `<pre><code>`, inline code `<code>`, headers and `**`/`__` bold, `_x_`
+  italic (not inside `snake_case`), `~~x~~` strikethrough, links
+  `<a href>` (the URL kept out of the other passes), `-`/`*` items `•`;
+  blockquote markers are dropped and everything else is HTML-escaped.
+  When Telegram refuses a message (any 400, like nanobot's `BadRequest`
+  fallback) it is logged and the same chunk is resent as the raw
+  Markdown with no `parse_mode`. Raw Markdown is split as nanobot's
+  `_split_telegram_markdown` does (at 4000, never leaving a code block
+  unbalanced: the cut moves before the fence, or a long block is closed
+  and reopened), and a chunk whose HTML is over Telegram's 4096 is split
+  again with a smaller budget, so HTML is never cut through a tag;
+  nanobot-go counts both limits in UTF-16 code units, as Telegram does,
+  where nanobot counts code points. Captions (nanobot sends none) are
+  rendered the same way, with `parse_mode: HTML`; text rides on a file
+  only when both its HTML and its raw form fit in 1024 units, and a
+  captioned send refused with "can't parse entities" is resent with the
+  plain caption (other 400s keep the document fallback). Table widths
+  approximate East Asian Width with the main wide blocks (CJK, Hangul,
+  fullwidth forms, emoji) instead of `unicodedata`. Rich messages,
+  streaming edits and tool-hint blockquotes are not ported. If a later
+  chunk fails, the manager's retry resends the whole reply, so earlier
+  chunks can appear twice (as in nanobot).
 - **Inbound media.** nanobot downloads photos, voice, audio, documents
   and video (transcribing voice), forwards locations and merges media
   groups. nanobot-go handles text, captions, photos, voice notes and

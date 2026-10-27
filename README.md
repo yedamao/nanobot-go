@@ -717,16 +717,18 @@ apply.
   `media/telegram/` the same way (up to 20 MB) and attached, read as
   `[video: ...]`, `[video_note: ...]`, `[animation: ...]`, `[file: ...]`
   or `[sticker: ...]` after any caption (not transcribed); an animation
-  saved as `.gif` goes back through `sendAnimation`. Replies are sent as **plain text**, so Markdown from the model
-  shows literally but can never break delivery; long replies are split at
-  newlines or spaces into messages of at most 4096 characters. Files of a
+  saved as `.gif` goes back through `sendAnimation`. Replies render the model's Markdown as **Telegram HTML** (bold,
+  italic, strikethrough, links, inline and fenced code, tables as aligned
+  code blocks, `•` bullets); a message Telegram cannot parse is resent as
+  plain text. Long replies are split into messages of at most 4096
+  characters without breaking a code block or an HTML tag. Files of a
   reply (workspace paths, up to 10) are uploaded first: images with
   `sendPhoto`, GIFs with `sendAnimation`, videos with `sendVideo` (with
   `sendVideoNote` when the name contains `video_note`), `.ogg`
   with `sendVoice`, mp3/m4a/
   wav/aac with `sendAudio`, anything else (or a file Telegram refuses
   that way) as a document;
-  text up to 1024 characters becomes the caption of the first one (unless
+  text up to 1024 characters (as HTML too) becomes the caption of the first one (unless
   it is a video note, which takes no caption: the text then follows as a
   message), longer
   text follows as messages. A file that cannot be sent is replaced by

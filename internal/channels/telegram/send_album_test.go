@@ -55,7 +55,7 @@ func TestSendAlbumPhotos(t *testing.T) {
 	}
 	album := h.f.callsOf("sendMediaGroup")[0]
 	want := []inputMedia{
-		{Type: "photo", Media: "attach://file0", Caption: "three shots"},
+		{Type: "photo", Media: "attach://file0", Caption: "three shots", ParseMode: "HTML"},
 		{Type: "photo", Media: "attach://file1"},
 		{Type: "photo", Media: "attach://file2"},
 	}
@@ -105,7 +105,7 @@ func TestSendAlbumPhotoAndRemoteVideo(t *testing.T) {
 		t.Fatalf("sent %v, want one album", sendMethods(h.f))
 	}
 	want := []inputMedia{
-		{Type: "photo", Media: "attach://file0", Caption: "mixed"},
+		{Type: "photo", Media: "attach://file0", Caption: "mixed", ParseMode: "HTML"},
 		{Type: "video", Media: "https://cdn.example/v/clip.mp4?sig=1", SupportsStreaming: true},
 	}
 	if items := albumItems(t, albums[0]); !reflect.DeepEqual(items, want) {

@@ -424,6 +424,7 @@ type replyParameters struct {
 type sendMessageParams struct {
 	ChatID          int64                 `json:"chat_id"`
 	Text            string                `json:"text"`
+	ParseMode       string                `json:"parse_mode,omitempty"`
 	MessageThreadID int64                 `json:"message_thread_id,omitempty"`
 	ReplyParameters *replyParameters      `json:"reply_parameters,omitempty"`
 	ReplyMarkup     *inlineKeyboardMarkup `json:"reply_markup,omitempty"`

@@ -762,8 +762,10 @@ func (c *Channel) replyContext(r *message) string {
 
 // Send delivers msg in the topic it came from: its files first (images
 // through sendPhoto, anything else as a document; at most
-// maxOutboundFiles), then its text, split into messages of at most 4096
-// characters. Text that fits in a caption (1024) rides on the first file
+// maxOutboundFiles), then its text: Markdown rendered as Telegram HTML,
+// split into messages whose HTML is at most 4096 UTF-16 units (each sent
+// as plain text when Telegram cannot parse its HTML). Text that fits in a
+// caption (1024, as HTML and as plain text) rides on the first file
 // instead, unless that is a video note, which takes no caption. A file that cannot be sent is replaced by a "[Failed to send:
 // name]" notice, like nanobot's, so a retry never repeats the files that
 // went through. Buttons (msg.Buttons) become an inline keyboard on the
@@ -811,7 +813,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	// A video note takes no caption: with one first, the text follows the
 	// files as messages.
 	caption := ""
-	if len(files) > 0 && text != "" && utf16Len(strings.Trim(text, " \n")) <= maxCaptionLen &&
+	if len(files) > 0 && text != "" && fitsCaption(strings.Trim(text, " \n")) &&
 		outboundMediaOf(mediaName(files[0])) != asVideoNote {
 		caption, text = strings.Trim(text, " \n"), ""
 	}
@@ -902,13 +904,13 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	if caption != "" { // no file went through to carry it
 		text = caption
 	}
-	chunks := splitMessage(text, maxMessageLen)
+	chunks := splitMarkdownHTML(text, maxMessageLen)
 	for i, chunk := range chunks {
 		var markup *inlineKeyboardMarkup
 		if !fileKB && i == len(chunks)-1 {
 			markup = kb
 		}
-		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, chunk); err != nil {
+		if err := c.sendChunk(ctx, chatID, threadID, reply, markup, chunk); err != nil {
 			return err
 		}
 	}
@@ -920,12 +922,35 @@ func (c *Channel) sendText(ctx context.Context, chatID, threadID int64, reply *r
 	return c.sendMarkup(ctx, chatID, threadID, reply, nil, text)
 }
 
-// sendMarkup is sendText with an inline keyboard (nil for none).
+// sendMarkup is sendText with an inline keyboard (nil for none). text is
+// Markdown short enough for one message (see splitMarkdownHTML).
 func (c *Channel) sendMarkup(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, text string) error {
-	p := sendMessageParams{ChatID: chatID, Text: text, MessageThreadID: threadID, ReplyParameters: reply, ReplyMarkup: markup}
+	return c.sendChunk(ctx, chatID, threadID, reply, markup, htmlChunk{raw: text, html: markdownToTelegramHTML(text)})
+}
+
+// sendChunk sends one message as HTML (parse_mode HTML). When Telegram
+// refuses it (400, usually HTML it cannot parse) the raw Markdown goes
+// as plain text instead, like nanobot's _send_text.
+func (c *Channel) sendChunk(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, chunk htmlChunk) error {
+	p := sendMessageParams{ChatID: chatID, Text: chunk.html, ParseMode: "HTML", MessageThreadID: threadID,
+		ReplyParameters: reply, ReplyMarkup: markup}
+	err := c.retrySend(ctx, chatID, func(ctx context.Context) error {
+		return c.api.call(ctx, "sendMessage", p, nil)
+	})
+	if !badRequest(err) {
+		return err
+	}
+	c.log.Warn("telegram: HTML parse failed, falling back to plain text", "chat_id", chatID, "error", err)
+	p.Text, p.ParseMode = chunk.raw, ""
 	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
 		return c.api.call(ctx, "sendMessage", p, nil)
 	})
+}
+
+// badRequest reports whether err is a Bot API 400.
+func badRequest(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.Code == http.StatusBadRequest
 }
 
 // retrySend makes one send call, waiting out flood control (429

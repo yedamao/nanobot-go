@@ -467,23 +467,51 @@ func sendFields(chatID, threadID int64, reply *replyParameters, markup *inlineKe
 // as that (400: dimensions, size, format). A local file is uploaded; a
 // remote one goes by reference, the file field (photo, animation, video,
 // document, ...) being the URL itself. markup, when set, is the inline
-// keyboard of the message.
+// keyboard of the message. The Markdown caption goes as HTML, and as
+// plain text when Telegram cannot parse that (see entityParseError).
 func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, f outboundFile, caption string) error {
 	fields, err := sendFields(chatID, threadID, reply, markup)
 	if err != nil {
 		return err
 	}
-	if caption != "" {
-		fields["caption"] = caption
+	send := func() error {
+		return c.sendMedia(ctx, chatID, f.kind, func(ctx context.Context, m outboundMedia) error {
+			mf := mediaFields(fields, m)
+			if f.url != "" {
+				mf[m.field] = f.url
+				return c.api.upload(ctx, m.method, mf, "", "", nil, nil)
+			}
+			return c.api.upload(ctx, m.method, mf, m.field, f.name, f.data, nil)
+		})
 	}
-	return c.sendMedia(ctx, chatID, f.kind, func(ctx context.Context, m outboundMedia) error {
-		mf := mediaFields(fields, m)
-		if f.url != "" {
-			mf[m.field] = f.url
-			return c.api.upload(ctx, m.method, mf, "", "", nil, nil)
-		}
-		return c.api.upload(ctx, m.method, mf, m.field, f.name, f.data, nil)
-	})
+	if caption == "" {
+		return send()
+	}
+	fields["caption"], fields["parse_mode"] = markdownToTelegramHTML(caption), "HTML"
+	err = send()
+	if !entityParseError(err) {
+		return err
+	}
+	c.log.Warn("telegram: HTML caption refused, falling back to plain text", "chat_id", chatID, "error", err)
+	fields["caption"] = caption
+	delete(fields, "parse_mode")
+	return send()
+}
+
+// entityParseError reports whether err is Telegram refusing a send's
+// HTML ("400 Bad Request: can't parse entities: ..."). A captioned media
+// send falls back to a plain caption only on this one, so a file refused
+// for its type or size is not sent twice more; a text message falls back
+// on any 400, like nanobot's _send_text.
+func entityParseError(err error) bool {
+	var ae *apiError
+	return errors.As(err, &ae) && ae.Code == http.StatusBadRequest && strings.Contains(ae.Description, "can't parse entities")
+}
+
+// fitsCaption reports whether the Markdown text fits in a media caption,
+// both rendered as HTML and as the plain-text fallback.
+func fitsCaption(text string) bool {
+	return utf16Len(text) <= maxCaptionLen && utf16Len(markdownToTelegramHTML(text)) <= maxCaptionLen
 }
 
 // albumGroup returns the album a file sent as m can share with others
@@ -523,12 +551,14 @@ type inputMedia struct {
 	Type              string `json:"type"`
 	Media             string `json:"media"`
 	Caption           string `json:"caption,omitempty"`
+	ParseMode         string `json:"parse_mode,omitempty"`
 	SupportsStreaming bool   `json:"supports_streaming,omitempty"`
 }
 
 // sendAlbum sends 2-10 files of one albumGroup as one album through
 // sendMediaGroup, the caption on the first item (where Telegram shows an
-// album's caption). Local files are uploaded as attach://file<i>; remote
+// album's caption, as HTML or, when Telegram cannot parse that, plain
+// text). Local files are uploaded as attach://file<i>; remote
 // ones go by URL. An album takes no inline keyboard.
 func (c *Channel) sendAlbum(ctx context.Context, chatID, threadID int64, reply *replyParameters, files []outboundFile, caption string) error {
 	fields, err := sendFields(chatID, threadID, reply, nil)
@@ -545,15 +575,27 @@ func (c *Channel) sendAlbum(ctx context.Context, chatID, threadID int64, reply *
 			uploads = append(uploads, formFile{field: attach, name: f.name, data: f.data})
 		}
 	}
-	items[0].Caption = caption
-	media, err := json.Marshal(items)
-	if err != nil {
+	send := func() error {
+		media, err := json.Marshal(items)
+		if err != nil {
+			return err
+		}
+		fields["media"] = string(media)
+		return c.retrySend(ctx, chatID, func(ctx context.Context) error {
+			return c.api.uploadFiles(ctx, "sendMediaGroup", fields, uploads, nil)
+		})
+	}
+	if caption == "" {
+		return send()
+	}
+	items[0].Caption, items[0].ParseMode = markdownToTelegramHTML(caption), "HTML"
+	err = send()
+	if !entityParseError(err) {
 		return err
 	}
-	fields["media"] = string(media)
-	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
-		return c.api.uploadFiles(ctx, "sendMediaGroup", fields, uploads, nil)
-	})
+	c.log.Warn("telegram: HTML caption refused, falling back to plain text", "chat_id", chatID, "error", err)
+	items[0].Caption, items[0].ParseMode = caption, ""
+	return send()
 }
 
 // mediaName is the file name of an outbound media path or URL.
@@ -574,6 +616,7 @@ func mediaFields(fields map[string]string, m outboundMedia) map[string]string {
 		f["supports_streaming"] = "true"
 	case asVideoNote:
 		delete(f, "caption")
+		delete(f, "parse_mode")
 	}
 	return f
 }
@@ -586,8 +629,9 @@ func (c *Channel) sendMedia(ctx context.Context, chatID int64, kind outboundMedi
 		err := c.retrySend(ctx, chatID, func(ctx context.Context) error {
 			return send(ctx, kind)
 		})
-		var ae *apiError
-		if !errors.As(err, &ae) || ae.Code != http.StatusBadRequest {
+		// HTML the caller can retry as plain text is no reason to send
+		// the file as a document.
+		if !badRequest(err) || entityParseError(err) {
 			return err
 		}
 		c.log.Info("telegram: "+kind.field+" refused; sending it as a file", "chat_id", chatID, "error", err)

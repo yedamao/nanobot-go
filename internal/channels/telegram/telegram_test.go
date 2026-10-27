@@ -418,28 +418,34 @@ func TestStartCommandIsAnsweredLocally(t *testing.T) {
 	h.noInbound(t)
 }
 
-func TestSendChunksPlainText(t *testing.T) {
+func TestSendChunksHTML(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.ReplyToMessage = true })
 	h.start(t)
-	long := strings.Repeat("a <b>&amp; **bold** ", 300) // 6000 bytes
+	long := strings.Repeat("a <b>&amp; **bold** ", 300) // 6000 bytes, more as HTML
 	err := h.ch.Send(context.Background(), bus.OutboundMessage{Channel: Name, ChatID: "42", Content: long,
 		Metadata: map[string]any{"message_id": int64(100)}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	sent := h.f.callsOf("sendMessage")
-	if len(sent) != 2 {
-		t.Fatalf("sent %d messages, want 2", len(sent))
+	if len(sent) != 3 {
+		t.Fatalf("sent %d messages, want 3", len(sent))
 	}
-	var joined []string
+	bold := 0
 	for _, s := range sent {
 		text := s.Body["text"].(string)
 		if utf16Len(text) > maxMessageLen {
 			t.Errorf("chunk of %d units", utf16Len(text))
 		}
-		if _, ok := s.Body["parse_mode"]; ok {
-			t.Errorf("parse_mode set: %v", s.Body["parse_mode"])
+		if s.Body["parse_mode"] != "HTML" {
+			t.Errorf("parse_mode = %v", s.Body["parse_mode"])
 		}
+		// Markdown is rendered, raw markup escaped, and no tag is cut.
+		if strings.Contains(text, "**") || strings.Contains(text, "<b>&") ||
+			strings.Count(text, "<b>") != strings.Count(text, "</b>") {
+			t.Errorf("chunk not rendered whole: %q", text[:80])
+		}
+		bold += strings.Count(text, "<b>bold</b>")
 		if s.Body["chat_id"] != float64(42) {
 			t.Errorf("chat_id = %v", s.Body["chat_id"])
 		}
@@ -447,11 +453,9 @@ func TestSendChunksPlainText(t *testing.T) {
 		if rp["message_id"] != float64(100) || rp["allow_sending_without_reply"] != true {
 			t.Errorf("reply_parameters = %v", s.Body["reply_parameters"])
 		}
-		joined = append(joined, text)
 	}
-	// Plain text goes out verbatim: no escaping, no markup.
-	if got := strings.Join(joined, " "); got != strings.TrimSpace(long) {
-		t.Errorf("text changed in transit")
+	if bold != 300 || !strings.HasPrefix(sent[0].Body["text"].(string), "a &lt;b&gt;&amp;amp; <b>bold</b> a") {
+		t.Errorf("%d bold, first chunk %q", bold, sent[0].Body["text"].(string)[:40])
 	}
 
 	// Without replyToMessage there is no reply_parameters, unless the
