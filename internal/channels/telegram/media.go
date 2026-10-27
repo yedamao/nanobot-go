@@ -353,18 +353,59 @@ func outboundMediaOf(name string) outboundMedia {
 	return asDocument
 }
 
-// sendFile sends one file of an outbound message by its extension (like
-// nanobot's _get_media_type): GIFs through sendAnimation, other images
-// through sendPhoto, videos through sendVideo (supports_streaming), .ogg
-// through sendVoice, audio files through sendAudio, and anything else,
-// or a file Telegram refuses with one of those (400: dimensions, size,
-// format), through sendDocument.
-// Local files are uploaded; relative paths resolve against the
-// workspace. An http(s) URL is checked against the SSRF policy and
-// handed to the Bot API, which fetches it (nanobot's
-// validate_url_target, then send_photo(url)). markup, when set, is the
-// inline keyboard of the message.
-func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, p, caption string) error {
+// outboundFile is an outbound file ready to send: a local file's contents
+// or a checked remote URL, with how it goes.
+type outboundFile struct {
+	// name is the file name of a local file, for the upload.
+	name string
+	kind outboundMedia
+	data []byte
+	// url is the http(s) URL of a remote file, "" for a local one.
+	url string
+}
+
+// loadFile prepares the outbound file p by its extension (like nanobot's
+// _get_media_type): GIFs go through sendAnimation, other images through
+// sendPhoto (a local one over the photo upload limit as a document),
+// videos through sendVideo, .ogg through sendVoice, audio files through
+// sendAudio and anything else through sendDocument.
+// Local files are read; relative paths resolve against the workspace.
+// An http(s) URL is checked against the SSRF policy, to be handed to the
+// Bot API, which fetches it (nanobot's validate_url_target, then
+// send_photo(url)).
+func (c *Channel) loadFile(ctx context.Context, p string) (outboundFile, error) {
+	if security.IsHTTPURL(p) {
+		u := strings.TrimSpace(p)
+		if err := security.CheckURL(ctx, u, c.ssrf); err != nil {
+			return outboundFile{}, err
+		}
+		return outboundFile{kind: outboundMediaOf(security.URLName(u)), url: u}, nil
+	}
+	full := p
+	if !filepath.IsAbs(full) {
+		if c.workspace == "" {
+			return outboundFile{}, errors.New("no workspace to resolve a relative path against")
+		}
+		full = filepath.Join(c.workspace, filepath.FromSlash(p))
+	}
+	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
+	if err != nil {
+		return outboundFile{}, err
+	}
+	if len(data) > maxUploadBytes {
+		return outboundFile{}, fmt.Errorf("%w (limit %d bytes)", errTooLarge, maxUploadBytes)
+	}
+	name := filepath.Base(full)
+	kind := outboundMediaOf(name)
+	if kind == asPhoto && len(data) > maxUploadPhotoBytes {
+		kind = asDocument
+	}
+	return outboundFile{name: name, kind: kind, data: data}, nil
+}
+
+// sendFields returns the form fields every outbound file method shares;
+// markup, when set, is the inline keyboard of the message.
+func sendFields(chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup) (map[string]string, error) {
 	fields := map[string]string{"chat_id": strconv.FormatInt(chatID, 10)}
 	if threadID != 0 {
 		fields["message_thread_id"] = strconv.FormatInt(threadID, 10)
@@ -372,44 +413,111 @@ func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *r
 	if reply != nil {
 		rp, err := json.Marshal(reply)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		fields["reply_parameters"] = string(rp)
 	}
 	if markup != nil {
 		rm, err := json.Marshal(markup)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		fields["reply_markup"] = string(rm)
+	}
+	return fields, nil
+}
+
+// sendFile sends one loaded file as its kind (a video with
+// supports_streaming), or through sendDocument when Telegram refuses it
+// as that (400: dimensions, size, format). A local file is uploaded; a
+// remote one goes by reference, the file field (photo, animation, video,
+// document, ...) being the URL itself. markup, when set, is the inline
+// keyboard of the message.
+func (c *Channel) sendFile(ctx context.Context, chatID, threadID int64, reply *replyParameters, markup *inlineKeyboardMarkup, f outboundFile, caption string) error {
+	fields, err := sendFields(chatID, threadID, reply, markup)
+	if err != nil {
+		return err
 	}
 	if caption != "" {
 		fields["caption"] = caption
 	}
-	if security.IsHTTPURL(p) {
-		return c.sendRemoteFile(ctx, chatID, fields, strings.TrimSpace(p))
-	}
-	full := p
-	if !filepath.IsAbs(full) {
-		if c.workspace == "" {
-			return errors.New("no workspace to resolve a relative path against")
+	return c.sendMedia(ctx, chatID, f.kind, func(ctx context.Context, m outboundMedia) error {
+		mf := mediaFields(fields, m)
+		if f.url != "" {
+			mf[m.field] = f.url
+			return c.api.upload(ctx, m.method, mf, "", "", nil, nil)
 		}
-		full = filepath.Join(c.workspace, filepath.FromSlash(p))
+		return c.api.upload(ctx, m.method, mf, m.field, f.name, f.data, nil)
+	})
+}
+
+// albumGroup returns the album a file sent as m can share with others
+// (sendMediaGroup): photos and videos mix, documents and audio files
+// each group only with their own kind, and voice notes and animations
+// never go in one (""), as the Bot API has it.
+func albumGroup(m outboundMedia) string {
+	switch m {
+	case asPhoto, asVideo:
+		return "visual"
+	case asDocument, asAudio:
+		return m.field
 	}
-	data, err := fsutil.ReadRegularFile(full, maxUploadBytes+1)
+	return ""
+}
+
+// albumLen returns how many of files, from the first, can go as one
+// album: the run of loaded ones (no error in errs) of one albumGroup.
+func albumLen(files []outboundFile, errs []error) int {
+	if len(files) == 0 || errs[0] != nil {
+		return 0
+	}
+	g := albumGroup(files[0].kind)
+	if g == "" {
+		return 0
+	}
+	n := 1
+	for n < len(files) && errs[n] == nil && albumGroup(files[n].kind) == g {
+		n++
+	}
+	return n
+}
+
+// inputMedia is one item of a sendMediaGroup album (InputMediaPhoto,
+// InputMediaVideo, InputMediaAudio, InputMediaDocument).
+type inputMedia struct {
+	Type              string `json:"type"`
+	Media             string `json:"media"`
+	Caption           string `json:"caption,omitempty"`
+	SupportsStreaming bool   `json:"supports_streaming,omitempty"`
+}
+
+// sendAlbum sends 2-10 files of one albumGroup as one album through
+// sendMediaGroup, the caption on the first item (where Telegram shows an
+// album's caption). Local files are uploaded as attach://file<i>; remote
+// ones go by URL. An album takes no inline keyboard.
+func (c *Channel) sendAlbum(ctx context.Context, chatID, threadID int64, reply *replyParameters, files []outboundFile, caption string) error {
+	fields, err := sendFields(chatID, threadID, reply, nil)
 	if err != nil {
 		return err
 	}
-	if len(data) > maxUploadBytes {
-		return fmt.Errorf("%w (limit %d bytes)", errTooLarge, maxUploadBytes)
+	items := make([]inputMedia, len(files))
+	var uploads []formFile
+	for i, f := range files {
+		items[i] = inputMedia{Type: f.kind.field, Media: f.url, SupportsStreaming: f.kind == asVideo}
+		if f.url == "" {
+			attach := "file" + strconv.Itoa(i)
+			items[i].Media = "attach://" + attach
+			uploads = append(uploads, formFile{field: attach, name: f.name, data: f.data})
+		}
 	}
-	name := filepath.Base(full)
-	kind := outboundMediaOf(name)
-	if kind == asPhoto && len(data) > maxUploadPhotoBytes {
-		kind = asDocument
+	items[0].Caption = caption
+	media, err := json.Marshal(items)
+	if err != nil {
+		return err
 	}
-	return c.sendMedia(ctx, chatID, kind, func(ctx context.Context, m outboundMedia) error {
-		return c.api.upload(ctx, m.method, mediaFields(fields, m), m.field, name, data, nil)
+	fields["media"] = string(media)
+	return c.retrySend(ctx, chatID, func(ctx context.Context) error {
+		return c.api.uploadFiles(ctx, "sendMediaGroup", fields, uploads, nil)
 	})
 }
 
@@ -419,19 +527,6 @@ func mediaName(p string) string {
 		return security.URLName(p)
 	}
 	return path.Base(filepath.ToSlash(p))
-}
-
-// sendRemoteFile sends the file at the http(s) URL u by reference: the
-// file field (photo, animation, video, document, ...) is the URL itself.
-func (c *Channel) sendRemoteFile(ctx context.Context, chatID int64, fields map[string]string, u string) error {
-	if err := security.CheckURL(ctx, u, c.ssrf); err != nil {
-		return err
-	}
-	return c.sendMedia(ctx, chatID, outboundMediaOf(security.URLName(u)), func(ctx context.Context, m outboundMedia) error {
-		f := mediaFields(fields, m)
-		f[m.field] = u
-		return c.api.upload(ctx, m.method, f, "", "", nil, nil)
-	})
 }
 
 // mediaFields returns a copy of the form fields of a file sent as m, with

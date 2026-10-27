@@ -33,6 +33,14 @@ type apiCall struct {
 	File      []byte
 	FileName  string
 	FileField string
+	// Files are all the uploaded files by form field (sendMediaGroup
+	// sends several).
+	Files map[string]uploadedFile
+}
+
+type uploadedFile struct {
+	Name string
+	Data []byte
 }
 
 // fakeAPI is an in-process Bot API. getUpdates long-polls: it answers
@@ -95,6 +103,10 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 					call.File, _ = io.ReadAll(rd)
 					rd.Close()
 				}
+				if call.Files == nil {
+					call.Files = map[string]uploadedFile{}
+				}
+				call.Files[field] = uploadedFile{Name: fh.Filename, Data: call.File}
 			}
 		}
 	} else {
@@ -134,6 +146,8 @@ func (f *fakeAPI) serve(w http.ResponseWriter, r *http.Request) {
 		}
 	case "sendMessage", "sendPhoto", "sendDocument":
 		writeOK(w, map[string]any{"message_id": 1000 + n})
+	case "sendMediaGroup":
+		writeOK(w, []map[string]any{{"message_id": 2000 + n}})
 	case "getFile":
 		id, _ := body["file_id"].(string)
 		f.mu.Lock()

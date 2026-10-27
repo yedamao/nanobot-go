@@ -180,8 +180,12 @@ func TestSendCapsFiles(t *testing.T) {
 	if err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Media: media}); err != nil {
 		t.Fatal(err)
 	}
-	if n := len(h.f.callsOf("sendPhoto")); n != maxOutboundFiles {
-		t.Errorf("sendPhoto calls = %d, want %d", n, maxOutboundFiles)
+	albums := h.f.callsOf("sendMediaGroup")
+	if len(albums) != 1 || len(albums[0].Files) != maxOutboundFiles {
+		t.Fatalf("sendMediaGroup = %d calls, want one with %d files", len(albums), maxOutboundFiles)
+	}
+	if n := len(albumItems(t, albums[0])); n != maxOutboundFiles {
+		t.Errorf("album items = %d, want %d", n, maxOutboundFiles)
 	}
 }
 
@@ -285,6 +289,9 @@ func TestSendRemoteMediaURLs(t *testing.T) {
 	h := newHarness(t, func(c *Config) { c.InlineKeyboards = true })
 	h.ch.ssrf = &security.Policy{Resolver: staticResolver{}}
 	h.f.reply = func(method string, n int) (int, string, bool) {
+		if method == "sendMediaGroup" { // the album is refused: the files go one by one
+			return http.StatusBadRequest, `{"ok":false,"error_code":400,"description":"Bad Request: failed to send message #2 with the error message \"WEBPAGE_MEDIA_EMPTY\""}`, true
+		}
 		if method == "sendPhoto" && n == 2 { // the second photo is refused
 			return http.StatusBadRequest, `{"ok":false,"error_code":400,"description":"Bad Request: wrong type of the web page content"}`, true
 		}
@@ -341,7 +348,8 @@ func TestSendVideoVoiceAudio(t *testing.T) {
 	}
 	h.start(t)
 	err := h.ch.Send(context.Background(), bus.OutboundMessage{ChatID: "42", Content: "media",
-		Media:    []string{"out/clip.mp4", "out/note.ogg", "out/song.MP3", "out/talk.m4a", "out/movie.webm"},
+		// No two neighbours share an album.
+		Media:    []string{"out/clip.mp4", "out/note.ogg", "out/song.MP3", "out/movie.webm", "out/talk.m4a"},
 		Metadata: map[string]any{"message_thread_id": int64(7)}})
 	if err != nil {
 		t.Fatal(err)

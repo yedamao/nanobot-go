@@ -172,6 +172,16 @@ Phase 2 is complete; phase 3 is in progress.
     `tools.ssrfWhitelist`) and passed to the same method as
     the URL itself (sent as form fields, not uploaded); the Bot API
     fetches them. A refused URL becomes `[Failed to send: name]`.
+    Outbound albums (new: nanobot sends each file on its own): each run
+    of 2-10 neighbouring files that Telegram can group goes as one
+    `sendMediaGroup` (photos and videos together, documents with
+    documents, audio files with audio files; voice notes and GIFs never),
+    local files uploaded as `attach://file<i>`, URLs by reference, the
+    caption on the first item. A file that cannot be read or is blocked
+    splits a run; the last file stays out when it carries the inline
+    keyboard (albums take none). An album Telegram refuses (any Bot API
+    error, e.g. 400) is sent file by file as above; another failure (the
+    album may have arrived) gives each file's `[Failed to send: name]`.
     Inbound voice notes and audio files (`msg.voice` / `msg.audio`):
     downloaded the same way (capped at 20 MB, the `getFile` limit) to
     `media/telegram/<file_unique_id>.<ext>` (`_get_extension`: by MIME
@@ -230,8 +240,7 @@ Phase 2 is complete; phase 3 is in progress.
     (animations as such, locations), nanobot's transcription config (`transcription.*`, the
     groq default and the other providers, language, max duration), the
     `[image: path]` part photos get in nanobot, outbound video notes
-    (`sendVideoNote`), outbound media groups
-    (`sendMediaGroup`), Markdown to
+    (`sendVideoNote`), Markdown to
     HTML rendering, rich messages, streaming edits, reasoning/progress
     messages, inline keyboards and callback queries, reactions, the bot
     command menu (`setMyCommands`), the per-session reorder buffer,

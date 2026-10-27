@@ -814,23 +814,77 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	// Without text after the files the keyboard goes on the last file
 	// (or the notice that replaces it).
 	fileKB := kb != nil && text == ""
+	loaded := make([]outboundFile, len(files))
+	loadErrs := make([]error, len(files))
 	for i, p := range files {
+		loaded[i], loadErrs[i] = c.loadFile(ctx, p)
+	}
+	// sendOne sends file i on its own, or its failure notice.
+	sendOne := func(i int) error {
 		var markup *inlineKeyboardMarkup
 		if fileKB && i == len(files)-1 {
 			markup = kb
 		}
-		err := c.sendFile(ctx, chatID, threadID, reply, markup, p, caption)
+		err := loadErrs[i]
+		if err == nil {
+			err = c.sendFile(ctx, chatID, threadID, reply, markup, loaded[i], caption)
+		}
 		if err == nil {
 			caption = ""
+			return nil
+		}
+		if ctx.Err() != nil {
+			return err
+		}
+		c.log.Warn("telegram: could not send a file", "chat_id", chatID, "file", files[i], "error", err)
+		return c.sendMarkup(ctx, chatID, threadID, reply, markup, "[Failed to send: "+mediaName(files[i])+"]")
+	}
+	// Runs of files that can share an album go as one (sendMediaGroup),
+	// except the last file when it carries the keyboard, which an album
+	// cannot.
+	albumEnd := len(files)
+	if fileKB {
+		albumEnd--
+	}
+	for i := 0; i < len(files); {
+		n := 0
+		if i < albumEnd {
+			n = albumLen(loaded[i:albumEnd], loadErrs[i:albumEnd])
+		}
+		if n < 2 {
+			if err := sendOne(i); err != nil {
+				return err
+			}
+			i++
+			continue
+		}
+		err := c.sendAlbum(ctx, chatID, threadID, reply, loaded[i:i+n], caption)
+		if err == nil {
+			caption = ""
+			i += n
 			continue
 		}
 		if ctx.Err() != nil {
 			return err
 		}
-		c.log.Warn("telegram: could not send a file", "chat_id", chatID, "file", p, "error", err)
-		if err := c.sendMarkup(ctx, chatID, threadID, reply, markup, "[Failed to send: "+mediaName(p)+"]"); err != nil {
-			return err
+		// When Telegram refuses the album (400: a file it would not
+		// group, too large, ...) the files go one by one, each with its
+		// own document fallback and failure notice. Any other failure
+		// (the album may have arrived) gets the notices without a retry.
+		var ae *apiError
+		refused := errors.As(err, &ae)
+		if refused {
+			c.log.Info("telegram: album refused; sending its files one by one", "chat_id", chatID, "files", n, "error", err)
 		}
+		for j := i; j < i+n; j++ {
+			if !refused {
+				loadErrs[j] = err
+			}
+			if err := sendOne(j); err != nil {
+				return err
+			}
+		}
+		i += n
 	}
 	if caption != "" { // no file went through to carry it
 		text = caption

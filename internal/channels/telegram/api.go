@@ -80,6 +80,23 @@ func (c *client) call(ctx context.Context, method string, params, out any) error
 // (sendPhoto, sendDocument). An empty field sends the fields alone.
 // Errors never contain the token.
 func (c *client) upload(ctx context.Context, method string, fields map[string]string, field, name string, data []byte, out any) error {
+	var files []formFile
+	if field != "" {
+		files = []formFile{{field: field, name: name, data: data}}
+	}
+	return c.uploadFiles(ctx, method, fields, files, out)
+}
+
+// formFile is one file of a multipart upload: its form field, file name
+// and contents.
+type formFile struct {
+	field, name string
+	data        []byte
+}
+
+// uploadFiles is upload with any number of files, the way sendMediaGroup
+// takes them (each named by an attach://<field> in its media array).
+func (c *client) uploadFiles(ctx context.Context, method string, fields map[string]string, files []formFile, out any) error {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	keys := make([]string, 0, len(fields))
@@ -93,10 +110,13 @@ func (c *client) upload(ctx context.Context, method string, fields map[string]st
 		}
 	}
 	var err error
-	if field != "" {
+	for _, f := range files {
 		var part io.Writer
-		if part, err = w.CreateFormFile(field, name); err == nil {
-			_, err = part.Write(data)
+		if part, err = w.CreateFormFile(f.field, f.name); err == nil {
+			_, err = part.Write(f.data)
+		}
+		if err != nil {
+			break
 		}
 	}
 	if err == nil {

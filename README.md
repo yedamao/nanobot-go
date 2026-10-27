@@ -266,7 +266,9 @@ workspace paths (relative to the workspace or absolute; files outside it
 are refused, whatever `restrictToWorkspace` says) or `http://` /
 `https://` URLs. Telegram uploads files (`sendPhoto` for images,
 `sendAnimation` for GIFs, `sendVideo`, `sendVoice` for `.ogg`,
-`sendAudio`, `sendDocument` otherwise) and the WebUI shows them in the message.
+`sendAudio`, `sendDocument` otherwise; neighbouring photos/videos,
+documents or audio files go as one album with `sendMediaGroup`) and the
+WebUI shows them in the message.
 URLs are checked by the channel when it sends them, with the same SSRF
 rules as `web_fetch` (loopback, private, link-local, CGNAT and metadata
 addresses are refused unless in `tools.ssrfWhitelist`; a refused URL
