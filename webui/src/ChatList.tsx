@@ -109,7 +109,7 @@ export function ChatList({ chats, active, replyRunning, onSelect, onNew, onChang
                 </span>
               ) : (
                 <span className="chat-avatar chat-avatar-new" aria-hidden="true">
-                  <img src="/favicon.svg" alt="" />
+                  <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
                 </span>
               )}
               <span className="chat-text">
