@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { deleteChat, listChats, renameChat, type ChatEntry } from "./api";
+import { avatarColor, avatarLetter } from "./avatar";
 import { useLocale, useT } from "./i18n";
 
 // useChats holds the last list from GET /ui/chats. A failed fetch keeps
@@ -102,9 +103,20 @@ export function ChatList({ chats, active, replyRunning, onSelect, onNew, onChang
               title={c.preview ?? ""}
               onClick={() => onSelect(c.chat_id || null)}
             >
-              <span className="chat-title">{c.title || c.preview || t("chats.untitled")}</span>
-              {c.preview && <span className="chat-preview">{c.preview}</span>}
-              {c.updated_at && <span className="chat-time">{when(c.updated_at, locale)}</span>}
+              {c.updated_at ? (
+                <span className="chat-avatar" aria-hidden="true" style={{ background: avatarColor(c.chat_id) }}>
+                  {avatarLetter(c.title || c.preview)}
+                </span>
+              ) : (
+                <span className="chat-avatar chat-avatar-new" aria-hidden="true">
+                  <img src="/favicon.svg" alt="" />
+                </span>
+              )}
+              <span className="chat-text">
+                <span className="chat-title">{c.title || c.preview || t("chats.untitled")}</span>
+                {c.preview && <span className="chat-preview">{c.preview}</span>}
+                {c.updated_at && <span className="chat-time">{when(c.updated_at, locale)}</span>}
+              </span>
             </button>
             {c.updated_at && (
               <span className="chat-actions">

@@ -1049,7 +1049,10 @@ and press Enter. Each reply is a full agent turn, tools included.
 - **Chat list.** A sidebar (a **Chats** overlay on narrow screens) lists
   the stored WebUI chats, newest first: the custom title if the chat was
   renamed, else the first user message, as the title, the last message
-  as a preview, and when it was last updated.
+  as a preview, and when it was last updated. Each row has a round
+  avatar: the title's first letter on a color picked from the chat id
+  (so it stays the same across reloads and renames), or the app mark for
+  a new chat.
   The current chat is highlighted; one with nothing stored yet shows as
   "New chat" on top until its first turn is saved. Clicking a chat
   reconnects with its id, so its history loads as on a reload. The list
