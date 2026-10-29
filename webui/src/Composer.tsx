@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
 import { uploadFile, type Upload } from "./api";
+import { fileExt } from "./Attachments";
+import { Icon } from "./Icon";
 import { useT } from "./i18n";
 import { attachmentText, type MediaRef } from "./media";
 import { formatQuotedUserMessage, quoteSnippet } from "./quote";
@@ -11,13 +13,14 @@ interface Props {
   onStop: () => void;
   reply: string | null; // the quoted message, if replying
   onCancelReply: () => void;
+  model?: string; // the default model, shown in the bar
 }
 
 // Composer is the message box: Enter sends, Shift+Enter starts a new line.
 // Attach uploads files to the workspace's uploads/ directory; the message
 // names them by workspace path, which the agent's file tools open.
 // Replying quotes a message ahead of the text, as nanobot's webui does.
-export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply }: Props) {
+export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply, model }: Props) {
   const [text, setText] = useState("");
   const [attached, setAttached] = useState<Upload[]>([]);
   const [uploading, setUploading] = useState(0);
@@ -78,71 +81,90 @@ export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply }
   };
 
   return (
-    <form id="composer" autoComplete="off" onSubmit={onSubmit}>
-      {reply !== null && (
-        <div className="reply-preview" aria-label={t("composer.replyingTo")}>
-          <span className="reply-label">{t("composer.replyingTo")}</span>
-          <span className="reply-snippet">{quoteSnippet(reply)}</span>
+    <div className="composer-wrap">
+      <form id="composer" className="composer" autoComplete="off" onSubmit={onSubmit}>
+        {reply !== null && (
+          <div className="reply-preview" aria-label={t("composer.replyingTo")}>
+            <Icon name="reply" className="lead" />
+            <div className="txt">
+              <b>{t("composer.replyingTo")}</b>
+              <span className="reply-snippet">{quoteSnippet(reply)}</span>
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              title={t("composer.cancelReply")}
+              aria-label={t("composer.cancelReply")}
+              onClick={onCancelReply}
+            >
+              <Icon name="x" />
+            </button>
+          </div>
+        )}
+        {(attached.length > 0 || uploading > 0 || uploadError) && (
+          <div className="chips">
+            {attached.map((a) => (
+              <span key={a.path} className="attach">
+                <span className={"file-ico" + (a.kind === "image" ? " img" : "")}>{fileExt(a.name)}</span>
+                <span className="attach-name">
+                  <b>{a.name}</b>
+                </span>
+                <button
+                  type="button"
+                  className="icon-btn x"
+                  title={t("composer.remove", { name: a.name })}
+                  aria-label={t("composer.remove", { name: a.name })}
+                  onClick={() => setAttached((list) => list.filter((x) => x.path !== a.path))}
+                >
+                  <Icon name="x" />
+                </button>
+              </span>
+            ))}
+            {uploading > 0 && <span className="uploading">{t("composer.uploading")}</span>}
+            {uploadError && <span className="upload-error">{uploadError}</span>}
+          </div>
+        )}
+        <input ref={picker} type="file" multiple hidden onChange={onPick} />
+        <textarea
+          id="input"
+          ref={input}
+          rows={1}
+          placeholder={t("composer.placeholder")}
+          aria-label={t("composer.message")}
+          value={text}
+          onChange={(ev) => setText(ev.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        <div className="composer-bar">
           <button
+            id="attach"
             type="button"
-            className="remove"
-            title={t("composer.cancelReply")}
-            aria-label={t("composer.cancelReply")}
-            onClick={onCancelReply}
+            className="icon-btn"
+            title={t("composer.attachTitle")}
+            aria-label={t("composer.attach")}
+            disabled={!canSend}
+            onClick={() => picker.current?.click()}
           >
-            ×
+            <Icon name="paperclip" />
+          </button>
+          {model && (
+            <a className="model-pick" href="#/models" title={t("composer.modelTitle")}>
+              <Icon name="sparkle" />
+              <span>{model}</span>
+            </a>
+          )}
+          <div className="spacer" />
+          <span className="composer-hint">{t("composer.hint")}</span>
+          {busy && (
+            <button id="stop" type="button" className="send stop" title={t("composer.stopTitle")} aria-label={t("composer.stop")} disabled={!canSend} onClick={onStop}>
+              <Icon name="stop" />
+            </button>
+          )}
+          <button id="send" type="submit" className="send" title={t("composer.send")} aria-label={t("composer.send")} disabled={!canSend || uploading > 0}>
+            <Icon name="arrow-up" />
           </button>
         </div>
-      )}
-      {(attached.length > 0 || uploading > 0 || uploadError) && (
-        <div className="pending-attachments">
-          {attached.map((a) => (
-            <span key={a.path} className="file-chip">
-              {a.name}
-              <button
-                type="button"
-                className="remove"
-                title={t("composer.remove", { name: a.name })}
-                aria-label={t("composer.remove", { name: a.name })}
-                onClick={() => setAttached((list) => list.filter((x) => x.path !== a.path))}
-              >
-                ×
-              </button>
-            </span>
-          ))}
-          {uploading > 0 && <span className="uploading">{t("composer.uploading")}</span>}
-          {uploadError && <span className="upload-error">{uploadError}</span>}
-        </div>
-      )}
-      <input ref={picker} type="file" multiple hidden onChange={onPick} />
-      <button
-        id="attach"
-        type="button"
-        title={t("composer.attachTitle")}
-        aria-label={t("composer.attach")}
-        disabled={!canSend}
-        onClick={() => picker.current?.click()}
-      >
-        📎
-      </button>
-      <textarea
-        id="input"
-        ref={input}
-        rows={1}
-        placeholder={t("composer.placeholder")}
-        aria-label={t("composer.message")}
-        value={text}
-        onChange={(ev) => setText(ev.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      {busy && (
-        <button id="stop" type="button" title={t("composer.stopTitle")} disabled={!canSend} onClick={onStop}>
-          {t("composer.stop")}
-        </button>
-      )}
-      <button id="send" type="submit" disabled={!canSend || uploading > 0}>
-        {t("composer.send")}
-      </button>
-    </form>
+      </form>
+    </div>
   );
 }

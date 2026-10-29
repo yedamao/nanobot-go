@@ -34,6 +34,7 @@ import {
 } from "./channelsConfig";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useFormatDate, useT, type MessageKey } from "./i18n";
+import { Icon } from "./Icon";
 
 // ChannelsPage shows the channels' state, configures Telegram and WeChat
 // through GET and PATCH /ui/channels/config (saved tokens are never sent
@@ -101,8 +102,12 @@ export function ChannelsPage() {
   return (
     <section className="page" aria-labelledby="channels-heading">
       <header className="page-header">
-        <h2 id="channels-heading">{t("channels.heading")}</h2>
-        <button type="button" onClick={() => void load()} disabled={busy}>
+        <div className="page-title">
+          <h2 id="channels-heading">{t("channels.heading")}</h2>
+          <p>{t("channels.blurb")}</p>
+        </div>
+        <button type="button" className="btn ghost" onClick={() => void load()} disabled={busy}>
+          <Icon name="refresh" />
           {t("common.refresh")}
         </button>
       </header>

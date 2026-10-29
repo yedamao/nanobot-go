@@ -26,6 +26,7 @@ import {
 } from "./cronBinding";
 import { formatDuration, runReply, runStatusState, runStatusText } from "./cronRuns";
 import { useFormatDate, useT, type MessageKey } from "./i18n";
+import { Icon } from "./Icon";
 
 type Kind = "every" | "cron" | "at";
 
@@ -286,15 +287,20 @@ export function CronPage() {
   return (
     <section className="page" aria-labelledby="cron-heading">
       <header className="page-header">
-        <h2 id="cron-heading">{t("cron.heading")}</h2>
+        <div className="page-title">
+          <h2 id="cron-heading">{t("cron.heading")}</h2>
+          <p>{t("cron.blurb")}</p>
+        </div>
         <button
           type="button"
+          className="btn ghost"
           onClick={() => {
             void load();
             void loadTargets();
           }}
           disabled={busy !== null}
         >
+          <Icon name="refresh" />
           {t("common.refresh")}
         </button>
       </header>

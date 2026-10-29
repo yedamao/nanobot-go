@@ -780,10 +780,10 @@ Phase 2 is complete; phase 3 is in progress.
     `<Fill>` puts elements (`<code>`, links) into a message's
     placeholders. Same storage key as nanobot (`nanobot.locale`); first
     visit follows `navigator.languages` when supported, else English;
-    `<html lang>` follows the choice. A header select (also on the
-    sign-in form) switches at once. Translated: header/nav/connection,
+    `<html lang>` follows the choice. An EN / 中文 segmented control in
+    the topbars (also on the sign-in card) switches at once. Translated: header/nav/connection,
     sign-in, Composer, chat list, message list (thinking panel, empty
-    and pending text, code copy, attachments), Status dialog, the
+    and pending text, code copy, attachments), Status page, the
     Restart gateway prompt, and the Cron, Channels (pairing, configure
     cards, WeChat login), Models, Providers, Skills and MCP pages. Dates
     (Cron, pairing expiry, chat list) use the selected locale. Display
@@ -795,8 +795,27 @@ Phase 2 is complete; phase 3 is in progress.
     sent by the gateway (API errors, test results, the
     restart-unavailable reason, model catalog notes) stays English; no
     zh-TW/ja/fr/… yet.
-  - Next WebUI slices: a richer layout and components (nanobot's
-    Radix/Tailwind UI), a model catalog/picker, provider OAuth and
+  - Done (different): WebUI redesign, "roof-bot after dark"
+    (`webui/src/style.css`, `App.tsx`, `StatusPage.tsx`, `Icon.tsx`,
+    `TagInput.tsx`). Not nanobot's Radix/Tailwind look: an own dark
+    teal theme from the roof-bot mark (teal near-black surfaces, amber
+    `#F2A65A` as the only accent), dark only. Chat: sidebar with chat
+    search and Today / Previous 7 days / Older groups, assistant replies
+    as full-width documents and user turns as right-aligned bubbles,
+    hover reply/copy actions, a floating composer card (reply preview,
+    attachment chips, default-model link, send/stop). Settings: one
+    shell with grouped nav (Gateway: Status, Channels, Cron;
+    Intelligence: Models, Providers, Skills; Tools: MCP) on hash routes
+    (`#/status`, `#/mcp`, …), a gateway card (version, uptime, port,
+    Restart gateway) under the nav, and a connection pill in every
+    topbar. Status is a page instead of the old `<dialog>` (same
+    `/ui/status` and `/ui/settings` calls; the SSRF whitelist is a
+    chip input); MCP servers are cards with state/transport badges,
+    settings, tool chips, an enable switch and a reload banner. Gaps:
+    no light theme, no per-chat model picker (the composer links the
+    default model to the Models page), no unread markers or message
+    timestamps (the protocol has neither).
+  - Next WebUI slices: a light theme, a model catalog/picker, provider OAuth and
     custom providers, MCP presets/apps, marketplace skills.
   - Not ported: nanobot's React app itself (its component tree, Tailwind,
     Radix, i18next and its many locales, KaTeX/Mermaid), settings/models/apps/marketplace pages

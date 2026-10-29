@@ -41,25 +41,26 @@ export function useT(): T {
   return useCallback<T>((key, vars) => translate(locale, key, vars), [locale]);
 }
 
-// LocaleSwitcher picks the UI language, each named in its own language.
+// LocaleSwitcher picks the UI language: a segmented EN / 中文 control,
+// each option titled with its language's own name.
 export function LocaleSwitcher({ id }: { id?: string }) {
   const { locale, setLocale } = useLocale();
   const t = useT();
   return (
-    <select
-      id={id}
-      className="locale-switcher"
-      aria-label={t("app.language")}
-      title={t("app.language")}
-      value={locale}
-      onChange={(e) => setLocale(normalizeLocale(e.target.value))}
-    >
+    <div id={id} className="seg" role="group" aria-label={t("app.language")}>
       {supportedLocales.map((l) => (
-        <option key={l.code} value={l.code} lang={l.code}>
-          {l.nativeLabel}
-        </option>
+        <button
+          key={l.code}
+          type="button"
+          lang={l.code}
+          title={l.nativeLabel}
+          aria-pressed={locale === l.code}
+          onClick={() => setLocale(normalizeLocale(l.code))}
+        >
+          {l.shortLabel}
+        </button>
       ))}
-    </select>
+    </div>
   );
 }
 

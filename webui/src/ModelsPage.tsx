@@ -16,6 +16,7 @@ import {
 import { pendingText, withCurrent } from "./settings";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useT } from "./i18n";
+import { Icon } from "./Icon";
 
 // ModelsPage edits agents.defaults.model, .provider and the ordered
 // .fallbackModels through GET and PATCH /ui/settings, the same store the
@@ -116,8 +117,12 @@ export function ModelsPage() {
   return (
     <section className="page" aria-labelledby="models-heading">
       <header className="page-header">
-        <h2 id="models-heading">{t("models.heading")}</h2>
-        <button type="button" onClick={() => void load()} disabled={saving}>
+        <div className="page-title">
+          <h2 id="models-heading">{t("models.heading")}</h2>
+          <p>{t("models.blurb")}</p>
+        </div>
+        <button type="button" className="btn ghost" onClick={() => void load()} disabled={saving}>
+          <Icon name="refresh" />
           {t("common.refresh")}
         </button>
       </header>

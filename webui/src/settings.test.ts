@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { Settings } from "./api.ts";
-import { diffSettings, duration, pendingText, savedText, whitelistLines, withCurrent } from "./settings.ts";
+import { addTags, diffSettings, duration, pendingText, savedText, whitelistLines, withCurrent } from "./settings.ts";
 
 const saved: Settings = {
   model: "deepseek-chat",
@@ -123,4 +123,11 @@ test("duration", () => {
   assert.equal(duration(423), "7m 3s");
   assert.equal(duration(7500), "2h 5m");
   assert.equal(duration(273600), "3d 4h");
+});
+
+test("addTags splits on commas and whitespace and skips blanks and repeats", () => {
+  const tags = ["10.0.4.0/24"];
+  assert.deepEqual(addTags(tags, "192.168.1.20/32, 100.64.0.0/10\n10.0.4.0/24"), ["10.0.4.0/24", "192.168.1.20/32", "100.64.0.0/10"]);
+  assert.equal(addTags(tags, " , 10.0.4.0/24 "), tags);
+  assert.deepEqual(addTags([], "fd00::/8"), ["fd00::/8"]);
 });

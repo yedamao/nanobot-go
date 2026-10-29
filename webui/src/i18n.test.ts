@@ -78,7 +78,7 @@ test("storage errors do not break locale handling", () => {
 test("translate looks up dotted keys and fills placeholders", () => {
   assert.equal(translate("en", "nav.cron"), "Cron");
   assert.equal(translate("zh-CN", "nav.cron"), "定时任务");
-  assert.equal(translate("en", "connection.closed", { seconds: 3 }), "Disconnected; reconnecting in 3s…");
+  assert.equal(translate("en", "connection.closed", { seconds: 3 }), "Offline · retrying in 3s");
   assert.equal(translate("zh-CN", "cron.history.title", { name: "daily" }), "运行历史：daily");
   assert.equal(translate("en", "cron.notes.ran", {}), "Ran {name}", "unknown placeholders stay");
 });

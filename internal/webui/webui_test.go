@@ -89,7 +89,7 @@ func TestBundle(t *testing.T) {
 			t.Errorf("JS bundle lacks the literal %q", lit)
 		}
 	}
-	for _, sel := range []string{".msg.assistant.streaming", "#composer", "#sidebar", ".status[data-state=open]", ".chat-actions", "#status-panel", "#settings-form", ".md pre", ".hljs-keyword"} {
+	for _, sel := range []string{".msg.assistant", ".composer", ".sidebar", ".conn[data-state=connected]", ".chat-actions", ".settings-nav", ".tag-input", ".md pre", ".hljs-keyword"} {
 		if !strings.Contains(strings.ReplaceAll(bundle["css"], `"`, ""), sel) {
 			t.Errorf("CSS bundle lacks %q", sel)
 		}

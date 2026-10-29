@@ -31,30 +31,34 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
   };
 
   return (
-    <main id="login">
-      <form id="login-form" onSubmit={submit}>
-        <div className="login-title">
-          <h1>nanobot-go</h1>
-          <LocaleSwitcher id="login-locale" />
-        </div>
+    <main id="login" className="login-page">
+      <form id="login-form" className="login-card" onSubmit={submit}>
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
+        <h1>nanobot-go</h1>
         <p>{t("login.blurb")}</p>
-        <label>
+        <label className="sr-only" htmlFor="login-token">
           {t("login.token")}
-          <input
-            id="login-token"
-            type="password"
-            autoComplete="current-password"
-            autoFocus
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-          />
         </label>
+        <input
+          id="login-token"
+          className="input mono"
+          type="password"
+          autoComplete="current-password"
+          placeholder={t("login.token")}
+          autoFocus
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+        />
         <p id="login-error" role="alert">
           {error}
         </p>
-        <button id="login-submit" type="submit" disabled={busy || !token.trim()}>
+        <button id="login-submit" className="btn primary" type="submit" disabled={busy || !token.trim()}>
           {busy ? t("login.signingIn") : t("login.signIn")}
         </button>
+        <div className="foot">
+          <span className="host">{location.host}</span>
+          <LocaleSwitcher id="login-locale" />
+        </div>
       </form>
     </main>
   );

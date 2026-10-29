@@ -27,6 +27,7 @@ import {
   oauthFlowActive,
   type MCPForm,
 } from "./mcp";
+import { Icon } from "./Icon";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useT, type MessageKey } from "./i18n";
 
@@ -46,6 +47,7 @@ export function MCPPage() {
   const [flows, setFlows] = useState<Record<string, MCPOAuthFlow>>({});
   const [flowErrors, setFlowErrors] = useState<Record<string, string>>({});
   const [pastes, setPastes] = useState<Record<string, string>>({});
+  const [adding, setAdding] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -183,6 +185,7 @@ export function MCPPage() {
     }
     if (await act("+add", t("mcp.saved", { name: built.name }), () => putMCPServer(built.name, built.input))) {
       setForm(emptyMCPForm);
+      setAdding(false);
     }
   };
 
@@ -194,114 +197,186 @@ export function MCPPage() {
     return label === key ? state.replace("_", " ") : label;
   };
 
+  const reloadAll = () => void act("+reload", "", () => reloadMCP().then((reload) => ({ reload })));
+  const servers = list?.servers ?? [];
+  const connected = servers.filter((s) => s.state === "connected").length;
+  const toolCount = servers.reduce((n, s) => n + (s.tools?.length ?? 0), 0);
+  const showForm = adding || (list !== null && servers.length === 0);
+
   return (
     <section className="page" aria-labelledby="mcp-heading">
       <header className="page-header">
-        <h2 id="mcp-heading">{t("mcp.heading")}</h2>
-        <button type="button" onClick={() => void load()} disabled={busy !== null}>
-          {t("common.refresh")}
-        </button>
-        {list?.live && (
-          <button type="button" onClick={() => void act("+reload", "", () => reloadMCP().then((reload) => ({ reload })))} disabled={busy !== null}>
-            {t("mcp.reload")}
+        <div className="page-title">
+          <h2 id="mcp-heading">{t("mcp.heading")}</h2>
+          <p>
+            <Fill text={t("mcp.blurb")} vars={{ path: <code>tools.mcpServers</code> }} />
+          </p>
+        </div>
+        <div className="actions">
+          <button type="button" className="btn ghost" onClick={() => void load()} disabled={busy !== null}>
+            <Icon name="refresh" />
+            {t("common.refresh")}
           </button>
-        )}
+          {list?.live && (
+            <button type="button" className="btn" onClick={reloadAll} disabled={busy !== null}>
+              <Icon name="rotate" />
+              {t("mcp.reload")}
+            </button>
+          )}
+          <button type="button" className="btn primary" aria-expanded={showForm} onClick={() => setAdding(!adding)}>
+            <Icon name={adding ? "x" : "plus"} />
+            {t(adding ? "common.cancel" : "mcp.addServer")}
+          </button>
+        </div>
       </header>
       {error && <p className="page-error">{t("mcp.loadError", { error })}</p>}
       {note && <p className="page-note">{note}</p>}
       {list && list.restart_required.length > 0 && (
-        <p className="page-note">{t("mcp.pending", { names: list.restart_required.join(", ") })}</p>
+        <div className="banner" role="status">
+          <Icon name="alert" />
+          <span>{t("mcp.pending", { names: list.restart_required.join(", ") })}</span>
+          {list.live && (
+            <button type="button" className="btn sm" onClick={reloadAll} disabled={busy !== null}>
+              {t("mcp.reloadNow")}
+            </button>
+          )}
+        </div>
       )}
       {list && list.restart_required.length > 0 && <RestartGateway />}
       {!error && list === null && <p className="page-empty">{t("common.loading")}</p>}
-      {list &&
-        (list.servers.length === 0 ? (
-          <p className="page-empty">
-            <Fill text={t("mcp.empty")} vars={{ path: <code>tools.mcpServers</code> }} />
-          </p>
-        ) : (
-          <ul className="page-list skills-list">
-            {list.servers.map((s) => (
-              <li key={s.name} data-disabled={s.enabled ? undefined : ""}>
-                <div className="skill-head">
-                  <strong>{s.name}</strong>
-                  {mcpBadges(s, t).map((b) => (
-                    <span key={b} className="badge">
-                      {b}
-                    </span>
-                  ))}
-                  {list.live && (
-                    <span className="badge" data-state={s.state}>
-                      {stateLabel(s.state)}
-                    </span>
-                  )}
-                  {!s.removed && (
-                    <span className="page-actions">
+      {list && servers.length > 0 && (
+        <div className="stat-row">
+          <div className="stat">
+            <small>{t("mcp.stats.servers")}</small>
+            <strong>{servers.length}</strong>
+          </div>
+          <div className="stat">
+            <small>{t("mcp.stats.connected")}</small>
+            <strong className={connected ? "ok" : undefined}>{list.live ? connected : "—"}</strong>
+          </div>
+          <div className="stat">
+            <small>{t("mcp.stats.tools")}</small>
+            <strong>{list.live ? toolCount : "—"}</strong>
+          </div>
+          <div className="stat">
+            <small>{t("mcp.stats.pending")}</small>
+            <strong className={list.restart_required.length ? "warn" : undefined}>{list.restart_required.length}</strong>
+          </div>
+        </div>
+      )}
+      {list && servers.length === 0 && (
+        <p className="page-empty">
+          <Fill text={t("mcp.empty")} vars={{ path: <code>tools.mcpServers</code> }} />
+        </p>
+      )}
+      {showForm && renderForm()}
+      {list && servers.length > 0 && (
+        <div className="card-list">
+          {servers.map((s) => (
+            <article key={s.name} className={"card" + (s.enabled && !s.removed ? "" : " disabled")}>
+              <div className="card-head">
+                <div className="srv-ico" aria-hidden="true">
+                  {s.name.replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?"}
+                </div>
+                <div className="card-title">
+                  <b>
+                    <span className="name">{s.name}</span>
+                    {list.live && (
+                      <span className={"badge " + stateTone(s.state)} data-state={s.state}>
+                        {stateTone(s.state) && <span className={"dot " + stateTone(s.state)} />}
+                        {stateLabel(s.state)}
+                      </span>
+                    )}
+                    {mcpBadges(s, t).map((b, i) => (
+                      <span key={b} className={"badge" + (i === 0 ? " mono" : b === t("common.restartRequired") ? " warn" : "")}>
+                        {b}
+                      </span>
+                    ))}
+                  </b>
+                  <code className="sub" title={mcpTarget(s)}>
+                    {mcpTarget(s)}
+                  </code>
+                </div>
+                {!s.removed && (
+                  <div className="card-actions">
+                    <button
+                      type="button"
+                      className="btn sm ghost"
+                      disabled={busy !== null || testing !== null || !canTestMCP(s)}
+                      title={s.enabled ? undefined : t("mcp.testDisabled")}
+                      onClick={() => void test(s)}
+                    >
+                      {t(testing === s.name ? "common.testing" : "common.test")}
+                    </button>
+                    {canAuthorizeMCP(s) && (
                       <button
                         type="button"
-                        disabled={busy !== null || testing !== null || !canTestMCP(s)}
-                        title={s.enabled ? undefined : t("mcp.testDisabled")}
-                        onClick={() => void test(s)}
+                        className="btn sm"
+                        disabled={busy !== null || (!!flows[s.name] && oauthFlowActive(flows[s.name]))}
+                        onClick={() => void authorize(s, s.oauth === "authorized")}
                       >
-                        {t(testing === s.name ? "common.testing" : "common.test")}
+                        {t(s.oauth === "authorized" ? "mcp.oauth.signInAgain" : "mcp.oauth.signIn")}
                       </button>
-                      {canAuthorizeMCP(s) && (
-                        <button
-                          type="button"
-                          disabled={busy !== null || (!!flows[s.name] && oauthFlowActive(flows[s.name]))}
-                          onClick={() => void authorize(s, s.oauth === "authorized")}
-                        >
-                          {t(s.oauth === "authorized" ? "mcp.oauth.signInAgain" : "mcp.oauth.signIn")}
-                        </button>
-                      )}
-                      <button type="button" disabled={busy !== null || testing === s.name} onClick={() => void toggle(s)}>
-                        {t(s.enabled ? "common.disable" : "common.enable")}
-                      </button>
-                      <button type="button" disabled={busy !== null || testing === s.name} onClick={() => remove(s)}>
-                        {t("common.remove")}
-                      </button>
-                    </span>
-                  )}
+                    )}
+                    <button
+                      type="button"
+                      className="icon-btn danger"
+                      title={t("common.remove")}
+                      aria-label={t("mcp.removeLabel", { name: s.name })}
+                      disabled={busy !== null || testing === s.name}
+                      onClick={() => remove(s)}
+                    >
+                      <Icon name="trash" />
+                    </button>
+                    <label className="switch" title={t(s.enabled ? "common.disable" : "common.enable")}>
+                      <input
+                        type="checkbox"
+                        checked={s.enabled}
+                        aria-label={t("mcp.toggleLabel", { name: s.name })}
+                        disabled={busy !== null || testing === s.name}
+                        onChange={() => void toggle(s)}
+                      />
+                      <span />
+                    </label>
+                  </div>
+                )}
+              </div>
+              <MCPCardBody server={s} />
+              {s.error && <div className="card-note error">{s.error}</div>}
+              {!s.removed && flows[s.name] && (
+                <div className="card-note">
+                  <OAuthPanel
+                    flow={flows[s.name]}
+                    paste={pastes[s.name] ?? ""}
+                    onPaste={(v) => setPastes((prev) => ({ ...prev, [s.name]: v }))}
+                    onComplete={() => void complete(s)}
+                    onCancel={() => void cancelFlow(s)}
+                  />
                 </div>
-                <code className="skill-path">{mcpTarget(s)}</code>
-                {!!(s.env_keys?.length || s.header_keys?.length || s.enabled_tools || s.tool_timeout || s.oauth) && (
-                  <p>
-                    {s.oauth
-                      ? t("mcp.oauth.status", {
-                          state: t(s.oauth === "authorized" ? "mcp.oauth.authorizedState" : "mcp.oauth.requiredState"),
-                        })
-                      : ""}
-                    {s.env_keys?.length ? t("mcp.env", { keys: s.env_keys.join(", ") }) : ""}
-                    {s.header_keys?.length ? t("mcp.headers", { keys: s.header_keys.join(", ") }) : ""}
-                    {s.enabled_tools ? t("mcp.toolsAllowed", { tools: s.enabled_tools.join(", ") || t("common.none") }) : ""}
-                    {s.tool_timeout ? t("mcp.timeout", { seconds: s.tool_timeout }) : ""}
-                  </p>
-                )}
-                {s.error && <p className="page-error">{s.error}</p>}
-                {s.tools && s.tools.length > 0 && <p>{t("mcp.tools", { tools: s.tools.join(", ") })}</p>}
-                {!s.removed && flows[s.name] && <OAuthPanel
-                  flow={flows[s.name]}
-                  paste={pastes[s.name] ?? ""}
-                  onPaste={(v) => setPastes((prev) => ({ ...prev, [s.name]: v }))}
-                  onComplete={() => void complete(s)}
-                  onCancel={() => void cancelFlow(s)}
-                />}
-                {!s.removed && flowErrors[s.name] && (
-                  <p className="page-error" role="status">
-                    {t("mcp.oauth.failed", { message: flowErrors[s.name] })}
-                  </p>
-                )}
-                {!s.removed && tests[s.name] && (
-                  <p className={tests[s.name].kind === "error" ? "page-error" : "page-note"} role="status">
-                    {tests[s.name].text}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-        ))}
+              )}
+              {!s.removed && flowErrors[s.name] && (
+                <div className="card-note error" role="status">
+                  {t("mcp.oauth.failed", { message: flowErrors[s.name] })}
+                </div>
+              )}
+              {!s.removed && tests[s.name] && (
+                <div className={"card-note " + (tests[s.name].kind === "error" ? "error" : tests[s.name].kind === "ok" ? "ok" : "")} role="status">
+                  {tests[s.name].text}
+                </div>
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+      <p className="page-empty page-foot">
+        <Fill text={t("mcp.help")} vars={{ ref: <code>${"{VAR}"}</code> }} />
+      </p>
+    </section>
+  );
 
-      <form className="cron-form" onSubmit={(e) => void submit(e)} autoComplete="off">
+  function renderForm() {
+    return (
+      <form className="cron-form" id="mcp-add" onSubmit={(e) => void submit(e)} autoComplete="off">
         <h3>{t("mcp.add")}</h3>
         <fieldset className="cron-fields">
           <label htmlFor="mcp-name">
@@ -375,15 +450,71 @@ export function MCPPage() {
           </label>
         </fieldset>
         <div className="cron-form-actions">
-          <button type="submit" disabled={busy !== null}>
+          <button type="submit" className="btn primary" disabled={busy !== null}>
             {t("common.save")}
           </button>
         </div>
       </form>
-      <p className="page-empty">
-        <Fill text={t("mcp.help")} vars={{ ref: <code>${"{VAR}"}</code> }} />
-      </p>
-    </section>
+    );
+  }
+}
+
+// stateTone is the badge color of a live connection state.
+function stateTone(state: string): "ok" | "warn" | "err" | "" {
+  switch (state) {
+    case "connected":
+      return "ok";
+    case "failed":
+      return "err";
+    case "authorization_required":
+    case "pending":
+      return "warn";
+  }
+  return "";
+}
+
+const TOOL_CHIPS = 8;
+
+// MCPCardBody shows a server's settings (OAuth, env and header names,
+// allowed tools, timeout) and, when connected, its tools as chips.
+function MCPCardBody({ server: s }: { server: MCPServer }) {
+  const t = useT();
+  const [allTools, setAllTools] = useState(false);
+  const kv: [string, string][] = [];
+  if (s.oauth) kv.push([t("mcp.kv.oauth"), t(s.oauth === "authorized" ? "mcp.oauth.authorizedState" : "mcp.oauth.requiredState")]);
+  if (s.env_keys?.length) kv.push([t("mcp.kv.env"), s.env_keys.join(", ")]);
+  if (s.header_keys?.length) kv.push([t("mcp.kv.headers"), s.header_keys.join(", ")]);
+  if (s.enabled_tools) kv.push([t("mcp.kv.allowed"), s.enabled_tools.join(", ") || t("common.none")]);
+  if (s.tool_timeout) kv.push([t("mcp.kv.timeout"), s.tool_timeout + "s"]);
+  const tools = s.tools ?? [];
+  if (!kv.length && !tools.length) return null;
+  const shown = allTools ? tools : tools.slice(0, TOOL_CHIPS);
+  return (
+    <div className="card-body">
+      {kv.length > 0 && (
+        <div className="kv">
+          {kv.map(([k, v]) => (
+            <span key={k}>
+              {k} <b>{v}</b>
+            </span>
+          ))}
+        </div>
+      )}
+      {tools.length > 0 && (
+        <div className="tool-chips" aria-label={t("mcp.tools", { tools: tools.join(", ") })}>
+          {shown.map((name) => (
+            <span key={name} className="tool-chip">
+              {name}
+            </span>
+          ))}
+          {tools.length > TOOL_CHIPS && (
+            <button type="button" className="tool-chip more" onClick={() => setAllTools(!allTools)}>
+              {allTools ? t("mcp.fewer") : t("mcp.more", { count: tools.length - TOOL_CHIPS })}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

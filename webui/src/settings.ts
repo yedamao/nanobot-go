@@ -100,3 +100,14 @@ export function duration(s: number): string {
   if (m) return m + "m " + (s % 60) + "s";
   return s + "s";
 }
+
+// addTags returns tags with the entries of raw (split on commas and
+// whitespace) appended, skipping blanks and ones already there; tags
+// itself when nothing is new.
+export function addTags(tags: string[], raw: string): string[] {
+  const out = [...tags];
+  for (const entry of raw.split(/[\s,]+/)) {
+    if (entry && !out.includes(entry)) out.push(entry);
+  }
+  return out.length === tags.length ? tags : out;
+}

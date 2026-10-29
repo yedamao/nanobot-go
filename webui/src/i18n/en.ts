@@ -5,6 +5,15 @@ export const en = {
     language: "Language",
   },
   nav: {
+    groups: {
+      gateway: "Gateway",
+      intelligence: "Intelligence",
+      tools: "Tools",
+    },
+    settings: "Settings",
+    status: "Status",
+    backToChat: "Back to chat",
+    mcpWarn: "{count} server(s) need attention",
     label: "Workbench",
     chat: "Chat",
     cron: "Cron",
@@ -15,6 +24,12 @@ export const en = {
     mcp: "MCP",
   },
   header: {
+    settings: "Settings",
+    hideChats: "Hide the chat list",
+    signedIn: "Signed in",
+    local: "Local access",
+    changeToken: "Change token",
+    changeTokenTitle: "Sign out and sign in with another access token",
     chats: "Chats",
     chatsTitle: "Show the chat list",
     status: "Status",
@@ -25,7 +40,7 @@ export const en = {
   connection: {
     connecting: "Connecting…",
     open: "Connected",
-    closed: "Disconnected; reconnecting in {seconds}s…",
+    closed: "Offline · retrying in {seconds}s",
   },
   login: {
     blurb:
@@ -42,7 +57,9 @@ export const en = {
     },
   },
   composer: {
-    placeholder: "Message nanobot (Enter to send, Shift+Enter for a new line)",
+    placeholder: "Message nanobot…",
+    hint: "⏎ send · ⇧⏎ newline",
+    modelTitle: "Default model; change it on the Models page",
     message: "Message",
     attach: "Attach files",
     attachTitle: "Attach files (saved to the workspace's uploads folder)",
@@ -89,6 +106,11 @@ export const en = {
     none: "none",
   },
   chats: {
+    search: "Search chats",
+    noMatch: "No chats match.",
+    today: "Today",
+    week: "Previous 7 days",
+    older: "Older",
     newChat: "New chat",
     newChatTitle: "Start a new session",
     untitled: "Untitled chat",
@@ -101,6 +123,7 @@ export const en = {
     busy: "Wait for the reply to finish, or stop it, first.",
   },
   messages: {
+    bot: "nanobot",
     thinking: "Thinking…",
     thought: "Thought",
     reply: "Reply",
@@ -114,6 +137,18 @@ export const en = {
     download: "Download {name}",
   },
   status: {
+    blurb: "Live runtime info and the tool settings you can change without editing config.json.",
+    channelsUp: " / {total} up",
+    toolSettings: "Tool settings",
+    channelSettings: "Channels",
+    execHelp: "Let the agent run shell commands in the workspace.",
+    webFetchHelp: "Fetch URLs. Private and loopback addresses are blocked unless whitelisted.",
+    ssrfPlaceholder: "Add a CIDR or IP…",
+    ssrfRemove: "Remove {entry}",
+    webSearchLimits: "Search results · timeout (s)",
+    websocketHelp: "Turning this off disconnects this WebUI after a restart.",
+    discard: "Discard",
+    saveChanges: "Save changes",
     title: "Gateway status",
     note: "What the gateway is running with now.",
     loadError: "Cannot load the status ({error}).",
@@ -131,8 +166,9 @@ export const en = {
       provider: "Provider",
       workspace: "Workspace",
       channels: "Channels",
-      api: "API",
+      api: "OpenAI-compatible API",
       tools: "Tools",
+      runtime: "Runtime",
     },
     settings: "Settings",
     modelsBefore: "Model, provider and fallback models are edited on the",
@@ -161,7 +197,7 @@ export const en = {
     channel: "{name} channel",
     ssrfWhitelist: "SSRF whitelist",
     ssrfWhitelistHint:
-      "Private or internal IP addresses and CIDR ranges, one per line, that web_fetch, MCP servers and media downloads may reach (e.g. 100.64.0.0/10 for Tailscale). Applies to the running gateway at once; MCP servers that failed are retried.",
+      "Private or internal IP addresses and CIDR ranges that web_fetch, MCP servers and media downloads may reach (e.g. 100.64.0.0/10 for Tailscale). Press Enter or comma to add one. Applies to the running gateway at once; MCP servers that failed are retried.",
     savedNote:
       "Saved to config.json; the gateway uses saved settings after a restart, except the SSRF whitelist, which applies at once. Keys, tokens and allow lists are edited in config.json only.",
     saved: "Saved — restart the gateway to apply. {pending}",
@@ -170,7 +206,15 @@ export const en = {
     pendingRestart: "Restart the gateway to apply: {names}.",
     pendingEnv: "Set by an environment variable, which wins over the saved value: {names}.",
   },
+  gateway: {
+    online: "Gateway online",
+    offline: "Gateway unreachable",
+    meta: "{version} · up {uptime} · :{port}",
+  },
   restart: {
+    title: "Stop and start the gateway again",
+    unavailable: "This gateway cannot be restarted from the page.",
+    menu: "Restart gateway…",
     button: "Restart gateway",
     confirm: "Restart the gateway?\n\nIt stops and starts again; this page may briefly disconnect.",
     busy: "Restarting the gateway…",
@@ -178,6 +222,7 @@ export const en = {
     timeout: "The gateway has not come back yet; check 'nanobot gateway status' and 'nanobot gateway logs'.",
   },
   channels: {
+    blurb: "Where nanobot listens, how each channel is configured, and who is waiting to pair.",
     heading: "Channels",
     loadError: "Cannot load ({error}).",
     configured: "Configured",
@@ -276,6 +321,7 @@ export const en = {
     },
   },
   models: {
+    blurb: "The default model and provider, and the fallbacks tried when it fails.",
     heading: "Models",
     loadError: "Cannot load the settings ({error}).",
     pendingNote: "{pending} The provider chain is built when the gateway starts.",
@@ -310,6 +356,7 @@ export const en = {
     },
   },
   providers: {
+    blurb: "API credentials and base URLs. Keys are write-only.",
     heading: "Providers",
     loadError: "Cannot load the providers ({error}).",
     pending:
@@ -335,6 +382,7 @@ export const en = {
     },
   },
   skills: {
+    blurb: "Packaged instructions the agent can load on demand.",
     heading: "Skills",
     loadError: "Cannot load skills ({error}).",
     workspace: "Workspace",
@@ -357,6 +405,26 @@ export const en = {
     },
   },
   mcp: {
+    blurb: "Model Context Protocol servers expose extra tools to the agent. Changes are saved to {path}.",
+    addServer: "Add server",
+    reloadNow: "Reload now",
+    removeLabel: "Remove {name}",
+    toggleLabel: "Enable {name}",
+    more: "+{count} more",
+    fewer: "Show fewer",
+    stats: {
+      servers: "Servers",
+      connected: "Connected",
+      tools: "Tools exposed",
+      pending: "Awaiting reload",
+    },
+    kv: {
+      oauth: "OAuth",
+      env: "Env",
+      headers: "Headers",
+      allowed: "Allowed tools",
+      timeout: "Timeout",
+    },
     heading: "MCP servers",
     loadError: "Cannot load MCP servers ({error}).",
     failed: "Failed: {message}",
@@ -447,6 +515,7 @@ export const en = {
     },
   },
   cron: {
+    blurb: "Scheduled prompts. Results are delivered to the bound chat.",
     heading: "Cron",
     loadError: "Cannot load cron jobs ({error}).",
     newJob: "New job",

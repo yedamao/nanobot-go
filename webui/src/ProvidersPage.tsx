@@ -3,6 +3,7 @@ import { listProviders, saveProvider, testProvider, type Provider } from "./api"
 import { canTest, checkProvider, diffProvider, keyStatus, providerDraft, testBody, testNote, type ProviderDraft } from "./providers";
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useT } from "./i18n";
+import { Icon } from "./Icon";
 
 // ProvidersPage sets or clears each known provider's apiKey and edits its
 // apiBase through GET and PATCH /ui/providers. Saved keys are never sent
@@ -35,8 +36,12 @@ export function ProvidersPage() {
   return (
     <section className="page" aria-labelledby="providers-heading">
       <header className="page-header">
-        <h2 id="providers-heading">{t("providers.heading")}</h2>
-        <button type="button" onClick={() => void load()}>
+        <div className="page-title">
+          <h2 id="providers-heading">{t("providers.heading")}</h2>
+          <p>{t("providers.blurb")}</p>
+        </div>
+        <button type="button" className="btn ghost" onClick={() => void load()}>
+          <Icon name="refresh" />
           {t("common.refresh")}
         </button>
       </header>

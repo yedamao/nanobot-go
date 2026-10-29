@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { Attachments } from "./Attachments";
+import { Icon } from "./Icon";
 import { Markdown } from "./Markdown";
 import { imagesInText, type MediaRef } from "./media";
 import { parseQuotedUserMessage } from "./quote";
@@ -22,36 +23,94 @@ function Thinking({ message }: { message: Message }) {
   const t = useT();
   const live = !!message.streaming;
   return (
-    <details className={"msg thinking" + (live ? " streaming" : "")} open={live}>
-      <summary>{live ? t("messages.thinking") : t("messages.thought")}</summary>
+    <details className={"thinking" + (live ? " streaming" : "")} open={live}>
+      <summary>
+        <Icon name="sparkle" />
+        {live ? t("messages.thinking") : t("messages.thought")}
+      </summary>
       <div className="thinking-text">{message.content}</div>
     </details>
   );
 }
 
-// Bubble shows a user or assistant message; a user message's reply quote
-// shows above its text. Reply quotes the message in the composer.
+// MessageActions are a message's hover actions: reply quoting it, copy.
+function MessageActions({ content, onReply }: { content: string; onReply: (text: string) => void }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(content).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="msg-actions">
+      <button type="button" className="icon-btn msg-reply" title={t("messages.replyTitle")} aria-label={t("messages.reply")} onClick={() => onReply(content)}>
+        <Icon name="reply" />
+      </button>
+      <button type="button" className="icon-btn" title={t(copied ? "messages.copied" : "messages.copy")} aria-label={t("messages.copy")} onClick={copy}>
+        <Icon name={copied ? "check" : "copy"} />
+      </button>
+    </div>
+  );
+}
+
+const botMark = `${import.meta.env.BASE_URL}favicon.svg`;
+
+// Bubble shows a message: an assistant reply as a full-width document
+// beside the bot mark, a user message as a compact bubble on the right
+// with its reply quote on top. Reply quotes the message in the composer.
 function Bubble({ message: m, onReply }: { message: Message; onReply: (text: string) => void }) {
   const t = useT();
   const { quotedContext, content } = m.kind === "user" ? parseQuotedUserMessage(m.content) : { quotedContext: null, content: m.content };
   const canReply = !m.streaming && (m.kind === "user" || m.kind === "assistant") && content.trim() !== "";
+  const actions = canReply && <MessageActions content={content} onReply={onReply} />;
+  if (m.kind === "user") {
+    return (
+      <div className="msg user">
+        {actions}
+        <div className="user-col">
+          <div className="bubble">
+            {quotedContext && (
+              <blockquote className="quote">
+                <span>{quotedContext}</span>
+              </blockquote>
+            )}
+            {content && <div className="user-text">{content}</div>}
+            <Attachments media={attachments(m, content)} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (m.kind === "error") {
+    return (
+      <div className="msg error" role="alert">
+        <Icon name="alert" />
+        <div className="body">{content}</div>
+      </div>
+    );
+  }
   return (
-    <div className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
-      {quotedContext && <blockquote className="msg-quote">{quotedContext}</blockquote>}
-      {m.kind === "assistant" ? <Markdown text={content} /> : content}
-      <Attachments media={attachments(m, content)} />
-      {canReply && (
-        <button type="button" className="msg-reply" title={t("messages.replyTitle")} onClick={() => onReply(content)}>
-          {t("messages.reply")}
-        </button>
-      )}
+    <div className={"msg assistant" + (m.streaming ? " streaming" : "")}>
+      <img className="bot-mark" src={botMark} alt="" />
+      {actions}
+      <div className="body">
+        <div className="who-line">
+          <b>{t("messages.bot")}</b>
+        </div>
+        <div className="prose">
+          <Markdown text={content} />
+        </div>
+        <Attachments media={attachments(m, content)} />
+      </div>
     </div>
   );
 }
 
 // MessageList shows the chat's messages, the turn's thinking panel, the
-// live streaming bubble and, while a reply is due, the pending bubble
-// with the turn's progress.
+// live streaming reply and, while a reply is due, the pending row with
+// the turn's progress.
 export function MessageList({
   transcript,
   conn,
@@ -73,30 +132,49 @@ export function MessageList({
 
   const empty = messages.length === 0 && waiting === 0;
   return (
-    <main id="messages" ref={ref} aria-live="polite">
-      {empty && conn !== "closed" && (
-        <p className="empty">
-          {conn === "open" ? t("messages.empty") : t("messages.loading")}
-        </p>
-      )}
-      {messages.map((m) =>
-        m.kind === "thinking" ? (
-          <Thinking key={m.id} message={m} />
-        ) : (
-          <Bubble key={m.id} message={m} onReply={onReply} />
-        ),
-      )}
-      {waiting > 0 && !pendingHidden && (
-        <div className="msg pending">
-          {progress === null ? (
-            t("messages.pending")
+    <section id="messages" className="thread" ref={ref} aria-live="polite">
+      <div className="thread-inner">
+        {empty && conn !== "closed" && (
+          <div className="empty">
+            <img src={botMark} alt="" />
+            <p>{conn === "open" ? t("messages.empty") : t("messages.loading")}</p>
+          </div>
+        )}
+        {messages.map((m) =>
+          m.kind === "thinking" ? (
+            <div key={m.id} className="msg assistant thinking-row">
+              <span className="bot-mark-space" />
+              <div className="body">
+                <Thinking message={m} />
+              </div>
+            </div>
           ) : (
-            <>
-              {t("messages.working")} <code>{progress}</code>
-            </>
-          )}
-        </div>
-      )}
-    </main>
+            <Bubble key={m.id} message={m} onReply={onReply} />
+          ),
+        )}
+        {waiting > 0 && !pendingHidden && (
+          <div className="msg assistant pending">
+            <img className="bot-mark" src={botMark} alt="" />
+            <div className="body">
+              <div className="who-line">
+                <b>{t("messages.bot")}</b>
+              </div>
+              {progress === null ? (
+                <span className="typing" aria-label={t("messages.pending")} title={t("messages.pending")}>
+                  <i />
+                  <i />
+                  <i />
+                </span>
+              ) : (
+                <div className="tool-trace">
+                  <span className="spinner" aria-hidden="true" />
+                  {t("messages.working")} <code>{progress}</code>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }

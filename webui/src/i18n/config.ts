@@ -3,8 +3,8 @@
 export const LOCALE_STORAGE_KEY = "nanobot.locale";
 
 export const supportedLocales = [
-  { code: "en", nativeLabel: "English" },
-  { code: "zh-CN", nativeLabel: "简体中文" },
+  { code: "en", nativeLabel: "English", shortLabel: "EN" },
+  { code: "zh-CN", nativeLabel: "简体中文", shortLabel: "中文" },
 ] as const;
 
 export type Locale = (typeof supportedLocales)[number]["code"];

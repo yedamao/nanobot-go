@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { deleteSkill, installSkill, listSkills, setSkillEnabled, type Skill, type SkillsList } from "./api";
 import { groupSkills, skillBadges } from "./skills";
 import { Fill, useT, type MessageKey } from "./i18n";
+import { Icon } from "./Icon";
 
 export function SkillsPage() {
   const t = useT();
@@ -56,8 +57,12 @@ export function SkillsPage() {
   return (
     <section className="page" aria-labelledby="skills-heading">
       <header className="page-header">
-        <h2 id="skills-heading">{t("skills.heading")}</h2>
-        <button type="button" onClick={() => void load()} disabled={busy !== null}>
+        <div className="page-title">
+          <h2 id="skills-heading">{t("skills.heading")}</h2>
+          <p>{t("skills.blurb")}</p>
+        </div>
+        <button type="button" className="btn ghost" onClick={() => void load()} disabled={busy !== null}>
+          <Icon name="refresh" />
           {t("common.refresh")}
         </button>
       </header>

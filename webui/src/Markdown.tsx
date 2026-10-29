@@ -1,9 +1,16 @@
-import { memo, useRef, useState, type ComponentProps } from "react";
+import { isValidElement, memo, useRef, useState, type ComponentProps } from "react";
 import ReactMarkdown from "react-markdown";
 import { components, markdownOptions } from "./markdown-options";
 import { useT } from "./i18n";
 
-// CodeBlock frames a fenced block with a copy button.
+// codeLanguage is a fenced block's language, from its <code> class.
+function codeLanguage(children: unknown): string {
+  if (!isValidElement<{ className?: string }>(children)) return "";
+  return /language-(\S+)/.exec(children.props.className ?? "")?.[1] ?? "";
+}
+
+// CodeBlock frames a fenced block under a header with its language and a
+// copy button.
 function CodeBlock({ children }: ComponentProps<"pre">) {
   const t = useT();
   const ref = useRef<HTMLPreElement>(null);
@@ -17,9 +24,12 @@ function CodeBlock({ children }: ComponentProps<"pre">) {
   };
   return (
     <div className="code-block">
-      <button type="button" className="copy" onClick={copy}>
-        {t(copied ? "messages.copied" : "messages.copy")}
-      </button>
+      <header>
+        <span>{codeLanguage(children)}</span>
+        <button type="button" className="copy" onClick={copy}>
+          {t(copied ? "messages.copied" : "messages.copy")}
+        </button>
+      </header>
       <pre ref={ref}>{children}</pre>
     </div>
   );

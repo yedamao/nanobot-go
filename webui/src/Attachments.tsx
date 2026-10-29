@@ -1,3 +1,4 @@
+import { Icon } from "./Icon";
 import { useT } from "./i18n";
 import type { MediaRef } from "./media";
 
@@ -12,7 +13,7 @@ export function Attachments({ media }: { media: MediaRef[] }) {
       {media.map((m) =>
         m.kind === "link" ? (
           <a key={m.url} className="file-chip" href={m.url} target="_blank" rel="noopener noreferrer" title={m.url}>
-            <span aria-hidden="true">🔗</span> {m.name}
+            <Icon name="link" /> {m.name}
           </a>
         ) : m.kind === "image" ? (
           <a key={m.url} className="media-link" href={m.url} target="_blank" rel="noopener noreferrer" title={m.name}>
@@ -20,10 +21,16 @@ export function Attachments({ media }: { media: MediaRef[] }) {
           </a>
         ) : (
           <a key={m.url} className="file-chip" href={m.url} download={m.name} title={t("messages.download", { name: m.name })}>
-            <span aria-hidden="true">📎</span> {m.name}
+            <span className="file-ico" aria-hidden="true">{fileExt(m.name)}</span> {m.name}
           </a>
         ),
       )}
     </div>
   );
+}
+
+// fileExt is a file's extension for its icon, such as "PDF", or "FILE".
+export function fileExt(name: string): string {
+  const m = /\.([A-Za-z0-9]{1,4})$/.exec(name);
+  return m ? m[1].toUpperCase() : "FILE";
 }
