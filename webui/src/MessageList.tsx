@@ -2,16 +2,17 @@ import { useLayoutEffect, useRef } from "react";
 import { Attachments } from "./Attachments";
 import { Markdown } from "./Markdown";
 import { imagesInText, type MediaRef } from "./media";
+import { parseQuotedUserMessage } from "./quote";
 import type { Message, Transcript } from "./transcript";
 import type { ConnState } from "./useChat";
 import { useT } from "./i18n";
 
-// attachments are a message's files; a user message's plain text also
-// shows the workspace images its markdown names.
-function attachments(m: Message): MediaRef[] {
+// attachments are a message's files; a user message's plain text (its
+// quote aside) also shows the workspace images its markdown names.
+function attachments(m: Message, text: string): MediaRef[] {
   const media = m.media ?? [];
   if (m.kind !== "user") return media;
-  return [...media, ...imagesInText(m.content).filter((i) => !media.some((r) => r.url === i.url))];
+  return [...media, ...imagesInText(text).filter((i) => !media.some((r) => r.url === i.url))];
 }
 
 // Thinking shows a turn's streamed model thinking as plain text in a
@@ -28,10 +29,38 @@ function Thinking({ message }: { message: Message }) {
   );
 }
 
+// Bubble shows a user or assistant message; a user message's reply quote
+// shows above its text. Reply quotes the message in the composer.
+function Bubble({ message: m, onReply }: { message: Message; onReply: (text: string) => void }) {
+  const t = useT();
+  const { quotedContext, content } = m.kind === "user" ? parseQuotedUserMessage(m.content) : { quotedContext: null, content: m.content };
+  const canReply = !m.streaming && (m.kind === "user" || m.kind === "assistant") && content.trim() !== "";
+  return (
+    <div className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
+      {quotedContext && <blockquote className="msg-quote">{quotedContext}</blockquote>}
+      {m.kind === "assistant" ? <Markdown text={content} /> : content}
+      <Attachments media={attachments(m, content)} />
+      {canReply && (
+        <button type="button" className="msg-reply" title={t("messages.replyTitle")} onClick={() => onReply(content)}>
+          {t("messages.reply")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // MessageList shows the chat's messages, the turn's thinking panel, the
 // live streaming bubble and, while a reply is due, the pending bubble
 // with the turn's progress.
-export function MessageList({ transcript, conn }: { transcript: Transcript; conn: ConnState }) {
+export function MessageList({
+  transcript,
+  conn,
+  onReply,
+}: {
+  transcript: Transcript;
+  conn: ConnState;
+  onReply: (text: string) => void;
+}) {
   const t = useT();
   const ref = useRef<HTMLElement>(null);
   const { messages, waiting, progress, pendingHidden } = transcript;
@@ -54,10 +83,7 @@ export function MessageList({ transcript, conn }: { transcript: Transcript; conn
         m.kind === "thinking" ? (
           <Thinking key={m.id} message={m} />
         ) : (
-          <div key={m.id} className={"msg " + m.kind + (m.streaming ? " streaming" : "")}>
-            {m.kind === "assistant" ? <Markdown text={m.content} /> : m.content}
-            <Attachments media={attachments(m)} />
-          </div>
+          <Bubble key={m.id} message={m} onReply={onReply} />
         ),
       )}
       {waiting > 0 && !pendingHidden && (

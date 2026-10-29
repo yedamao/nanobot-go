@@ -53,6 +53,8 @@ export const zhCN: Messages = {
     stop: "停止",
     stopTitle: "停止正在生成的回复",
     send: "发送",
+    replyingTo: "回复",
+    cancelReply: "取消回复",
   },
   common: {
     refresh: "刷新",
@@ -103,6 +105,8 @@ export const zhCN: Messages = {
   messages: {
     thinking: "思考中…",
     thought: "思考过程",
+    reply: "回复",
+    replyTitle: "引用这条消息回复",
     pending: "nanobot 正在思考…",
     working: "nanobot 正在处理：",
     empty: "还没有消息。打个招呼开始对话吧。",

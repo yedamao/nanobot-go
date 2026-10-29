@@ -79,6 +79,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
   const [statusOpen, setStatusOpen] = useState(false);
   const { chats, setChats, reload } = useChats();
   const { transcript, conn, chatId, send, stop, switchChat } = useChat(reload);
+  const [reply, setReply] = useState<string | null>(null);
   const t = useT();
 
   useEffect(() => {
@@ -96,6 +97,7 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
   const select = (id: string | null) => {
     setSidebarOpen(false);
     go("chat");
+    setReply(null);
     switchChat(id);
   };
 
@@ -176,8 +178,15 @@ function Shell({ onSignOut }: { onSignOut?: () => void }) {
         </header>
         {view === "chat" && (
           <div id="chat">
-            <MessageList transcript={transcript} conn={conn.state} />
-            <Composer canSend={conn.state === "open"} busy={transcript.waiting > 0} onSend={send} onStop={stop} />
+            <MessageList transcript={transcript} conn={conn.state} onReply={setReply} />
+            <Composer
+              canSend={conn.state === "open"}
+              busy={transcript.waiting > 0}
+              onSend={send}
+              onStop={stop}
+              reply={reply}
+              onCancelReply={() => setReply(null)}
+            />
           </div>
         )}
         {view === "cron" && <CronPage />}

@@ -51,6 +51,8 @@ export const en = {
     stop: "Stop",
     stopTitle: "Stop the reply in progress",
     send: "Send",
+    replyingTo: "Replying to",
+    cancelReply: "Cancel reply",
   },
   common: {
     refresh: "Refresh",
@@ -101,6 +103,8 @@ export const en = {
   messages: {
     thinking: "Thinking…",
     thought: "Thought",
+    reply: "Reply",
+    replyTitle: "Reply quoting this message",
     pending: "nanobot is thinking…",
     working: "nanobot is working:",
     empty: "No messages yet. Say hello to start the conversation.",

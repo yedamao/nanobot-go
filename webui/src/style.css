@@ -290,6 +290,18 @@ button:disabled { opacity: 0.5; cursor: default; }
 .pending-attachments .remove { padding: 0 4px; border: 0; background: none; color: var(--muted); line-height: 1; }
 .pending-attachments .uploading { color: var(--muted); font-size: 0.9em; }
 .pending-attachments .upload-error { color: var(--error); font-size: 0.9em; }
+/* Reply quotes (quote.ts): the composer's preview and a bubble's quote. */
+.reply-preview { flex-basis: 100%; display: flex; align-items: center; gap: 6px; min-width: 0; padding: 4px 8px; border-left: 3px solid var(--user); border-radius: 4px; background: var(--bg); font-size: 0.9em; }
+.reply-preview .reply-label { color: var(--muted); flex: none; }
+.reply-preview .reply-snippet { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.reply-preview .remove { padding: 0 4px; border: 0; background: none; color: var(--muted); line-height: 1; }
+.msg-quote { margin: 0 0 6px; padding: 0 0 0 8px; border-left: 3px solid currentColor; opacity: 0.8; font-size: 0.92em; max-height: 6.5em; overflow: hidden; }
+.msg-reply { display: block; margin: 4px 0 0 auto; padding: 0 6px; border: 0; background: none; color: inherit; font-size: 12px; opacity: 0.6; }
+.msg-reply:hover, .msg-reply:focus-visible { opacity: 1; text-decoration: underline; }
+@media (hover: hover) {
+  .msg .msg-reply { visibility: hidden; }
+  .msg:hover .msg-reply, .msg:focus-within .msg-reply { visibility: visible; }
+}
 #send { background: var(--user); color: var(--user-text); border-color: var(--user); }
 #stop { color: var(--error); border-color: var(--error); }
 #status-panel {
