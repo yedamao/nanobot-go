@@ -57,9 +57,9 @@ function MessageActions({ content, onReply }: { content: string; onReply: (text:
 
 const botMark = `${import.meta.env.BASE_URL}favicon.svg`;
 
-// Bubble shows a message: an assistant reply as a full-width document
-// beside the bot mark, a user message as a compact bubble on the right
-// with its reply quote on top. Reply quotes the message in the composer.
+// Bubble shows a message: an assistant reply as a full-width document,
+// a user message as a compact bubble on the right with its reply quote
+// on top. Reply/copy actions sit at the bottom-right of the message.
 function Bubble({ message: m, onReply }: { message: Message; onReply: (text: string) => void }) {
   const t = useT();
   const { quotedContext, content } = m.kind === "user" ? parseQuotedUserMessage(m.content) : { quotedContext: null, content: m.content };
@@ -68,7 +68,6 @@ function Bubble({ message: m, onReply }: { message: Message; onReply: (text: str
   if (m.kind === "user") {
     return (
       <div className="msg user">
-        {actions}
         <div className="user-col">
           <div className="bubble">
             {quotedContext && (
@@ -80,6 +79,7 @@ function Bubble({ message: m, onReply }: { message: Message; onReply: (text: str
             <Attachments media={attachments(m, content)} />
           </div>
         </div>
+        {actions}
       </div>
     );
   }
@@ -93,8 +93,6 @@ function Bubble({ message: m, onReply }: { message: Message; onReply: (text: str
   }
   return (
     <div className={"msg assistant" + (m.streaming ? " streaming" : "")}>
-      <img className="bot-mark" src={botMark} alt="" />
-      {actions}
       <div className="body">
         <div className="who-line">
           <b>{t("messages.bot")}</b>
@@ -104,6 +102,7 @@ function Bubble({ message: m, onReply }: { message: Message; onReply: (text: str
         </div>
         <Attachments media={attachments(m, content)} />
       </div>
+      {actions}
     </div>
   );
 }
@@ -143,7 +142,6 @@ export function MessageList({
         {messages.map((m) =>
           m.kind === "thinking" ? (
             <div key={m.id} className="msg assistant thinking-row">
-              <span className="bot-mark-space" />
               <div className="body">
                 <Thinking message={m} />
               </div>
@@ -154,7 +152,6 @@ export function MessageList({
         )}
         {waiting > 0 && !pendingHidden && (
           <div className="msg assistant pending">
-            <img className="bot-mark" src={botMark} alt="" />
             <div className="body">
               <div className="who-line">
                 <b>{t("messages.bot")}</b>

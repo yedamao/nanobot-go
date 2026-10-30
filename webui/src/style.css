@@ -406,11 +406,11 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 
 .msg { display: flex; gap: 14px; margin-bottom: 26px; position: relative; }
 .msg .msg-actions {
-  position: absolute; top: -14px; z-index: 2;
+  position: absolute; right: 0; bottom: -14px; z-index: 2;
   display: flex; gap: 2px; padding: 2px;
   background: var(--bg-2); border: 1px solid var(--line-strong); border-radius: 8px;
   box-shadow: var(--shadow-2);
-  opacity: 0; transform: translateY(2px); pointer-events: none;
+  opacity: 0; transform: translateY(-2px); pointer-events: none;
   transition: opacity .12s var(--ease), transform .12s var(--ease);
 }
 .msg:hover .msg-actions, .msg:focus-within .msg-actions { opacity: 1; transform: none; pointer-events: auto; }
@@ -418,10 +418,8 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .msg-actions .icon-btn { width: 28px; height: 28px; }
 .msg-actions .icon-btn svg { width: 15px; height: 15px; }
 
-/* Assistant: no bubble — full-width prose with the bot mark */
-.msg.assistant .msg-actions { left: 42px; }
-.bot-mark { width: 28px; height: 28px; border-radius: 8px; flex: none; margin-top: 1px; }
-.bot-mark-space { width: 28px; flex: none; }
+/* Assistant: no bubble — full-width prose; actions at bottom-right */
+.msg.assistant { gap: 0; }
 .msg .body { flex: 1; min-width: 0; }
 .msg .who-line { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
 .msg .who-line b { font-size: var(--fs-sm); font-weight: 620; }
