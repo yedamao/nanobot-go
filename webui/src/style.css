@@ -515,7 +515,8 @@ select option { background: var(--bg-2); color: var(--fg-0); }
   display: flex; align-items: center; gap: 12px;
   padding: 0 16px 0 24px;
   border-bottom: 1px solid var(--line);
-  background: linear-gradient(var(--bg-0), rgba(11, 18, 20, 0.92));
+  /* Match sidebar surface (--bg-1); avoids a hardcoded dark gradient in light mode. */
+  background: var(--bg-1);
   backdrop-filter: blur(8px);
 }
 .topbar .chat-title { display: flex; align-items: center; gap: 10px; min-width: 0; }
