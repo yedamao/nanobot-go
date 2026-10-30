@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from "react";
 import { login, loginErrorKey } from "./auth";
 import { LocaleSwitcher, useT } from "./i18n";
+import { ThemeSwitcher } from "./theme";
 
 // Login asks for the gateway's access token (channels.websocket's token
 // or tokenIssueSecret) and signs in with it.
@@ -57,7 +58,10 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
         </button>
         <div className="foot">
           <span className="host">{location.host}</span>
-          <LocaleSwitcher id="login-locale" />
+          <div className="foot-controls">
+            <ThemeSwitcher id="login-theme" />
+            <LocaleSwitcher id="login-locale" />
+          </div>
         </div>
       </form>
     </main>

@@ -8,6 +8,7 @@ import { Composer } from "./Composer";
 import { CronPage } from "./CronPage";
 import { Icon, type IconName } from "./Icon";
 import { LocaleSwitcher, useT, type MessageKey, type T } from "./i18n";
+import { ThemeSwitcher } from "./theme";
 import { Login } from "./Login";
 import { MCPPage } from "./MCPPage";
 import { MessageList } from "./MessageList";
@@ -309,6 +310,7 @@ function ChatView({
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
+          <ThemeSwitcher id="theme" />
           <LocaleSwitcher id="locale" />
           <a className="icon-btn" href="#/status" title={t("header.statusTitle")} aria-label={t("header.statusTitle")}>
             <Icon name="activity" />
@@ -435,6 +437,7 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
+          <ThemeSwitcher id="theme" />
           <LocaleSwitcher id="locale" />
         </header>
         {view === "status" && <StatusPage />}

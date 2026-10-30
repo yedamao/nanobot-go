@@ -3,6 +3,12 @@
 export const en = {
   app: {
     language: "Language",
+    appearance: "Appearance",
+    theme: {
+      system: "System",
+      light: "Light",
+      dark: "Dark",
+    },
   },
   nav: {
     groups: {

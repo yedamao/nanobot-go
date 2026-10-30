@@ -5,6 +5,12 @@ import type { Messages } from "./en.ts";
 export const zhCN: Messages = {
   app: {
     language: "语言",
+    appearance: "外观",
+    theme: {
+      system: "系统",
+      light: "浅色",
+      dark: "深色",
+    },
   },
   nav: {
     groups: {
