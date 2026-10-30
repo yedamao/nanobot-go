@@ -115,7 +115,7 @@ export function ChatList({ chats, active, replyRunning, onSelect, onNew, onChang
   return (
     <>
       <button id="new-chat" type="button" className="new-chat" title={t("chats.newChatTitle")} onClick={onNew}>
-        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
+        <Icon name="compose" />
         <span>{t("chats.newChat")}</span>
       </button>
       <label className="search">

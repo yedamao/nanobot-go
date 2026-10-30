@@ -304,7 +304,7 @@ select option { background: var(--bg-2); color: var(--fg-0); }
   border: 1px solid var(--line-strong);
   font-size: var(--fs-md); font-weight: 550;
 }
-.new-chat img { width: 20px; height: 20px; border-radius: 5px; }
+.new-chat svg { width: 18px; height: 18px; flex: none; }
 .new-chat:hover:not(:disabled) { background: var(--bg-3); border-color: rgba(242, 166, 90, 0.35); }
 
 .search {

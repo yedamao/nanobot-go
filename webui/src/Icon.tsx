@@ -50,6 +50,13 @@ const PATHS = {
   plug: <><path d="M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0Z" /><path d="M12 18v4" /></>,
   book: <><path d="M4 19.5V5a2 2 0 0 1 2-2h14v16H6.5A2.5 2.5 0 0 0 4 21.5Z" /><path d="M8 7h8" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
+  // ChatGPT-style compose: notepad with a pen from the top-right corner.
+  compose: (
+    <>
+      <path d="M12 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.375 2.625a2.121 2.121 0 1 1 3 3L12.375 15.375l-4.13 1.13 1.13-4.13Z" />
+    </>
+  ),
   user: <><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></>,
   more: (
     <>
