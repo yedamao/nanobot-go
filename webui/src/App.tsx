@@ -310,7 +310,6 @@ function ChatView({
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
-          <ThemeSwitcher id="theme" />
           <LocaleSwitcher id="locale" />
           <a className="icon-btn" href="#/status" title={t("header.statusTitle")} aria-label={t("header.statusTitle")}>
             <Icon name="activity" />
@@ -437,7 +436,10 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
-          <ThemeSwitcher id="theme" />
+          <div className="chrome-prefs" role="group" aria-label={t("app.appearance")}>
+            <span className="chrome-prefs-label">{t("app.appearance")}</span>
+            <ThemeSwitcher id="theme" />
+          </div>
           <LocaleSwitcher id="locale" />
         </header>
         {view === "status" && <StatusPage />}
