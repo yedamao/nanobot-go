@@ -32,6 +32,7 @@ var hintFormats = map[string]hintFormat{
 	"list_dir":   {keys: []string{"path"}, prefix: "ls ", path: true},
 	"exec":       {keys: []string{"command"}, prefix: "$ "},
 	"web_fetch":  {keys: []string{"url"}, prefix: "fetch "},
+	"browser":    {keys: []string{"url", "action"}, prefix: "browser "},
 	"web_search": {keys: []string{"query"}, prefix: `search "`, suffix: `"`},
 }
 

@@ -60,6 +60,7 @@ type FallbackModel struct {
 type ToolSettings struct {
 	Exec        bool   `json:"exec"`
 	WebFetch    bool   `json:"web_fetch"`
+	Browser     bool   `json:"browser"`
 	ExecSandbox string `json:"exec_sandbox"`
 	// ImageGeneration is the generate_image tool's setting; its
 	// provider's key stays in providers.<provider>.apiKey.
@@ -152,6 +153,7 @@ type SettingsPatch struct {
 type ToolSettingsPatch struct {
 	Exec            *bool                 `json:"exec"`
 	WebFetch        *bool                 `json:"web_fetch"`
+	Browser         *bool                 `json:"browser"`
 	ExecSandbox     *string               `json:"exec_sandbox"`
 	ImageGeneration *ImageGenerationPatch `json:"image_generation"`
 	// SSRFWhitelist, when set, replaces the whole list; an empty list
@@ -190,7 +192,7 @@ var patchSchema = map[string]any{
 	"model":          nil,
 	"provider":       nil,
 	"fallbackModels": []any{map[string]any{"provider": nil, "model": nil}},
-	"tools": map[string]any{"exec": nil, "web_fetch": nil, "exec_sandbox": nil, "image_generation": map[string]any{
+	"tools": map[string]any{"exec": nil, "web_fetch": nil, "browser": nil, "exec_sandbox": nil, "image_generation": map[string]any{
 		"enabled": nil, "provider": nil, "model": nil, "default_aspect_ratio": nil, "default_image_size": nil, "max_images_per_turn": nil,
 	}, "ssrf_whitelist": []any{nil}, "web_search": map[string]any{"provider": nil, "max_results": nil, "timeout": nil},
 		"web_fetch_provider": nil},

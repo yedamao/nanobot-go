@@ -38,12 +38,12 @@ func (f *fakeSettings) UpdateSettings(p SettingsPatch) (SettingsView, error) {
 
 func TestParseSettingsPatch(t *testing.T) {
 	p, err := ParseSettingsPatch([]byte(`{"model":"m","provider":"auto",` +
-		`"tools":{"exec":false,"web_fetch":true,"exec_sandbox":"seatbelt"},` +
+		`"tools":{"exec":false,"web_fetch":true,"browser":true,"exec_sandbox":"seatbelt"},` +
 		`"channels":{"telegram":{"enabled":true}}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if *p.Model != "m" || *p.Provider != "auto" || *p.Tools.Exec || !*p.Tools.WebFetch ||
+	if *p.Model != "m" || *p.Provider != "auto" || *p.Tools.Exec || !*p.Tools.WebFetch || !*p.Tools.Browser ||
 		*p.Tools.ExecSandbox != "seatbelt" || !*p.Channels["telegram"].Enabled {
 		t.Errorf("patch = %+v", p)
 	}
@@ -175,7 +175,7 @@ func TestSettingsEndpoints(t *testing.T) {
 	}
 
 	code, body := do(http.MethodGet, "", "", "")
-	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"exec_sandbox":"",` +
+	want := `{"settings":{"model":"m","provider":"auto","fallbackModels":[],"tools":{"exec":true,"web_fetch":false,"browser":false,"exec_sandbox":"",` +
 		`"image_generation":{"enabled":false,"provider":"","model":"","default_aspect_ratio":"","default_image_size":"","max_images_per_turn":0},"ssrf_whitelist":[],` +
 		`"web_search":{"provider":"","max_results":0,"timeout":0,"key_source":""},"web_fetch_provider":""},"channels":{}},` +
 		`"restart_required":[],"applied":[],"env_overrides":[],"choices":{"provider":[],"exec_sandbox":[],"image_generation_provider":[],"web_provider":[]}}` + "\n"

@@ -193,7 +193,7 @@ export function StatusPage() {
   };
 
   const edit = (change: (d: Settings) => Settings) => setDraft((d) => (d ? change(d) : d));
-  const tool = (key: "exec" | "web_fetch" | "exec_sandbox", value: boolean | string) =>
+  const tool = (key: "exec" | "web_fetch" | "browser" | "exec_sandbox", value: boolean | string) =>
     edit((d) => ({ ...d, tools: { ...d.tools, [key]: value } }));
   const image = <K extends keyof ImageGenerationSettings>(key: K, value: ImageGenerationSettings[K]) =>
     edit((d) => ({ ...d, tools: { ...d.tools, image_generation: { ...d.tools.image_generation, [key]: value } } }));
@@ -252,6 +252,14 @@ export function StatusPage() {
               label={t("status.webFetchTool")}
               checked={draft?.tools.web_fetch ?? false}
               onChange={(v) => tool("web_fetch", v)}
+            />
+          </Row>
+          <Row label={t("status.browserTool")} help={t("status.browserHelp")} htmlFor="set-browser">
+            <Switch
+              id="set-browser"
+              label={t("status.browserTool")}
+              checked={draft?.tools.browser ?? false}
+              onChange={(v) => tool("browser", v)}
             />
           </Row>
           <Row label={t("status.ssrfWhitelist")} help={t("status.ssrfWhitelistHint")} htmlFor="set-ssrf-whitelist" top>

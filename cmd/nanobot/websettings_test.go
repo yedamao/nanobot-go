@@ -106,13 +106,13 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 	v, err = s.UpdateSettings(websocket.SettingsPatch{
 		Model:    ptr(" gpt-test "),
 		Provider: ptr("openai"),
-		Tools:    &websocket.ToolSettingsPatch{Exec: ptr(false), WebFetch: ptr(false)},
+		Tools:    &websocket.ToolSettingsPatch{Exec: ptr(false), WebFetch: ptr(false), Browser: ptr(true)},
 		Channels: map[string]websocket.ChannelPatch{"telegram": {Enabled: ptr(true)}},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantDiff := []string{"model", "provider", "tools.exec", "tools.web_fetch", "channels.telegram.enabled"}
+	wantDiff := []string{"model", "provider", "tools.exec", "tools.web_fetch", "tools.browser", "channels.telegram.enabled"}
 	if v.Settings.Model != "gpt-test" || v.Settings.Provider != "openai" || v.Settings.Tools.Exec ||
 		!v.Settings.Channels["telegram"].Enabled || !slices.Equal(v.RestartRequired, wantDiff) {
 		t.Errorf("after update: %+v", v)
@@ -149,6 +149,7 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 	exp := before
 	exp.Agents.Defaults.Model, exp.Agents.Defaults.Provider = "gpt-test", "openai"
 	exp.Tools.Exec.Enable, exp.Tools.Web.Enable = false, false
+	exp.Tools.Browser.Enable = true
 	exp.Channels["telegram"] = after.Channels["telegram"]
 	for name, raw := range exp.Channels {
 		if name != "telegram" && compactJSON(t, after.Channels[name]) != compactJSON(t, raw) {
@@ -163,7 +164,7 @@ func TestWebSettingsRoundTrip(t *testing.T) {
 	// Setting the running values back leaves nothing to restart for.
 	v, err = s.UpdateSettings(websocket.SettingsPatch{
 		Model: ptr("claude-test"), Provider: ptr("anthropic"),
-		Tools:    &websocket.ToolSettingsPatch{Exec: ptr(true), WebFetch: ptr(true)},
+		Tools:    &websocket.ToolSettingsPatch{Exec: ptr(true), WebFetch: ptr(true), Browser: ptr(false)},
 		Channels: map[string]websocket.ChannelPatch{"telegram": {Enabled: ptr(false)}},
 	})
 	if err != nil || len(v.RestartRequired) != 0 {

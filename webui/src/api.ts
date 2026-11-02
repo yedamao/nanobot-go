@@ -71,7 +71,7 @@ export interface Status {
   workspace: string;
   channels: { name: string; enabled: boolean; running: boolean }[] | null;
   api_enabled: boolean;
-  tools: { exec: boolean; web_fetch: boolean };
+  tools: { exec: boolean; web_fetch: boolean; browser: boolean };
 }
 
 export async function getStatus(): Promise<Status> {
@@ -96,6 +96,7 @@ export interface Settings {
   tools: {
     exec: boolean;
     web_fetch: boolean;
+    browser: boolean;
     exec_sandbox: string;
     image_generation: ImageGenerationSettings;
     /** tools.ssrfWhitelist: IP addresses and CIDR ranges tools may reach although private. */

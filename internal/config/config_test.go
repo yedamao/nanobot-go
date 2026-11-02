@@ -492,6 +492,36 @@ func TestImageGenerationConfig(t *testing.T) {
 	}
 }
 
+func TestBrowserConfig(t *testing.T) {
+	b := Default().Tools.Browser
+	if b.Enable || !b.Headless || b.StartURL != "about:blank" || b.Width != 1280 || b.Height != 800 ||
+		b.AllowedDomains == nil || b.IncludeScreenshot || b.MaxElements != 200 || b.MaxSessions != 8 {
+		t.Fatalf("browser defaults = %+v", b)
+	}
+	tests := []struct {
+		name string
+		mod  func(*BrowserToolConfig)
+		want string
+	}{
+		{"width low", func(c *BrowserToolConfig) { c.Width = 319 }, "width"},
+		{"width high", func(c *BrowserToolConfig) { c.Width = 4097 }, "width"},
+		{"height low", func(c *BrowserToolConfig) { c.Height = 239 }, "height"},
+		{"elements", func(c *BrowserToolConfig) { c.MaxElements = 1001 }, "maxElements"},
+		{"sessions", func(c *BrowserToolConfig) { c.MaxSessions = 0 }, "maxSessions"},
+		{"start URL", func(c *BrowserToolConfig) { c.StartURL = " " }, "startUrl"},
+		{"domain", func(c *BrowserToolConfig) { c.AllowedDomains = []string{"https://example.com"} }, "allowedDomains"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Default()
+			tt.mod(&cfg.Tools.Browser)
+			if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Validate() = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestLoadWebSearch(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	if err := os.WriteFile(path, []byte(`{"tools": {"web": {"search": {"provider": "deepseek", "maxResults": 8}, "fetch": {"provider": "deepseek"}}}}`), 0o600); err != nil {

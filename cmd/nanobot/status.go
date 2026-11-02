@@ -95,7 +95,7 @@ func (a *app) status(ctx context.Context, args []string) error {
 		row("Fallbacks:", "%s", strings.Join(fbs, ", "))
 	}
 	row("Restrict to workspace:", "%t", cfg.Tools.RestrictToWorkspace || cfg.Tools.Exec.Sandbox != "")
-	row("Tools:", "exec %s, web_fetch %s", onOff(cfg.Tools.Exec.Enable), onOff(cfg.Tools.Web.Enable))
+	row("Tools:", "exec %s, web_fetch %s, browser %s", onOff(cfg.Tools.Exec.Enable), onOff(cfg.Tools.Web.Enable), onOff(cfg.Tools.Browser.Enable))
 	if name := cfg.Tools.Exec.Sandbox; name == "" {
 		row("Exec sandbox:", "off")
 	} else if err := sandbox.Available(ctx, name); err != nil {

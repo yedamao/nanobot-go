@@ -28,7 +28,7 @@ func webStatus(cfg *config.Config, started time.Time, running func() []string) f
 		Model:      d.Model,
 		Provider:   d.Provider,
 		APIEnabled: cfg.API.Enabled,
-		Tools:      websocket.ToolStatus{Exec: cfg.Tools.Exec.Enable, WebFetch: cfg.Tools.Web.Enable},
+		Tools:      websocket.ToolStatus{Exec: cfg.Tools.Exec.Enable, WebFetch: cfg.Tools.Web.Enable, Browser: cfg.Tools.Browser.Enable},
 	}
 	if t, err := cfg.Resolve(d.Provider, d.Model); err == nil {
 		base.Provider = t.Preset.Name

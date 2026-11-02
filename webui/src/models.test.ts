@@ -13,6 +13,7 @@ const saved: Settings = {
   tools: {
     exec: true,
     web_fetch: true,
+    browser: false,
     exec_sandbox: "",
     image_generation: {
       enabled: false,

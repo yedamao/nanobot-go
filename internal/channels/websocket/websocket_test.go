@@ -716,7 +716,7 @@ func TestStatus(t *testing.T) {
 	want := `{"version":"1.2.3","go":"go1.99","started_at":"2026-10-25T09:00:00Z","uptime_seconds":42,` +
 		`"model":"m","provider":"anthropic","workspace":"workspace",` +
 		`"channels":[{"name":"websocket","enabled":true,"running":true},{"name":"telegram","enabled":true,"running":false}],` +
-		`"api_enabled":true,"tools":{"exec":true,"web_fetch":false}}` + "\n"
+		`"api_enabled":true,"tools":{"exec":true,"web_fetch":false,"browser":false}}` + "\n"
 	if string(body) != want {
 		t.Errorf("body =\n%s\nwant\n%s", body, want)
 	}

@@ -10,6 +10,7 @@ const saved: Settings = {
   tools: {
     exec: true,
     web_fetch: true,
+    browser: false,
     exec_sandbox: "",
     image_generation: {
       enabled: false,
@@ -38,11 +39,12 @@ test("only changed fields are patched", () => {
   const draft = clone(saved);
   draft.provider = "anthropic";
   draft.tools.exec = false;
+  draft.tools.browser = true;
   draft.channels.telegram.enabled = true;
   draft.channels.unknown = { enabled: true };
   assert.deepEqual(diffSettings(saved, draft), {
     provider: "anthropic",
-    tools: { exec: false },
+    tools: { exec: false, browser: true },
     channels: { telegram: { enabled: true } },
   });
 });

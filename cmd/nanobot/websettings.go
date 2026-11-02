@@ -179,6 +179,7 @@ func settingsOf(cfg *config.Config) websocket.Settings {
 		Tools: websocket.ToolSettings{
 			Exec:        cfg.Tools.Exec.Enable,
 			WebFetch:    cfg.Tools.Web.Enable,
+			Browser:     cfg.Tools.Browser.Enable,
 			ExecSandbox: cfg.Tools.Exec.Sandbox,
 			ImageGeneration: websocket.ImageGenerationSettings{
 				Enabled:            ig.Enabled,
@@ -229,6 +230,7 @@ func settingsDiff(saved, running websocket.Settings) []string {
 	add("fallbackModels", !slices.Equal(saved.FallbackModels, running.FallbackModels))
 	add("tools.exec", saved.Tools.Exec != running.Tools.Exec)
 	add("tools.web_fetch", saved.Tools.WebFetch != running.Tools.WebFetch)
+	add("tools.browser", saved.Tools.Browser != running.Tools.Browser)
 	add("tools.exec_sandbox", saved.Tools.ExecSandbox != running.Tools.ExecSandbox)
 	si, ri := saved.Tools.ImageGeneration, running.Tools.ImageGeneration
 	add("tools.image_generation.enabled", si.Enabled != ri.Enabled)
@@ -299,6 +301,9 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 		}
 		if t.WebFetch != nil {
 			cfg.Tools.Web.Enable = *t.WebFetch
+		}
+		if t.Browser != nil {
+			cfg.Tools.Browser.Enable = *t.Browser
 		}
 		if t.ExecSandbox != nil {
 			name := *t.ExecSandbox

@@ -11,6 +11,7 @@ export function diffSettings(saved: Settings, draft: Settings): SettingsPatch {
   const tools: SettingsPatch["tools"] = {};
   if (draft.tools.exec !== saved.tools.exec) tools.exec = draft.tools.exec;
   if (draft.tools.web_fetch !== saved.tools.web_fetch) tools.web_fetch = draft.tools.web_fetch;
+  if (draft.tools.browser !== saved.tools.browser) tools.browser = draft.tools.browser;
   if (draft.tools.exec_sandbox !== saved.tools.exec_sandbox) tools.exec_sandbox = draft.tools.exec_sandbox;
   const image = diffImageGeneration(saved.tools.image_generation, draft.tools.image_generation);
   if (Object.keys(image).length) tools.image_generation = image;

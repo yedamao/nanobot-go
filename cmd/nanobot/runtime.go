@@ -23,6 +23,7 @@ import (
 	"github.com/yedamao/nanobot-go/internal/session"
 	"github.com/yedamao/nanobot-go/internal/skills"
 	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/nanobot-go/internal/tools/browser"
 	"github.com/yedamao/nanobot-go/internal/tools/builtin"
 	"github.com/yedamao/nanobot-go/internal/tools/generateimage"
 	"github.com/yedamao/nanobot-go/internal/tools/message"
@@ -254,6 +255,11 @@ func (a *app) buildRuntime(f *commonFlags, opts runtimeOptions) (*agentRuntime, 
 	})
 	if err != nil {
 		return nil, err
+	}
+	if cfg.Tools.Browser.Enable {
+		if err := reg.Register(browser.New(browser.Config{Browser: cfg.Tools.Browser, Policy: ssrf, Workspace: ws.Root})); err != nil {
+			return nil, err
+		}
 	}
 	rt := &agentRuntime{setup: s, ssrf: ssrf}
 	rt.cron, err = cron.NewService(cron.ServiceConfig{Store: cron.NewStore(ws.Root), Run: rt.runCronJob, Logger: logger})

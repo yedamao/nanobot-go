@@ -609,9 +609,51 @@ HTTP and SSE servers are subject to the same private-address block as
 needs its address in `tools.ssrfWhitelist`, e.g. `"127.0.0.1/32"` for
 `http://127.0.0.1:8000/mcp`. Stdio servers are not affected.
 
+### Browser tool (opt-in)
+
+The `browser` tool automates Chromium through Playwright and fresh numbered
+DOM element refs; it is not desktop/pixel automation. It is off by default:
+
+```json
+{
+  "tools": {
+    "browser": {
+      "enable": false,
+      "headless": true,
+      "startUrl": "about:blank",
+      "width": 1280,
+      "height": 800,
+      "allowedDomains": [],
+      "includeScreenshot": false,
+      "maxElements": 200,
+      "maxSessions": 8
+    }
+  }
+}
+```
+
+Install the matching Chromium runtime before enabling it:
+
+```sh
+go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install --with-deps chromium
+# On a machine whose system dependencies are already present:
+go run github.com/mxschmitt/playwright-go/cmd/playwright@v0.6201.1 install chromium
+```
+
+`allowedDomains` restricts top-level navigation and includes subdomains; an
+empty list permits any public HTTP(S) host. Requests, redirects and WebSockets
+are intercepted and checked against the shared SSRF policy, service workers
+are blocked, and non-HTTP(S) navigation is rejected except `about:blank`.
+This validation is defense in depth, not an operating-system egress sandbox.
+The current Go tool context does not expose a chat/session key, so v1 uses one
+serialized shared browser context; `maxSessions` is reserved for keyed context
+pooling. With `includeScreenshot`, PNGs are saved below
+`<workspace>/media/browser/` and their path is returned in the text result.
+The browser process is a child of the gateway and exits with it.
+
 ### Network access (SSRF protection)
 
-`web_fetch` and MCP HTTP/SSE clients refuse loopback, private (RFC 1918,
+`web_fetch`, `browser` and MCP HTTP/SSE clients refuse loopback, private (RFC 1918,
 `fc00::/7`), link-local and cloud-metadata (`169.254.169.254`), CGNAT
 (`100.64.0.0/10`), NAT64 and other reserved addresses. A host name is
 resolved once per request and every address it resolves to must be

@@ -5,13 +5,16 @@ go 1.26.1
 require (
 	github.com/coder/websocket v1.8.15
 	github.com/modelcontextprotocol/go-sdk v1.8.0
+	github.com/mxschmitt/playwright-go v0.6201.1
 	golang.org/x/oauth2 v0.35.0
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.60.1
 )
 
 require (
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect

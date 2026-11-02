@@ -13,6 +13,7 @@ in which we port them.
 | `nanobot/agent/runner.py`, `hook.py`     | `internal/agent` (`Runner`, `Hook`) | Model-facing loop: provider calls, tools, iteration caps |
 | `nanobot/agent/context.py`               | `internal/agent` (`ContextBuilder`) | System prompt assembly |
 | `nanobot/agent/tools`                    | `internal/tools`, `internal/tools/builtin` | `Tool` interface, `Registry`, built-in tools |
+| PR #4276 DOM `browser` tool              | `internal/tools/browser`            | Opt-in native Playwright Chromium, element refs, shared SSRF policy; serialized shared context until tool calls expose a session key |
 | `nanobot/agent/tools/message.py`         | `internal/tools/message`         | `message` tool: content and workspace media to `OutboundMessage` |
 | `nanobot/agent/tools/mcp.py`, `mcp_oauth.py` | `internal/mcp`               | MCP client, tools wrapped as `mcp_<server>_<tool>` |
 | `nanobot/agent/memory.py` (Consolidator, Dream) | `internal/memory`         | history.jsonl archive, long-term files, Dream job |

@@ -195,9 +195,10 @@ func (p *ProvidersConfig) Get(name string) *ProviderConfig {
 type ToolsConfig struct {
 	// RestrictToWorkspace confines file tools and the shell's paths to the
 	// workspace.
-	RestrictToWorkspace bool           `json:"restrictToWorkspace"`
-	Exec                ExecToolConfig `json:"exec"`
-	Web                 WebToolConfig  `json:"web"`
+	RestrictToWorkspace bool              `json:"restrictToWorkspace"`
+	Exec                ExecToolConfig    `json:"exec"`
+	Web                 WebToolConfig     `json:"web"`
+	Browser             BrowserToolConfig `json:"browser"`
 	// SSRFWhitelist lists CIDR ranges that web_fetch and MCP HTTP servers
 	// may reach although they are loopback, private, CGNAT or link-local
 	// (e.g. "100.64.0.0/10" for Tailscale). Prefer single hosts (/32).
@@ -207,6 +208,26 @@ type ToolsConfig struct {
 	MCPServers map[string]MCPServerConfig `json:"mcpServers"`
 	// ImageGeneration configures the generate_image tool.
 	ImageGeneration ImageGenerationConfig `json:"imageGeneration"`
+}
+
+const (
+	DefaultBrowserWidth       = 1280
+	DefaultBrowserHeight      = 800
+	DefaultBrowserMaxElements = 200
+	DefaultBrowserMaxSessions = 8
+)
+
+// BrowserToolConfig configures the opt-in DOM browser tool.
+type BrowserToolConfig struct {
+	Enable            bool     `json:"enable"`
+	Headless          bool     `json:"headless"`
+	StartURL          string   `json:"startUrl"`
+	Width             int      `json:"width"`
+	Height            int      `json:"height"`
+	AllowedDomains    []string `json:"allowedDomains"`
+	IncludeScreenshot bool     `json:"includeScreenshot"`
+	MaxElements       int      `json:"maxElements"`
+	MaxSessions       int      `json:"maxSessions"`
 }
 
 // Image generation defaults, like nanobot's ImageGenerationToolConfig.
@@ -317,6 +338,9 @@ func Default() *Config {
 				SandboxRoBinds: []string{}, SandboxRwBinds: []string{}},
 			Web: WebToolConfig{Enable: true, FetchMaxBytes: DefaultFetchMaxBytes,
 				Search: WebSearchConfig{MaxResults: DefaultWebSearchResults, Timeout: DefaultWebSearchTimeout}},
+			Browser: BrowserToolConfig{Headless: true, StartURL: "about:blank", Width: DefaultBrowserWidth,
+				Height: DefaultBrowserHeight, AllowedDomains: []string{}, MaxElements: DefaultBrowserMaxElements,
+				MaxSessions: DefaultBrowserMaxSessions},
 			SSRFWhitelist: []string{},
 			MCPServers:    map[string]MCPServerConfig{},
 			ImageGeneration: ImageGenerationConfig{
@@ -568,6 +592,7 @@ func (c *Config) Validate() error {
 	}
 	validateMCP(c.Tools.MCPServers, bad)
 	validateImageGeneration(c.Tools.ImageGeneration, bad)
+	validateBrowser(c.Tools.Browser, bad)
 	validateChannels(c.Channels, bad)
 	validateGateway(c.Gateway, bad)
 	validateAPI(c.API, bad)
@@ -575,6 +600,30 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("invalid config: %w", errors.Join(errs...))
 	}
 	return nil
+}
+
+func validateBrowser(b BrowserToolConfig, bad func(string, ...any)) {
+	if b.Width < 320 || b.Width > 4096 {
+		bad("tools.browser.width must be in [320, 4096], got %d", b.Width)
+	}
+	if b.Height < 240 || b.Height > 4096 {
+		bad("tools.browser.height must be in [240, 4096], got %d", b.Height)
+	}
+	if b.MaxElements < 1 || b.MaxElements > 1000 {
+		bad("tools.browser.maxElements must be in [1, 1000], got %d", b.MaxElements)
+	}
+	if b.MaxSessions < 1 || b.MaxSessions > 64 {
+		bad("tools.browser.maxSessions must be in [1, 64], got %d", b.MaxSessions)
+	}
+	if strings.TrimSpace(b.StartURL) == "" {
+		bad("tools.browser.startUrl must not be empty")
+	}
+	for i, domain := range b.AllowedDomains {
+		d := strings.Trim(strings.TrimSpace(domain), ".")
+		if d == "" || strings.ContainsAny(d, "/:@") {
+			bad("tools.browser.allowedDomains[%d] must be a hostname, got %q", i, domain)
+		}
+	}
 }
 
 func validProvider(name string) bool {

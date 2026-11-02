@@ -288,6 +288,7 @@ type ChannelStatus struct {
 type ToolStatus struct {
 	Exec     bool `json:"exec"`
 	WebFetch bool `json:"web_fetch"`
+	Browser  bool `json:"browser"`
 }
 
 // SessionReader reads stored sessions. Load returns an error wrapping
