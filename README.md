@@ -59,7 +59,7 @@ standard library are a pure-Go SQLite driver and the official MCP Go SDK.
 - CLI: `onboard`, `agent` (interactive or one-shot), `gateway`, `serve`,
   `cron` (`list`, `remove`, `run`), `pairing` (`list`, `approve`, `deny`,
   `revoke`), `channels login weixin`, `dream`, `status` (`--mcp` to probe
-  MCP servers), `webui` (one-command WebUI launcher), `version`.
+  MCP servers), `webui` (one-command WebUI launcher), `completion`, `version`.
 
 - WebUI (phase 4): with `channels.websocket.enabled`, the gateway serves
   a browser workbench (a small React app embedded in the binary) and a
@@ -102,6 +102,23 @@ and `exit`, `quit` or Ctrl-D quit. `/new` starts a fresh conversation;
 `/compact` summarizes the conversation so far and continues from the
 summary.
 Use `-s <key>` to keep several separate conversations (default `cli:direct`).
+
+### Shell completion
+
+Generate and install a completion script for your shell:
+
+```sh
+# Bash (Homebrew on macOS)
+nanobot completion bash > "$(brew --prefix)/etc/bash_completion.d/nanobot"
+# Zsh
+nanobot completion zsh > "${fpath[1]}/_nanobot"
+# Fish
+nanobot completion fish > ~/.config/fish/completions/nanobot.fish
+# PowerShell
+nanobot completion powershell | Out-File -Append $PROFILE
+```
+
+The scripts complete both the `nanobot` and `nanobot-go` executable names.
 
 API keys can also come from the environment, which overrides the file:
 

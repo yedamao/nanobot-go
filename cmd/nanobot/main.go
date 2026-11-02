@@ -3,7 +3,7 @@
 // jobs and the Telegram, WeChat and WebUI channels), the WebUI launcher,
 // the OpenAI-compatible API,
 // managing scheduled jobs and paired chat senders, the WeChat QR login, a
-// Dream pass over archived history, and status reporting.
+// Dream pass over archived history, status reporting, and shell completion.
 package main
 
 import (
@@ -47,6 +47,7 @@ Commands:
   pairing   list, approve, deny or revoke chat senders paired by code
   channels  log in to a chat channel ('channels login weixin' scans a
             WeChat QR code)
+  completion generate a completion script for bash, zsh, fish or PowerShell
   dream     fold archived history into long-term memory (the gateway
             also runs it on a schedule)
   webui     open the browser WebUI: enable it in the config, attach to
@@ -166,6 +167,8 @@ func (a *app) run(ctx context.Context, args []string) int {
 		err = a.channelsCmd(ctx, args[1:])
 	case "cron":
 		err = a.cronCmd(ctx, args[1:])
+	case "completion":
+		err = a.completion(args[1:])
 	case "dream":
 		err = a.dream(ctx, args[1:])
 	case "gateway":
