@@ -314,9 +314,6 @@ function ChatView({
           <a className="icon-btn" href="#/status" title={t("header.statusTitle")} aria-label={t("header.statusTitle")}>
             <Icon name="activity" />
           </a>
-          <a className="icon-btn" href="#/mcp" title={t("header.settings")} aria-label={t("header.settings")}>
-            <Icon name="settings" />
-          </a>
         </header>
         <MessageList transcript={transcript} conn={conn.state} onReply={setReply} />
         <Composer
