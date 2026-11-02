@@ -344,18 +344,6 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .seg button:hover:not(:disabled) { background: var(--bg-3); color: var(--fg-0); }
 .seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent-hi); }
 .theme-seg button { padding: 0 8px; }
-.chrome-prefs {
-  display: inline-flex; align-items: center; gap: 8px;
-  flex: none;
-}
-.chrome-prefs-label {
-  font-size: var(--fs-xs); font-weight: 600; color: var(--fg-3);
-  text-transform: uppercase; letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-@media (max-width: 900px) {
-  .chrome-prefs-label { display: none; }
-}
 
 .badge {
   display: inline-flex; align-items: center; gap: 5px;
@@ -847,6 +835,11 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .nav-item .count { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 .nav-item .count.warn, .nav-item .count.warn svg { color: var(--warn); }
 .nav-item .count svg { width: 12px; height: 12px; }
+
+.appearance-pref { margin: 0 12px 10px; }
+.appearance-pref .list-label { padding: 0 0 7px; }
+.appearance-pref .theme-seg { display: flex; width: 100%; background: var(--bg-2); }
+.appearance-pref .theme-seg button { flex: 1; min-width: 0; padding: 0 5px; }
 
 .gateway-card {
   margin: 0 12px; padding: 12px;

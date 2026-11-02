@@ -403,6 +403,10 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
             </div>
           ))}
         </nav>
+        <div className="appearance-pref">
+          <div className="list-label">{t("app.appearance")}</div>
+          <ThemeSwitcher id="theme" />
+        </div>
         <div className="gateway-card">
           <div className="row">
             <span className={"dot " + (statusFailed ? "err" : status ? "ok" : "")} />
@@ -436,10 +440,6 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
-          <div className="chrome-prefs" role="group" aria-label={t("app.appearance")}>
-            <span className="chrome-prefs-label">{t("app.appearance")}</span>
-            <ThemeSwitcher id="theme" />
-          </div>
           <LocaleSwitcher id="locale" />
         </header>
         {view === "status" && <StatusPage />}
