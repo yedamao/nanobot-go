@@ -309,11 +309,6 @@ function ChatView({
             <h1>{title}</h1>
           </div>
           <div className="spacer" />
-          <ConnectionPill conn={conn} />
-          <LocaleSwitcher id="locale" />
-          <a className="icon-btn" href="#/status" title={t("header.statusTitle")} aria-label={t("header.statusTitle")}>
-            <Icon name="activity" />
-          </a>
         </header>
         <MessageList transcript={transcript} conn={conn.state} onReply={setReply} />
         <Composer
@@ -401,6 +396,8 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
           ))}
         </nav>
         <div className="appearance-pref">
+          <div className="list-label">{t("app.language")}</div>
+          <LocaleSwitcher id="locale" />
           <div className="list-label">{t("app.appearance")}</div>
           <ThemeSwitcher id="theme" />
         </div>
@@ -437,7 +434,6 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
           </div>
           <div className="spacer" />
           <ConnectionPill conn={conn} />
-          <LocaleSwitcher id="locale" />
         </header>
         {view === "status" && <StatusPage />}
         {view === "cron" && <CronPage />}

@@ -838,8 +838,9 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 
 .appearance-pref { margin: 0 12px 10px; }
 .appearance-pref .list-label { padding: 0 0 7px; }
-.appearance-pref .theme-seg { display: flex; width: 100%; background: var(--bg-2); }
-.appearance-pref .theme-seg button { flex: 1; min-width: 0; padding: 0 5px; }
+.appearance-pref .list-label:not(:first-child) { margin-top: 12px; }
+.appearance-pref .seg { display: flex; width: 100%; background: var(--bg-2); }
+.appearance-pref .seg button { flex: 1; min-width: 0; padding: 0 5px; }
 
 .gateway-card {
   margin: 0 12px; padding: 12px;
