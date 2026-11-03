@@ -663,6 +663,9 @@ changes in between (DNS rebinding) cannot redirect it. Every redirect is
 checked the same way before it is followed, and only `http`/`https` are
 allowed.
 
+The IETF benchmarking range `198.18.0.0/15` is allowed because Clash and
+Surge commonly use it for fake-IP DNS when traffic goes through their proxy/TUN.
+
 To reach a specific internal service, whitelist its address. Prefer a
 single host (`/32` for IPv4, `/128` for IPv6) over whole ranges:
 

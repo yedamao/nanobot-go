@@ -10,11 +10,16 @@ import (
 
 // blockedPrefixes are ranges never reachable by agent network tools, in
 // addition to the loopback/private/link-local checks in IsBlockedIP.
+//
+// 198.18.0.0/15 is the IETF benchmarking range, but Clash and Surge fake-IP
+// DNS commonly map public names into it. We intentionally do not block that
+// range so browser, web_fetch and MCP SSRF checks can proceed when traffic is
+// meant to use the system proxy or TUN. Real private, loopback, link-local,
+// CGNAT and metadata ranges remain blocked.
 var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),     // "this" network
 	netip.MustParsePrefix("100.64.0.0/10"), // CGNAT
 	netip.MustParsePrefix("192.0.0.0/24"),  // IETF protocol assignments
-	netip.MustParsePrefix("198.18.0.0/15"), // benchmarking
 	netip.MustParsePrefix("240.0.0.0/4"),   // reserved
 	netip.MustParsePrefix("64:ff9b::/96"),  // NAT64 can reach IPv4 internals
 }

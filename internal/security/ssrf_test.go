@@ -98,7 +98,9 @@ func TestPolicyAllow(t *testing.T) {
 		ip   string
 		want bool
 	}{
-		{"8.8.8.8", true}, // public stays allowed
+		{"8.8.8.8", true},    // public stays allowed
+		{"198.18.0.1", true}, // Clash/Surge fake-IP range
+		{"198.19.255.255", true},
 		{"2606:4700:4700::1111", true},
 		{"100.100.1.2", true}, // whitelisted CGNAT host
 		{"100.100.1.3", false},
@@ -117,8 +119,10 @@ func TestPolicyAllow(t *testing.T) {
 		}
 	}
 	var nilPolicy *Policy
-	if nilPolicy.Allow(netip.MustParseAddr("10.0.0.1")) || !nilPolicy.Allow(netip.MustParseAddr("1.1.1.1")) {
-		t.Error("nil policy must block private and allow public addresses")
+	if nilPolicy.Allow(netip.MustParseAddr("10.0.0.1")) ||
+		!nilPolicy.Allow(netip.MustParseAddr("1.1.1.1")) ||
+		!nilPolicy.Allow(netip.MustParseAddr("198.18.0.1")) {
+		t.Error("nil policy must block private and allow public and fake-IP addresses")
 	}
 }
 
@@ -190,6 +194,7 @@ func TestCheckURL(t *testing.T) {
 	}{
 		{p, "http://example.test/x", ""},
 		{p, "https://8.8.8.8/x", ""},
+		{p, "http://198.18.1.2/", ""},
 		{p, "https://[2606:4700:4700::1111]/", ""},
 		{p, "http://internal.test/", "blocked"},
 		{p, "http://127.0.0.1:8080/", "blocked"},

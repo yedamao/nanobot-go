@@ -1633,8 +1633,9 @@ Phase 2 is complete; phase 3 is in progress.
   ignored (`10.1.2.3/8` is `10.0.0.0/8`), as with nanobot's
   `strict=False`.
 - **Wider blocked set.** `IsBlockedIP` also blocks multicast,
-  `192.0.0.0/24`, `198.18.0.0/15` (benchmarking), `240.0.0.0/4` and NAT64
-  `64:ff9b::/96`, which nanobot's list does not.
+  `192.0.0.0/24`, `240.0.0.0/4` and NAT64 `64:ff9b::/96`, which nanobot's
+  list does not. The benchmarking range `198.18.0.0/15` remains allowed for
+  Clash/Surge fake-IP DNS through a system proxy or TUN.
 - **Redirects fail closed.** nanobot's `validate_resolved_url` lets a
   redirect through when its host does not resolve; nanobot-go refuses
   it (the dial would fail anyway, but the error is clearer).

@@ -24,6 +24,8 @@ func TestIsBlockedIP(t *testing.T) {
 	}{
 		{"8.8.8.8", false},
 		{"1.1.1.1", false},
+		{"198.18.0.1", false},
+		{"198.19.255.255", false},
 		{"2606:4700:4700::1111", false},
 		{"127.0.0.1", true},
 		{"10.1.2.3", true},
