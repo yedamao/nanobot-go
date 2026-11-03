@@ -8,14 +8,18 @@ import (
 	"strings"
 )
 
+// fakeIPAllowPrefixes are reserved ranges used by proxy/TUN fake-IP DNS. They
+// must be allowed before the private-address check so IPv6 ULA fake IPs work.
+// Keep these exceptions narrow: arbitrary ULA and private addresses remain
+// blocked.
+var fakeIPAllowPrefixes = []netip.Prefix{
+	netip.MustParsePrefix("198.18.0.0/15"),       // IETF benchmarking range used by Clash, Surge and MonoProxy
+	netip.MustParsePrefix("fd12:1:1:1::/64"),     // MonoProxy/Surge/Chute-style VIF range observed on utun13
+	netip.MustParsePrefix("fdfe:dcba:9876::/64"), // mihomo's common default fake-ip-range6
+}
+
 // blockedPrefixes are ranges never reachable by agent network tools, in
 // addition to the loopback/private/link-local checks in IsBlockedIP.
-//
-// 198.18.0.0/15 is the IETF benchmarking range, but Clash and Surge fake-IP
-// DNS commonly map public names into it. We intentionally do not block that
-// range so browser, web_fetch and MCP SSRF checks can proceed when traffic is
-// meant to use the system proxy or TUN. Real private, loopback, link-local,
-// CGNAT and metadata ranges remain blocked.
 var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),     // "this" network
 	netip.MustParsePrefix("100.64.0.0/10"), // CGNAT
@@ -41,6 +45,11 @@ func IsLoopbackHost(host string) bool {
 // another internal range.
 func IsBlockedIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
+	for _, p := range fakeIPAllowPrefixes {
+		if p.Contains(ip) {
+			return false
+		}
+	}
 	if !ip.IsValid() || ip.IsLoopback() || ip.IsPrivate() || ip.IsUnspecified() ||
 		ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() ||
 		ip.IsMulticast() {
