@@ -525,6 +525,49 @@ func TestStartStop(t *testing.T) {
 	}
 }
 
+func TestServiceRestart(t *testing.T) {
+	in, f := newInstaller(t, "darwin")
+	opts := writable(in.Home)
+	opts.Start = false
+	if _, err := in.Install(opts, false); err != nil {
+		t.Fatal(err)
+	}
+	target := "gui/501/ai.nanobot-go.gateway"
+
+	f.cmds = nil
+	f.fail["launchctl print"] = true
+	if _, err := in.Restart("", "", false); !errors.Is(err, ErrNotLoaded) {
+		t.Fatalf("restart unloaded: %v", err)
+	}
+	if want := []string{"launchctl print " + target}; !reflect.DeepEqual(f.cmds, want) {
+		t.Errorf("restart unloaded ran %v, want %v", f.cmds, want)
+	}
+
+	delete(f.fail, "launchctl print")
+	f.cmds = nil
+	res, err := in.Restart("", "", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantCommand := []string{"launchctl", "kickstart", "-k", target}
+	if !reflect.DeepEqual(res.Commands, [][]string{wantCommand}) || !reflect.DeepEqual(f.cmds, []string{"launchctl print " + target, strings.Join(wantCommand, " ")}) {
+		t.Errorf("launchd restart commands %v, ran %v", res.Commands, f.cmds)
+	}
+
+	in, f = newInstaller(t, "linux")
+	opts = writable(in.Home)
+	opts.Start = false
+	if _, err := in.Install(opts, false); err != nil {
+		t.Fatal(err)
+	}
+	f.cmds = nil
+	res, err = in.Restart("", "", false)
+	want := [][]string{{"systemctl", "--user", "restart", "nanobot-go-gateway.service"}}
+	if err != nil || !reflect.DeepEqual(res.Commands, want) || !reflect.DeepEqual(f.cmds, []string{"systemctl --user restart nanobot-go-gateway.service"}) {
+		t.Errorf("systemd restart %v, %v, ran %v", res.Commands, err, f.cmds)
+	}
+}
+
 // TestPlistLint checks the rendered plist with macOS's plutil.
 func TestPlistLint(t *testing.T) {
 	plutil, err := exec.LookPath("plutil")

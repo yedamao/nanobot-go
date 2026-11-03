@@ -19,7 +19,7 @@ const gatewayUsage = `Usage:
   nanobot gateway stop [--config path] [--workspace dir] [--timeout d]
   nanobot gateway restart [--config path] [--workspace dir] [--host addr] [--port n] [--verbose] [--timeout d]
   nanobot gateway logs [--config path] [--workspace dir] [--tail n]
-  nanobot gateway service install|uninstall|start|stop|status [flags]
+  nanobot gateway service install|uninstall|start|restart|stop|status [flags]
 
 Without a subcommand the gateway runs in the foreground until Ctrl-C.
 --background starts it detached from the terminal instead (output goes to

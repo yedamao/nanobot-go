@@ -7,6 +7,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
+	"github.com/yedamao/nanobot-go/internal/gatewayservice"
 )
 
 // fakeWebGateway returns a control of process 42 whose recorded status
@@ -35,6 +36,27 @@ func TestWebGatewayForegroundRefused(t *testing.T) {
 	var unavailable *websocket.RestartUnavailableError
 	if !errors.As(err, &unavailable) || unavailable.Reason != reasonForeground || len(*spawned) != 0 {
 		t.Errorf("restart = %v, spawned %v", err, *spawned)
+	}
+}
+
+func TestWebGatewayServiceRestarts(t *testing.T) {
+	g, spawned := fakeWebGateway(gatewayruntime.Status{Running: true, PID: 42, LaunchMode: gatewayruntime.LaunchForeground, Lifetime: gatewayruntime.LifetimeExplicit})
+	serviceRestarts := 0
+	g.serviceStatus = func() (gatewayservice.Status, error) {
+		return gatewayservice.Status{Loaded: true, PID: 42}, nil
+	}
+	g.restartService = func() error {
+		serviceRestarts++
+		return nil
+	}
+
+	info, err := g.Gateway()
+	if err != nil || !info.RestartAvailable || info.LaunchMode != gatewayruntime.LaunchForeground {
+		t.Fatalf("info = %+v, %v", info, err)
+	}
+	res, err := g.Restart()
+	if err != nil || !res.OK || serviceRestarts != 1 || len(*spawned) != 0 {
+		t.Fatalf("restart = %+v, %v, service restarts %d, spawned %v", res, err, serviceRestarts, *spawned)
 	}
 }
 

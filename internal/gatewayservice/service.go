@@ -444,8 +444,11 @@ func removeFile(path string) error {
 	return nil
 }
 
-// ErrNotInstalled is Start's error when the service file is missing.
+// ErrNotInstalled is Start or Restart's error when the service file is missing.
 var ErrNotInstalled = errors.New("gateway service is not installed")
+
+// ErrNotLoaded is Restart's error when a launchd service is not loaded.
+var ErrNotLoaded = errors.New("gateway service is not loaded")
 
 // Start starts the installed service: launchd loads it (when it is not
 // loaded) and kickstarts it, which leaves a running one alone; systemd
@@ -478,6 +481,40 @@ func (in *Installer) Start(name, manager string, dryRun bool) (Result, error) {
 	res.Commands = [][]string{{"systemctl", "--user", "start", res.Name}}
 	if dryRun {
 		return res, nil
+	}
+	return res, in.mustRun(res.Commands[0])
+}
+
+// Restart restarts an installed service. launchd requires the service to
+// already be loaded and replaces its process with kickstart -k; systemd
+// restarts the unit.
+func (in *Installer) Restart(name, manager string, dryRun bool) (Result, error) {
+	res, err := in.target(name, manager)
+	if err != nil {
+		return res, err
+	}
+	if res.Manager == ManagerLaunchd {
+		res.Commands = [][]string{{"launchctl", "kickstart", "-k", in.domain() + "/" + res.Name}}
+	} else {
+		res.Commands = [][]string{{"systemctl", "--user", "restart", res.Name}}
+	}
+	if dryRun {
+		return res, nil
+	}
+	if _, err := os.Stat(res.Path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return res, fmt.Errorf("%w (%s); run 'nanobot gateway service install'", ErrNotInstalled, res.Path)
+		}
+		return res, err
+	}
+	if res.Manager == ManagerLaunchd {
+		st, err := in.Status(name, manager, "")
+		if err != nil {
+			return res, err
+		}
+		if !st.Loaded {
+			return res, fmt.Errorf("%w (%s); run 'nanobot gateway service start'", ErrNotLoaded, res.Name)
+		}
 	}
 	return res, in.mustRun(res.Commands[0])
 }

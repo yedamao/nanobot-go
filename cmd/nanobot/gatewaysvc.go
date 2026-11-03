@@ -24,6 +24,7 @@ const gatewayServiceUsage = `Usage:
                                   [--no-enable] [--no-start] [--dry-run]
   nanobot gateway service uninstall [--name name] [--manager m] [--dry-run]
   nanobot gateway service start [--name name] [--manager m] [--dry-run]
+  nanobot gateway service restart [--name name] [--manager m] [--dry-run]
   nanobot gateway service stop [--name name] [--manager m] [--dry-run]
   nanobot gateway service status [--name name] [--manager m] [--config path] [--workspace dir]
 
@@ -46,11 +47,12 @@ config or something listens on the port: stop it first ('nanobot gateway
 status', 'nanobot gateway stop').
 
 The service gateway records itself like a foreground one, so 'gateway
-status' and 'nanobot webui' see it. Stop it with 'gateway service stop'
+status' and 'nanobot webui' see it. Restart it with the WebUI or 'gateway
+service restart'. Stop it with 'gateway service stop'
 (launchd unloads it until the next login or 'service start'; systemd
 stops the unit). 'gateway stop' also ends it, but systemd restarts it
 after 10 seconds. 'gateway restart' refuses it (foreground); use
-'gateway service start' after 'service stop', or reinstall.
+'gateway service restart' instead.
 `
 
 // serviceInstaller returns the OS service installer.
@@ -74,6 +76,8 @@ func (a *app) gatewayService(ctx context.Context, args []string) error {
 		return a.gatewayServiceUninstall(args[1:])
 	case "start":
 		return a.gatewayServiceStart(ctx, args[1:])
+	case "restart":
+		return a.gatewayServiceRestart(args[1:])
 	case "stop":
 		return a.gatewayServiceStop(args[1:])
 	case "status":
@@ -311,6 +315,28 @@ func (a *app) gatewayServiceStop(args []string) error {
 	}
 	if !*dryRun {
 		fmt.Fprintln(a.stdout, "Gateway service stopped; it starts again at the next login or boot when enabled, or with 'nanobot gateway service start'.")
+	}
+	a.printServiceResult(res, *dryRun)
+	return nil
+}
+
+func (a *app) gatewayServiceRestart(args []string) error {
+	s := a.newGatewayFlags("gateway service restart", "gateway service restart [--name name] [--manager m] [--dry-run]")
+	svc := addServiceFlags(s)
+	dryRun := s.fs.Bool("dry-run", false, "print the commands without running them")
+	if err := parse(s.fs, args); err != nil {
+		return err
+	}
+	in, err := a.serviceInstaller()
+	if err != nil {
+		return err
+	}
+	res, err := in.Restart(svc.name, svc.manager, *dryRun)
+	if err != nil {
+		return err
+	}
+	if !*dryRun {
+		fmt.Fprintln(a.stdout, "Gateway service restarted.")
 	}
 	a.printServiceResult(res, *dryRun)
 	return nil

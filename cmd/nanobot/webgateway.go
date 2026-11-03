@@ -8,6 +8,7 @@ import (
 
 	"github.com/yedamao/nanobot-go/internal/channels/websocket"
 	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
+	"github.com/yedamao/nanobot-go/internal/gatewayservice"
 )
 
 const (
@@ -15,16 +16,17 @@ const (
 	reasonUnmanaged  = "This gateway is not the one recorded for its config (see 'nanobot gateway status'): restart it from the command line."
 )
 
-// webGateway is the WebUI's gateway control (/ui/gateway). Only a
-// background gateway recorded in the state file as this very process
-// can be restarted from the page: restart then runs `nanobot gateway
-// restart` (see gatewayRestart) as a process of its own, which stops
-// this one, starts a new one with the same flags and keeps its lifetime.
-// A foreground gateway would come back detached from its terminal, so
-// it is refused.
+// webGateway is the WebUI's gateway control (/ui/gateway). A gateway
+// recorded as this process can be restarted when it is either a background
+// gateway or the process owned by the installed OS service. Background
+// gateways spawn `nanobot gateway restart`; service gateways ask their
+// service manager to replace the process. Other foreground gateways are
+// refused because they would come back detached from their terminal.
 type webGateway struct {
-	status func() (gatewayruntime.Status, error)
-	pid    int
+	status         func() (gatewayruntime.Status, error)
+	serviceStatus  func() (gatewayservice.Status, error)
+	restartService func() error
+	pid            int
 	// argv is the restart command; spawn starts it detached.
 	argv  func() []string
 	spawn func(argv []string) error
@@ -59,20 +61,39 @@ func (a *app) newWebGateway(configPath, workspace, host string, verbose bool, po
 		return args
 	}
 	spawn := func(args []string) error { return a.spawnDetached(rt.Paths().LogPath, args) }
-	return &webGateway{status: rt.Status, pid: os.Getpid(), argv: argv, spawn: spawn}, nil
+	in, err := a.serviceInstaller()
+	if err != nil {
+		return nil, err
+	}
+	serviceStatus := func() (gatewayservice.Status, error) { return in.Status("", gatewayservice.ManagerAuto, "") }
+	restartService := func() error {
+		_, err := in.Restart("", gatewayservice.ManagerAuto, false)
+		return err
+	}
+	return &webGateway{status: rt.Status, serviceStatus: serviceStatus, restartService: restartService, pid: os.Getpid(), argv: argv, spawn: spawn}, nil
 }
 
 // Gateway implements websocket.GatewayControl.
 func (g *webGateway) Gateway() (websocket.GatewayInfo, error) {
+	info, _, err := g.gateway()
+	return info, err
+}
+
+func (g *webGateway) gateway() (websocket.GatewayInfo, bool, error) {
 	st, err := g.status()
 	if err != nil {
-		return websocket.GatewayInfo{}, err
+		return websocket.GatewayInfo{}, false, err
 	}
 	info := websocket.GatewayInfo{PID: g.pid, LaunchMode: gatewayruntime.LaunchUnknown, Lifetime: st.Lifetime}
+	serviceOwned := false
+	if st.Running && st.PID == g.pid && g.serviceStatus != nil {
+		svc, serviceErr := g.serviceStatus()
+		serviceOwned = serviceErr == nil && svc.Loaded && svc.PID == g.pid
+	}
 	switch {
 	case !st.Running || st.PID != g.pid:
 		info.RestartUnavailableReason = reasonUnmanaged
-	case st.LaunchMode != gatewayruntime.LaunchBackground:
+	case st.LaunchMode != gatewayruntime.LaunchBackground && !serviceOwned:
 		info.LaunchMode, info.StartedAt = st.LaunchMode, st.StartedAt
 		info.RestartUnavailableReason = reasonForeground
 	default:
@@ -82,13 +103,13 @@ func (g *webGateway) Gateway() (websocket.GatewayInfo, error) {
 	g.mu.Lock()
 	info.Restarting = g.restarting
 	g.mu.Unlock()
-	return info, nil
+	return info, serviceOwned, nil
 }
 
 // Restart implements websocket.GatewayControl. A second request while
 // the first one's restart is under way is accepted without another.
 func (g *webGateway) Restart() (websocket.GatewayRestart, error) {
-	info, err := g.Gateway()
+	info, serviceOwned, err := g.gateway()
 	if err != nil {
 		return websocket.GatewayRestart{}, err
 	}
@@ -100,7 +121,12 @@ func (g *webGateway) Restart() (websocket.GatewayRestart, error) {
 	if g.restarting {
 		return websocket.GatewayRestart{OK: true, Message: "already restarting"}, nil
 	}
-	if err := g.spawn(g.argv()); err != nil {
+	if serviceOwned {
+		err = g.restartService()
+	} else {
+		err = g.spawn(g.argv())
+	}
+	if err != nil {
 		return websocket.GatewayRestart{}, err
 	}
 	g.restarting = true

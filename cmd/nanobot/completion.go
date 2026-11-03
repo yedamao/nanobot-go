@@ -83,9 +83,9 @@ _nanobot()
         "gateway stop") choices="--config --workspace --timeout -h --help" ;;
         "gateway restart") choices="--config --workspace --host --port --verbose --timeout -h --help" ;;
         "gateway logs") choices="--config --workspace --tail -h --help" ;;
-        "gateway service") choices="install uninstall start stop status -h --help" ;;
+        "gateway service") choices="install uninstall start restart stop status -h --help" ;;
 		"gateway service install"|"gateway install-service") choices="--config --workspace --host --port --verbose --enable --no-enable --start --no-start --dry-run --name --manager -h --help" ;;
-		"gateway service uninstall"|"gateway uninstall-service"|"gateway service start"|"gateway service stop"|"gateway service status") choices="--config --workspace --name --manager --dry-run -h --help" ;;
+		"gateway service uninstall"|"gateway uninstall-service"|"gateway service start"|"gateway service restart"|"gateway service stop"|"gateway service status") choices="--config --workspace --name --manager --dry-run -h --help" ;;
         agent) choices="-m --message -s --session --config --workspace --verbose -h --help" ;;
         onboard) choices="--config --force -h --help" ;;
         serve) choices="--config --workspace --host --port --timeout --verbose -h --help" ;;
@@ -110,7 +110,7 @@ _nanobot() {
     [[ "$word" == -* ]] && continue
     case "$path:$word" in
       :*) path="$word" ;;
-      cron:(list|remove|rm|run)|pairing:(list|ls|approve|deny|revoke)|channels:login|'channels login':weixin|gateway:(status|stop|restart|logs|service|install-service|uninstall-service)|'gateway service':(install|uninstall|start|stop|status)) path="$path $word" ;;
+      cron:(list|remove|rm|run)|pairing:(list|ls|approve|deny|revoke)|channels:login|'channels login':weixin|gateway:(status|stop|restart|logs|service|install-service|uninstall-service)|'gateway service':(install|uninstall|start|restart|stop|status)) path="$path $word" ;;
     esac
   done
   case "${words[CURRENT-1]}" in
@@ -132,7 +132,7 @@ _nanobot() {
     'gateway stop') choices=(--config --workspace --timeout -h --help) ;;
     'gateway restart') choices=(--config --workspace --host --port --verbose --timeout -h --help) ;;
     'gateway logs') choices=(--config --workspace --tail -h --help) ;;
-    'gateway service') choices=(install uninstall start stop status -h --help) ;;
+    'gateway service') choices=(install uninstall start restart stop status -h --help) ;;
 	'gateway service install'|'gateway install-service') choices=(--config --workspace --host --port --verbose --enable --no-enable --start --no-start --dry-run --name --manager -h --help) ;;
 	'gateway service '*|'gateway uninstall-service') choices=(--config --workspace --name --manager --dry-run -h --help) ;;
     agent) choices=(-m --message -s --session --config --workspace --verbose -h --help) ;;
@@ -205,7 +205,7 @@ $nanobotCompleter = {
 		'channels' { 'login','-h','--help' }
         'channels login*' { 'weixin','--force','--config','-h','--help' }
 		'gateway' { 'status','stop','restart','logs','service','install-service','uninstall-service','--background','--config','--workspace','--host','--port','--verbose','-h','--help' }
-		'gateway service' { 'install','uninstall','start','stop','status','-h','--help' }
+		'gateway service' { 'install','uninstall','start','restart','stop','status','-h','--help' }
 		'gateway service install*' { '--config','--workspace','--host','--port','--verbose','--enable','--no-enable','--start','--no-start','--dry-run','--name','--manager','-h','--help' }
 		'gateway service *' { '--config','--workspace','--name','--manager','--dry-run','-h','--help' }
 		'gateway install-service*' { '--config','--workspace','--host','--port','--verbose','--enable','--no-enable','--start','--no-start','--dry-run','--name','--manager','-h','--help' }

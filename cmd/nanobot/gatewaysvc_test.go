@@ -96,6 +96,9 @@ func TestGatewayServiceDryRun(t *testing.T) {
 	if code := s.run("gateway", "uninstall-service", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl bootout gui/501/ai.nanobot-go.gateway") {
 		t.Errorf("uninstall dry run %d:\n%s", code, s.stdout)
 	}
+	if code := s.run("gateway", "service", "restart", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl kickstart -k gui/501/ai.nanobot-go.gateway") {
+		t.Errorf("restart dry run %d:\n%s", code, s.stdout)
+	}
 	if len(s.cmds) != 0 {
 		t.Errorf("dry runs ran %v", s.cmds)
 	}
