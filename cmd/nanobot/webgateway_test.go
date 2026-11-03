@@ -41,13 +41,8 @@ func TestWebGatewayForegroundRefused(t *testing.T) {
 
 func TestWebGatewayServiceRestarts(t *testing.T) {
 	g, spawned := fakeWebGateway(gatewayruntime.Status{Running: true, PID: 42, LaunchMode: gatewayruntime.LaunchForeground, Lifetime: gatewayruntime.LifetimeExplicit})
-	serviceRestarts := 0
 	g.serviceStatus = func() (gatewayservice.Status, error) {
 		return gatewayservice.Status{Loaded: true, PID: 42}, nil
-	}
-	g.restartService = func() error {
-		serviceRestarts++
-		return nil
 	}
 
 	info, err := g.Gateway()
@@ -55,8 +50,8 @@ func TestWebGatewayServiceRestarts(t *testing.T) {
 		t.Fatalf("info = %+v, %v", info, err)
 	}
 	res, err := g.Restart()
-	if err != nil || !res.OK || serviceRestarts != 1 || len(*spawned) != 0 {
-		t.Fatalf("restart = %+v, %v, service restarts %d, spawned %v", res, err, serviceRestarts, *spawned)
+	if err != nil || !res.OK || len(*spawned) != 1 || !slices.Equal((*spawned)[0], []string{"gateway", "service", "restart"}) {
+		t.Fatalf("restart = %+v, %v, spawned %v", res, err, *spawned)
 	}
 }
 

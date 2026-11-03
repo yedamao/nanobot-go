@@ -19,14 +19,15 @@ const (
 // webGateway is the WebUI's gateway control (/ui/gateway). A gateway
 // recorded as this process can be restarted when it is either a background
 // gateway or the process owned by the installed OS service. Background
-// gateways spawn `nanobot gateway restart`; service gateways ask their
-// service manager to replace the process. Other foreground gateways are
-// refused because they would come back detached from their terminal.
+// gateways spawn `nanobot gateway restart`; service gateways spawn `nanobot
+// gateway service restart`. Both are handed to a detached process so the
+// WebUI's HTTP 202 response can be flushed before this process is stopped.
+// Other foreground gateways are refused because they would come back detached
+// from their terminal.
 type webGateway struct {
-	status         func() (gatewayruntime.Status, error)
-	serviceStatus  func() (gatewayservice.Status, error)
-	restartService func() error
-	pid            int
+	status        func() (gatewayruntime.Status, error)
+	serviceStatus func() (gatewayservice.Status, error)
+	pid           int
 	// argv is the restart command; spawn starts it detached.
 	argv  func() []string
 	spawn func(argv []string) error
@@ -66,11 +67,7 @@ func (a *app) newWebGateway(configPath, workspace, host string, verbose bool, po
 		return nil, err
 	}
 	serviceStatus := func() (gatewayservice.Status, error) { return in.Status("", gatewayservice.ManagerAuto, "") }
-	restartService := func() error {
-		_, err := in.Restart("", gatewayservice.ManagerAuto, false)
-		return err
-	}
-	return &webGateway{status: rt.Status, serviceStatus: serviceStatus, restartService: restartService, pid: os.Getpid(), argv: argv, spawn: spawn}, nil
+	return &webGateway{status: rt.Status, serviceStatus: serviceStatus, pid: os.Getpid(), argv: argv, spawn: spawn}, nil
 }
 
 // Gateway implements websocket.GatewayControl.
@@ -122,7 +119,7 @@ func (g *webGateway) Restart() (websocket.GatewayRestart, error) {
 		return websocket.GatewayRestart{OK: true, Message: "already restarting"}, nil
 	}
 	if serviceOwned {
-		err = g.restartService()
+		err = g.spawn([]string{"gateway", "service", "restart"})
 	} else {
 		err = g.spawn(g.argv())
 	}
