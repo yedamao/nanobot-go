@@ -7,8 +7,8 @@ import { ChatList, useChats } from "./ChatList";
 import { Composer } from "./Composer";
 import { CronPage } from "./CronPage";
 import { Icon, type IconName } from "./Icon";
-import { LocaleSwitcher, useT, type MessageKey, type T } from "./i18n";
-import { ThemeSwitcher } from "./theme";
+import { useT, type MessageKey, type T } from "./i18n";
+import { AppearancePage } from "./AppearancePage";
 import { Login } from "./Login";
 import { MCPPage } from "./MCPPage";
 import { MessageList } from "./MessageList";
@@ -22,21 +22,17 @@ import { ToolsPage } from "./ToolsPage";
 import { useChat, type Connection } from "./useChat";
 
 type Gate = "checking" | "sign-in" | "ready";
-type SettingsView = "status" | "channels" | "cron" | "models" | "providers" | "skills" | "tools" | "mcp";
+type SettingsView = "status" | "channels" | "cron" | "models" | "providers" | "skills" | "tools" | "mcp" | "appearance";
 type View = "chat" | SettingsView;
 
 // The settings shell's nav: groups of pages, each with its icon.
 const NAV: { group: MessageKey; items: { id: SettingsView; label: MessageKey; icon: IconName }[] }[] = [
   {
-    group: "nav.groups.gateway",
-    items: [
-      { id: "status", label: "nav.status", icon: "activity" },
-      { id: "channels", label: "nav.channels", icon: "radio" },
-      { id: "cron", label: "nav.cron", icon: "clock" },
-    ],
+    group: "nav.groups.overview",
+    items: [{ id: "status", label: "nav.status", icon: "activity" }],
   },
   {
-    group: "nav.groups.intelligence",
+    group: "nav.groups.agents",
     items: [
       { id: "models", label: "nav.models", icon: "sparkle" },
       { id: "providers", label: "nav.providers", icon: "cloud" },
@@ -46,10 +42,13 @@ const NAV: { group: MessageKey; items: { id: SettingsView; label: MessageKey; ic
   {
     group: "nav.groups.tools",
     items: [
-      { id: "tools", label: "nav.tools", icon: "settings" },
+      { id: "tools", label: "nav.builtin", icon: "settings" },
       { id: "mcp", label: "nav.mcp", icon: "plug" },
     ],
   },
+  { group: "nav.groups.channels", items: [{ id: "channels", label: "nav.channels", icon: "radio" }] },
+  { group: "nav.groups.automation", items: [{ id: "cron", label: "nav.cron", icon: "clock" }] },
+  { group: "nav.groups.preferences", items: [{ id: "appearance", label: "nav.appearance", icon: "settings" }] },
 ];
 
 const SETTINGS_VIEWS = NAV.flatMap((g) => g.items.map((i) => i.id));
@@ -399,12 +398,6 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
             </div>
           ))}
         </nav>
-        <div className="appearance-pref">
-          <div className="list-label">{t("app.language")}</div>
-          <LocaleSwitcher id="locale" />
-          <div className="list-label">{t("app.appearance")}</div>
-          <ThemeSwitcher id="theme" />
-        </div>
         <div className="gateway-card">
           <div className="row">
             <span className={"dot " + (statusFailed ? "err" : status ? "ok" : "")} />
@@ -447,6 +440,7 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
         {view === "skills" && <SkillsPage />}
         {view === "tools" && <ToolsPage />}
         {view === "mcp" && <MCPPage />}
+        {view === "appearance" && <AppearancePage />}
       </main>
     </div>
   );

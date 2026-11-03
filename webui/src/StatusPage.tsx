@@ -5,6 +5,7 @@ import { Icon } from "./Icon";
 import { RestartButton, RestartGateway } from "./RestartGateway";
 import { duration, pendingText, savedText } from "./settings";
 import { useT } from "./i18n";
+import { SettingsCard } from "./SettingsCard";
 
 type Note = { kind: "" | "ok" | "error"; text: string };
 
@@ -22,17 +23,13 @@ function Stats({ status, error }: { status: Status | null; error: string }) {
       <div className="stat"><small>{t("status.rows.model")}</small><strong className="mono sm">{status.model || "—"}</strong></div>
       <div className="stat"><small>{t("status.rows.channels")}</small><strong>{running}<span className="unit">{t("status.channelsUp", { total: channels.length })}</span></strong></div>
     </div>
-    <div className="form-card">
+    <SettingsCard icon="panel" title={t("status.runtimeTitle")} help={t("status.runtimeHelp")}>
       <div className="form-row"><span className="lbl">{t("status.rows.workspace")}</span><div className="ctl"><code className="mono-val">{status.workspace || "—"}</code></div></div>
       <div className="form-row"><span className="lbl">{t("status.rows.provider")}</span><div className="ctl"><span className="badge">{status.provider || "—"}</span></div></div>
       <div className="form-row"><span className="lbl">{t("status.rows.api")}</span><div className="ctl"><span className={"badge" + (status.api_enabled ? " ok" : "")}>{t(status.api_enabled ? "status.on" : "status.off")}</span></div></div>
-      <div className="form-row"><span className="lbl">{t("status.rows.channels")}</span><div className="ctl wrap">
-        {channels.length === 0 ? t("common.none") : channels.map((channel) => <span key={channel.name} className={"badge" + (channel.running ? " ok" : channel.enabled ? " warn" : "")}>
-          {channel.running && <span className="dot ok" />}{t("status.channelState", { name: channel.name, state: t(channel.running ? "common.running" : channel.enabled ? "common.enabledNotRunning" : "common.disabled") })}
-        </span>)}
-      </div></div>
       {status.go && <div className="form-row"><span className="lbl">{t("status.rows.runtime")}</span><div className="ctl"><span className="badge mono">{status.go}</span></div></div>}
-    </div>
+      <div className="form-row"><span className="lbl">{t("status.rows.channels")}</span><div className="ctl wrap">{channels.length === 0 ? t("common.none") : channels.map((channel) => <span key={channel.name} className={"badge" + (channel.running ? " ok" : channel.enabled ? " warn" : "")}>{channel.running && <span className="dot ok" />}{t("status.channelState", { name: channel.name, state: t(channel.running ? "common.running" : channel.enabled ? "common.enabledNotRunning" : "common.disabled") })}</span>)}</div></div>
+    </SettingsCard>
   </>;
 }
 
@@ -91,16 +88,15 @@ export function StatusPage() {
     <header className="page-header"><div className="page-title"><h2 id="status-title">{t("status.title")}</h2><p>{t("status.blurb")}</p></div><div className="actions">
       <button type="button" className="btn ghost" onClick={() => void load()} disabled={saving}><Icon name="refresh" />{t("common.refresh")}</button><RestartButton className="btn danger" />
     </div></header>
-    <Stats status={status} error={statusError} />
+    <div className="section-stack"><Stats status={status} error={statusError} /></div>
     <form id="settings-form" autoComplete="off" onSubmit={submit}>
-      {draft && Object.keys(draft.channels).length > 0 && <><div className="section-title">{t("status.channelSettings")}<span className="line" /></div>
-        <fieldset id="set-channels" className="form-card" disabled={disabled}>{Object.keys(draft.channels).sort().map((name) =>
+      {draft && Object.keys(draft.channels).length > 0 && <fieldset id="set-channels" className="settings-fieldset" disabled={disabled}><SettingsCard icon="radio" title={t("status.channelSettings")} help={t("status.channelsHelp")}>{Object.keys(draft.channels).sort().map((name) =>
           <Row key={name} label={t("status.channel", { name })} help={name === "websocket" ? t("status.websocketHelp") : undefined} htmlFor={"set-channel-" + name}>
             <Switch id={"set-channel-" + name} label={t("status.channel", { name })} checked={draft.channels[name].enabled} onChange={(enabled) => setDraft((current) => current ? ({ ...current, channels: { ...current.channels, [name]: { enabled } } }) : current)} />
-          </Row>)}</fieldset></>}
-      <div className="form-card form-actions"><div className="form-foot"><p id="settings-message" className="status-note" role="status" data-kind={note.kind || undefined}>{note.text}</p>
+          </Row>)}</SettingsCard></fieldset>}
+      <div className="save-bar"><p id="settings-message" className="status-note" role="status" data-kind={note.kind || undefined}>{note.text}</p><div className="actions">
         <button type="button" className="btn ghost" disabled={disabled || !dirty} onClick={() => setDraft(saved)}>{t("status.discard")}</button>
-        <button type="submit" className="btn primary" disabled={disabled}>{t("status.saveChanges")}</button>
+        <button type="submit" className="btn primary" disabled={disabled || !dirty}>{t("status.saveChanges")}</button>
       </div></div>
       {restartPending && <RestartGateway />}
     </form>

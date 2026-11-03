@@ -836,12 +836,6 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .nav-item .count.warn, .nav-item .count.warn svg { color: var(--warn); }
 .nav-item .count svg { width: 12px; height: 12px; }
 
-.appearance-pref { margin: 0 12px 10px; }
-.appearance-pref .list-label { padding: 0 0 7px; }
-.appearance-pref .list-label:not(:first-child) { margin-top: 12px; }
-.appearance-pref .seg { display: flex; width: 100%; background: var(--bg-2); }
-.appearance-pref .seg button { flex: 1; min-width: 0; padding: 0 5px; }
-
 .gateway-card {
   margin: 0 12px; padding: 12px;
   border-radius: var(--r-lg);
@@ -985,6 +979,41 @@ fieldset.form-card { margin: 0; padding: 0; min-width: 0; }
 .form-actions { margin-top: 16px; }
 .form-foot { display: flex; align-items: center; justify-content: flex-end; gap: 8px; padding: 12px 18px; background: var(--inset-soft); border-radius: var(--r-lg); }
 .form-foot .status-note { margin: 0 auto 0 0; }
+
+/* Settings-card rhythm shared by Status, Built-in tools, and Appearance. */
+.section-stack { display: flex; flex-direction: column; gap: 14px; }
+.settings-fieldset { min-width: 0; margin: 14px 0 0; padding: 0; border: 0; }
+.settings-card { overflow: hidden; }
+.settings-card-head {
+  display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px 12px; border-bottom: 1px solid var(--line);
+}
+.settings-card-head .icon-wrap {
+  width: 34px; height: 34px; flex: none; display: grid; place-items: center;
+  border-radius: 10px; color: var(--accent-hi); background: var(--accent-soft);
+}
+.settings-card-head .icon-wrap svg { width: 18px; height: 18px; }
+.settings-card-title { min-width: 0; flex: 1; }
+.page .settings-card-title h3 { display: block; margin: 0; font-size: var(--fs-lg); color: var(--fg-0); }
+.page .settings-card-title h3::after { display: none; }
+.settings-card-title p { margin: 2px 0 0; color: var(--fg-2); font-size: var(--fs-sm); line-height: 1.4; }
+.settings-card-head .head-meta { margin-left: auto; align-self: center; flex: none; }
+.chip { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 999px; font-size: var(--fs-xs); font-weight: 600; }
+.chip.hot { color: var(--ok); background: var(--ok-soft); }
+.settings-card > .form-sub { border-top: 0; }
+.appearance-control { display: flex; justify-content: flex-end; padding: 14px 18px; }
+.appearance-control .seg { min-width: 240px; }
+
+.save-bar {
+  position: sticky; bottom: 12px; z-index: 4;
+  display: flex; align-items: center; gap: 12px;
+  margin-top: 16px; padding: 11px 12px 11px 16px;
+  border: 1px solid var(--line-strong); border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bg-2) 94%, transparent);
+  box-shadow: var(--shadow-2); backdrop-filter: blur(12px);
+}
+.save-bar .status-note { margin: 0; flex: 1; }
+.save-bar .actions { display: flex; gap: 8px; flex: none; }
 
 .tag-input {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
