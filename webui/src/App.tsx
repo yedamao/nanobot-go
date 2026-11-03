@@ -18,10 +18,11 @@ import { RestartButton } from "./RestartGateway";
 import { duration } from "./settings";
 import { SkillsPage } from "./SkillsPage";
 import { StatusPage } from "./StatusPage";
+import { ToolsPage } from "./ToolsPage";
 import { useChat, type Connection } from "./useChat";
 
 type Gate = "checking" | "sign-in" | "ready";
-type SettingsView = "status" | "channels" | "cron" | "models" | "providers" | "skills" | "mcp";
+type SettingsView = "status" | "channels" | "cron" | "models" | "providers" | "skills" | "tools" | "mcp";
 type View = "chat" | SettingsView;
 
 // The settings shell's nav: groups of pages, each with its icon.
@@ -44,7 +45,10 @@ const NAV: { group: MessageKey; items: { id: SettingsView; label: MessageKey; ic
   },
   {
     group: "nav.groups.tools",
-    items: [{ id: "mcp", label: "nav.mcp", icon: "plug" }],
+    items: [
+      { id: "tools", label: "nav.tools", icon: "settings" },
+      { id: "mcp", label: "nav.mcp", icon: "plug" },
+    ],
   },
 ];
 
@@ -441,6 +445,7 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
         {view === "models" && <ModelsPage />}
         {view === "providers" && <ProvidersPage />}
         {view === "skills" && <SkillsPage />}
+        {view === "tools" && <ToolsPage />}
         {view === "mcp" && <MCPPage />}
       </main>
     </div>

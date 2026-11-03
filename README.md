@@ -325,8 +325,8 @@ Proceed?
 
 ### Image generation
 
-`generate_image` is off by default. Enable it in the WebUI's Status
-dialog (tick **generate_image tool**, pick provider and model, Save,
+`generate_image` is off by default. Enable it on the WebUI's Tools
+page (tick **generate_image tool**, pick provider and model, Save,
 restart the gateway; the key goes on the Providers page), or set
 `tools.imageGeneration.enabled` and a key for its provider (`openrouter`
 by default, or `openai`):
@@ -678,8 +678,8 @@ single host (`/32` for IPv4, `/128` for IPv6) over whole ranges:
 ```
 
 A bare address (`"192.168.1.20"`) means that host only. An entry that is
-not an address or CIDR range is a config error. The WebUI's Status
-dialog edits the list too (one entry per line); a list saved there
+not an address or CIDR range is a config error. The WebUI's Tools
+page edits the list too (one entry per line); a list saved there
 applies to the running gateway at once, with no restart: `web_fetch`,
 MCP HTTP servers (new connections; servers not connected are retried)
 and channel media downloads share one policy. `web_fetch` connects
