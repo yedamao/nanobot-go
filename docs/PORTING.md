@@ -21,7 +21,7 @@ in which we port them.
 | `nanobot/providers`                      | `internal/providers`             | `Provider` interface, OpenAI-compatible + Anthropic over `net/http`, retry, `Fallback` |
 | `nanobot/session`                        | `internal/session`               | `Store` interface; SQLite (default) and JSONL |
 | `nanobot/config`                         | `internal/config`                | JSON config, defaults, validation |
-| `nanobot/cli`                            | `cmd/nanobot`, `internal/cli`    | `agent`, `gateway`, `serve`, `onboard`, `webui` subcommands |
+| `nanobot/cli`                            | `cmd/wally`, `internal/cli`      | `agent`, `gateway`, `serve`, `onboard`, `webui` subcommands |
 | `nanobot/cron`, `nanobot/triggers`       | `internal/cron`                  | `at`/`every`/`cron` schedules, session-bound jobs |
 | heartbeat in `cli/gateway_runtime.py`, `utils/evaluator.py` | `internal/heartbeat` | `HEARTBEAT.md` tasks, target-chat picker, notification check |
 | `nanobot/channels`                       | `internal/channels`, `internal/channels/<name>` | `Channel` interface, manager, one package per channel |
@@ -29,7 +29,7 @@ in which we port them.
 | `nanobot/channels/weixin`                | `internal/channels/weixin`       | iLink bot API over `net/http`: QR login, long polling, context tokens, text replies |
 | `nanobot/pairing`                        | `internal/pairing`               | Pairing codes and approved senders (`pairing.json`), `nanobot pairing` |
 | `nanobot/security`, `agent/tools/sandbox.py` | `internal/security`          | Workspace containment, shell guard, SSRF, sandbox backends |
-| `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/nanobot` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
+| `nanobot/cli/gateway_runtime.py`, `nanobot/gateway` | `cmd/wally` (`gateway.go`, `runtime.go`) | Daemon wiring, health endpoint, shutdown |
 | `nanobot/api`                            | `internal/api`                   | OpenAI-compatible HTTP API |
 | `nanobot/channels/websocket`             | `internal/channels/websocket`    | Browser chat over WebSocket, mounted on the gateway's HTTP server |
 | `webui/`                                 | `webui/` (source), `internal/webui` (committed build, embedded via `embed`) | Lean Vite + React chat app served by the websocket channel (first slice) |
@@ -49,7 +49,7 @@ in which we port them.
   iteration limit with a final request that forbids tool calls) and `Loop`
   (one worker per session key, ordered within a session).
 - `internal/config`: JSON config file.
-- `cmd/nanobot`: interactive and one-shot CLI going through the bus.
+- `cmd/wally`: interactive and one-shot CLI going through the bus.
 
 ### Phase 2: memory and durability
 
@@ -507,7 +507,7 @@ Phase 2 is complete; phase 3 is in progress.
     a merged one for `auto`), or for OpenAI-compatible presets with a
     key the provider's `GET {apiBase}/models` (capped at 500, sorted),
     falling back to the curated list with `status`
-    `not_configured`/`error` (`cmd/nanobot/webmodels.go`); the page
+    `not_configured`/`error` (`cmd/wally/webmodels.go`); the page
     feeds it to a `<datalist>` per row, free text still allowed. Gaps
     vs nanobot: no OAuth/local/custom catalogs, no context-window or
     reasoning-effort metadata, no Anthropic live list.
@@ -518,7 +518,7 @@ Phase 2 is complete; phase 3 is in progress.
     environment applied differ from the running ones); the key itself is
     never returned. `PATCH /ui/providers/{name}` sets (`apiKey`), clears
     (`clearApiKey`) or edits `apiBase`, refusing `***`/hint placeholders,
-    and saves under the settings' lock (`cmd/nanobot/webproviders.go`).
+    and saves under the settings' lock (`cmd/wally/webproviders.go`).
     Each card's **Test** posts `POST /ui/providers/{name}/test`
     (`{apiKey?, apiBase?}` drafts, used once and never saved; else the
     saved key with the environment applied): it lists the provider's
@@ -549,7 +549,7 @@ Phase 2 is complete; phase 3 is in progress.
     refusing placeholders and malformed Telegram tokens, re-parsing with
     the channel's `ParseConfig` (a disabled Telegram section may lack its
     token) and saving under the settings' lock; errors are scrubbed of
-    the token (`cmd/nanobot/webchannels.go`). `POST
+    the token (`cmd/wally/webchannels.go`). `POST
     /ui/channels/config/{name}/test` checks a Telegram token (draft or
     saved) with `getMe` (`telegram.CheckToken`): `ok` with the bot's
     username, `rejected`, `not_configured` or `error`; weixin answers
@@ -572,7 +572,7 @@ Phase 2 is complete; phase 3 is in progress.
     handler spawns a detached `nanobot gateway restart` (own session, so
     the old gateway's process group stop does not take it down) and
     answers 202 before that stops it; the new gateway keeps the port and
-    lifetime (`cmd/nanobot/webgateway.go`). A foreground gateway gets
+    lifetime (`cmd/wally/webgateway.go`). A foreground gateway gets
     409 (it would come back detached). `nanobot webui` waits out a
     restart in progress (`Runtime.Settled`) instead of releasing its
     lease and stopping the new on-demand gateway. The page shows a
@@ -654,7 +654,7 @@ Phase 2 is complete; phase 3 is in progress.
     shrinking (over-cap images become a text note instead), PDF/Office
     text extraction, MCP image
     results as image parts. Image generation: see "Image generation".
-  - Done (simplified): the `nanobot webui` launcher (`cmd/nanobot/
+  - Done (simplified): the `nanobot webui` launcher (`cmd/wally/
     webuicmd.go`) plus managed gateway lifecycle (`internal/gatewayruntime`).
     It enables `channels.websocket` (confirming on a terminal, or `--yes`;
     a missing config is created with its workspace), then attaches to an
@@ -749,7 +749,7 @@ Phase 2 is complete; phase 3 is in progress.
     (names only). `PUT /ui/mcp/{name}` creates/replaces (validated by
     `Config.Validate`, saved env/headers kept when omitted), `PATCH`
     `{"enabled":bool}` and `DELETE` edit the config under the settings'
-    lock (`cmd/nanobot/webmcp.go`), then hot-reload the running gateway's
+    lock (`cmd/wally/webmcp.go`), then hot-reload the running gateway's
     `mcp.Manager` (`webMCP.hotReload`, serialized, always from the
     freshly loaded config) and update the running snapshot, reporting
     the result as `reload` on the response (`DELETE` answers 200

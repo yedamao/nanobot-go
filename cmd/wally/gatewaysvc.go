@@ -19,14 +19,14 @@ import (
 )
 
 const gatewayServiceUsage = `Usage:
-  nanobot gateway service install [--config path] [--workspace dir] [--host addr] [--port n] [--verbose]
+  wally gateway service install [--config path] [--workspace dir] [--host addr] [--port n] [--verbose]
                                   [--name name] [--manager auto|launchd|systemd]
                                   [--no-enable] [--no-start] [--dry-run]
-  nanobot gateway service uninstall [--name name] [--manager m] [--dry-run]
-  nanobot gateway service start [--name name] [--manager m] [--dry-run]
-  nanobot gateway service restart [--name name] [--manager m] [--dry-run]
-  nanobot gateway service stop [--name name] [--manager m] [--dry-run]
-  nanobot gateway service status [--name name] [--manager m] [--config path] [--workspace dir]
+  wally gateway service uninstall [--name name] [--manager m] [--dry-run]
+  wally gateway service start [--name name] [--manager m] [--dry-run]
+  wally gateway service restart [--name name] [--manager m] [--dry-run]
+  wally gateway service stop [--name name] [--manager m] [--dry-run]
+  wally gateway service status [--name name] [--manager m] [--config path] [--workspace dir]
 
 'gateway install-service' and 'gateway uninstall-service' are aliases
 (nanobot's names).
@@ -86,7 +86,7 @@ func (a *app) gatewayService(ctx context.Context, args []string) error {
 		fmt.Fprint(a.stdout, gatewayServiceUsage)
 		return nil
 	}
-	fmt.Fprintf(a.stderr, "nanobot: unknown gateway service command %q\n\n%s", args[0], gatewayServiceUsage)
+	fmt.Fprintf(a.stderr, "wally: unknown gateway service command %q\n\n%s", args[0], gatewayServiceUsage)
 	return errUsage
 }
 

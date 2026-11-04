@@ -34,7 +34,7 @@ export function Login({ onSignedIn }: { onSignedIn: () => void }) {
     <main id="login" className="login-page">
       <form id="login-form" className="login-card" onSubmit={submit}>
         <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
-        <h1>nanobot-go</h1>
+        <h1>Wally</h1>
         <p>{t("login.blurb")}</p>
         <label className="sr-only" htmlFor="login-token">
           {t("login.token")}

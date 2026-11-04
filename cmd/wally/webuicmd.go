@@ -208,7 +208,7 @@ func (a *app) webui(ctx context.Context, args []string) error {
 
 // errGatewayWithoutWebUI explains a healthy gateway that does not serve /ui/.
 func errGatewayWithoutWebUI(base string, configUpdated bool) error {
-	msg := fmt.Sprintf("a nanobot-go gateway is already running on %s without the WebUI (channels.websocket is not enabled in it)", base)
+	msg := fmt.Sprintf("a Wally gateway is already running on %s without the WebUI (channels.websocket is not enabled in it)", base)
 	if configUpdated {
 		msg += "; the config now enables it"
 	}
@@ -463,7 +463,7 @@ func tcpBusy(addr string) bool {
 func portConflict(pageURL, base string, port int) error {
 	return fmt.Errorf("cannot open the WebUI: the address is already in use.\n"+
 		"  Page:    %s\n  Service: %s/healthz\n"+
-		"Something other than a nanobot-go gateway listens on port %d. Stop it, or choose an unused port with --port",
+		"Something other than a Wally gateway listens on port %d. Stop it, or choose an unused port with --port",
 		pageURL, base, port)
 }
 
@@ -715,7 +715,7 @@ func (a *app) stopChild(c *childProc, grace time.Duration) {
 
 // logFilter passes on whole lines, dropping the gateway's INFO and DEBUG
 // log records unless all is set; warnings, errors and other output
-// (such as "nanobot: ..." failures) go through.
+// (such as "wally: ..." failures) go through.
 type logFilter struct {
 	w   io.Writer
 	all bool

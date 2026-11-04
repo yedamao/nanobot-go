@@ -216,9 +216,7 @@ function ChatView({
       <aside id="sidebar" className="sidebar" aria-label={t("header.chats")}>
         <div className="brand">
           <img src={favicon} alt="" />
-          <div className="brand-name">
-            nanobot<span>-go</span>
-          </div>
+          <div className="brand-name">Wally</div>
           <button
             type="button"
             className="icon-btn"
@@ -370,9 +368,7 @@ function SettingsShell({ view, conn, onGo }: { view: SettingsView; conn: Connect
       <aside className="settings-nav" aria-label={t("nav.settings")}>
         <div className="brand">
           <img src={favicon} alt="" />
-          <div className="brand-name">
-            nanobot<span>-go</span>
-          </div>
+          <div className="brand-name">Wally</div>
         </div>
         <a className="back-link" href="#/" onClick={() => onGo("chat")}>
           <Icon name="arrow-left" />

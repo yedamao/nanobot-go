@@ -451,7 +451,7 @@ func (a *app) channelRegistry(configPath, host string, ws *security.Workspace, s
 }
 
 func (a *app) printGatewayBanner(addr string, mgr *channels.Manager, webUI bool) {
-	fmt.Fprintf(a.stdout, "nanobot-go gateway %s\n", version)
+	fmt.Fprintf(a.stdout, "Wally gateway %s\n", version)
 	fmt.Fprintf(a.stdout, "Health endpoint: http://%s/healthz\n", addr)
 	if webUI && slices.Contains(mgr.Running(), websocket.Name) {
 		fmt.Fprintf(a.stdout, "WebUI: http://%s/\n", addr)

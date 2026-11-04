@@ -15,10 +15,10 @@ import (
 )
 
 const pairingUsage = `Usage:
-  nanobot pairing list [--config path]
-  nanobot pairing approve <code> [--config path]
-  nanobot pairing deny <code> [--config path]
-  nanobot pairing revoke <channel> <sender_id> [--config path]
+  wally pairing list [--config path]
+  wally pairing approve <code> [--config path]
+  wally pairing deny <code> [--config path]
+  wally pairing revoke <channel> <sender_id> [--config path]
 
 A sender a chat channel does not allow (allowFrom) who writes to the bot
 in a private chat gets a pairing code, valid for 10 minutes. Approving the
@@ -45,7 +45,7 @@ func (a *app) pairingCmd(args []string) error {
 	case "revoke":
 		return a.pairingRevoke(args[1:])
 	}
-	fmt.Fprintf(a.stderr, "nanobot pairing: unknown subcommand %q\n\n%s", args[0], pairingUsage)
+	fmt.Fprintf(a.stderr, "wally pairing: unknown subcommand %q\n\n%s", args[0], pairingUsage)
 	return errUsage
 }
 

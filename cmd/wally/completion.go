@@ -7,10 +7,10 @@ import (
 )
 
 const completionUsage = `Usage:
-  nanobot completion bash|zsh|fish|powershell
+  wally completion bash|zsh|fish|powershell
 
 Print a shell completion script to stdout. The scripts register completion
-for both nanobot and nanobot-go. PowerShell also accepts the alias "pwsh".
+for wally, nanobot and nanobot-go. PowerShell also accepts the alias "pwsh".
 `
 
 func (a *app) completion(args []string) error {
@@ -22,7 +22,7 @@ func (a *app) completion(args []string) error {
 		return flag.ErrHelp
 	}
 	if len(args) != 1 {
-		fmt.Fprintf(a.stderr, "nanobot completion: want one shell, got %q\n\n%s", args, completionUsage)
+		fmt.Fprintf(a.stderr, "wally completion: want one shell, got %q\n\n%s", args, completionUsage)
 		return errUsage
 	}
 	shell := strings.ToLower(args[0])
@@ -31,7 +31,7 @@ func (a *app) completion(args []string) error {
 	}
 	script, ok := completionScripts[shell]
 	if !ok {
-		fmt.Fprintf(a.stderr, "nanobot completion: unknown shell %q\n\n%s", args[0], completionUsage)
+		fmt.Fprintf(a.stderr, "wally completion: unknown shell %q\n\n%s", args[0], completionUsage)
 		return errUsage
 	}
 	fmt.Fprint(a.stdout, script)
@@ -45,7 +45,7 @@ var completionScripts = map[string]string{
 	"powershell": powershellCompletion,
 }
 
-const bashCompletion = `# bash completion for nanobot and nanobot-go
+const bashCompletion = `# bash completion for wally, nanobot and nanobot-go
 _nanobot()
 {
     local cur prev path word i
@@ -96,10 +96,10 @@ _nanobot()
     esac
     COMPREPLY=( $(compgen -W "$choices" -- "$cur") )
 }
-complete -F _nanobot nanobot nanobot-go
+complete -F _nanobot wally nanobot nanobot-go
 `
 
-const zshCompletion = `#compdef nanobot nanobot-go
+const zshCompletion = `#compdef wally nanobot nanobot-go
 
 _nanobot() {
   local -a words_before choices
@@ -149,14 +149,14 @@ _nanobot() {
 _nanobot "$@"
 `
 
-const fishCompletion = `# fish completion for nanobot and nanobot-go
+const fishCompletion = `# fish completion for wally, nanobot and nanobot-go
 function __nanobot_seen
     contains -- $argv[1] (commandline -opc)[2..-1]
 end
 function __nanobot_top
     not __nanobot_seen onboard; and not __nanobot_seen agent; and not __nanobot_seen gateway; and not __nanobot_seen serve; and not __nanobot_seen cron; and not __nanobot_seen pairing; and not __nanobot_seen channels; and not __nanobot_seen dream; and not __nanobot_seen webui; and not __nanobot_seen status; and not __nanobot_seen version; and not __nanobot_seen help; and not __nanobot_seen completion
 end
-for cmd in nanobot nanobot-go
+for cmd in wally nanobot nanobot-go
     complete -c $cmd -f -n __nanobot_top -a 'onboard agent gateway serve cron pairing channels dream webui status version help completion'
     complete -c $cmd -f -n '__nanobot_seen completion' -a 'bash zsh fish powershell pwsh'
     complete -c $cmd -f -n '__nanobot_seen cron; and not __nanobot_seen list; and not __nanobot_seen remove; and not __nanobot_seen rm; and not __nanobot_seen run' -a 'list remove rm run'
@@ -185,7 +185,7 @@ for cmd in nanobot nanobot-go
 end
 `
 
-const powershellCompletion = `# PowerShell completion for nanobot and nanobot-go
+const powershellCompletion = `# PowerShell completion for wally, nanobot and nanobot-go
 $nanobotCompleter = {
     param($wordToComplete, $commandAst, $cursorPosition)
     $tokens = @($commandAst.CommandElements | ForEach-Object { $_.ToString() })
@@ -226,5 +226,5 @@ $nanobotCompleter = {
         [System.Management.Automation.CompletionResult]::new($_, $_, 'ParameterValue', $_)
     }
 }
-Register-ArgumentCompleter -Native -CommandName nanobot,nanobot-go -ScriptBlock $nanobotCompleter
+Register-ArgumentCompleter -Native -CommandName wally,nanobot,nanobot-go -ScriptBlock $nanobotCompleter
 `

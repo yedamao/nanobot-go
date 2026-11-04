@@ -103,7 +103,7 @@ func (a *app) repl(ctx context.Context, loop *agent.Loop, key string) error {
 		close(lines)
 	}()
 
-	fmt.Fprintf(a.stdout, "nanobot-go interactive mode (session %s). Type /help for commands, exit or Ctrl-D to quit.\n", key)
+	fmt.Fprintf(a.stdout, "Wally interactive mode (session %s). Type /help for commands, exit or Ctrl-D to quit.\n", key)
 	for {
 		fmt.Fprint(a.stdout, "\nyou> ")
 		var line string

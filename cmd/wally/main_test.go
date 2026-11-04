@@ -129,7 +129,7 @@ func TestUsageAndVersion(t *testing.T) {
 	if code := e.run(t, nil, "bogus"); code != 2 || !strings.Contains(e.stderr.String(), `unknown command "bogus"`) {
 		t.Errorf("unknown command exit = %d, stderr %q", code, e.stderr)
 	}
-	if code := e.run(t, nil, "version"); code != 0 || !strings.Contains(e.stdout.String(), "nanobot-go "+version) {
+	if code := e.run(t, nil, "version"); code != 0 || !strings.Contains(e.stdout.String(), "Wally "+version) {
 		t.Errorf("version exit = %d, stdout %q", code, e.stdout)
 	}
 	if code := e.run(t, nil, "agent", "--nope"); code != 2 {

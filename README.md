@@ -1,6 +1,6 @@
-# nanobot-go
+# Wally (nanobot-go)
 
-A Go rewrite of [nanobot](https://github.com/HKUDS/nanobot), a small,
+Wally is a Go rewrite of [nanobot](https://github.com/HKUDS/nanobot), a small,
 always-on personal AI agent. It talks to Anthropic or any OpenAI-compatible
 API, keeps persistent conversations, can read and edit files, run shell
 commands and fetch web pages inside a workspace directory, and can use the
@@ -87,7 +87,8 @@ model catalog, MCP presets/apps, a skill marketplace, ...). See
 Requires Go 1.26+.
 
 ```sh
-go build -o bin/nanobot ./cmd/nanobot
+go build -o bin/wally ./cmd/wally
+ln -sfn wally bin/nanobot       # compatibility for existing scripts/services
 
 bin/nanobot onboard          # writes ~/.nanobot-go/config.json and the workspace
 $EDITOR ~/.nanobot-go/config.json   # add an API key (or use an env var, below)
@@ -118,7 +119,8 @@ nanobot completion fish > ~/.config/fish/completions/nanobot.fish
 nanobot completion powershell | Out-File -Append $PROFILE
 ```
 
-The scripts complete both the `nanobot` and `nanobot-go` executable names.
+The scripts complete `wally` and the compatibility names `nanobot` and
+`nanobot-go`.
 
 API keys can also come from the environment, which overrides the file:
 
@@ -1609,7 +1611,7 @@ print(resp.choices[0].message.content)
 ## Architecture
 
 ```
-   cmd/nanobot (onboard | agent | gateway | serve | cron | pairing | channels | dream | status | version)
+   cmd/wally (onboard | agent | gateway | serve | cron | pairing | channels | dream | status | version)
                  |                       |
            internal/config         stdin / stdout (agent)
                  |                internal/cron Service (gateway): due job ->
@@ -1644,7 +1646,7 @@ print(resp.choices[0].message.content)
                              v           v
                 internal/providers   internal/tools (+ builtin)  <-- internal/mcp
                 Anthropic, OpenAI-   registry, validation,        Manager (owned by
-                compatible, retry,   fs / exec / web_fetch        cmd/nanobot): MCP
+                compatible, retry,   fs / exec / web_fetch        cmd/wally): MCP
                 FallbackProvider          |                       sessions, mcp_* tools
                                           v
                                   internal/security

@@ -13,7 +13,7 @@ import (
 )
 
 const channelsUsage = `Usage:
-  nanobot channels login weixin [--force] [--config path]
+  wally channels login weixin [--force] [--config path]
 
 login weixin  log in to personal WeChat (Tencent's iLink bot API): prints
               the link of a QR code to scan with WeChat and waits for the
@@ -34,7 +34,7 @@ func (a *app) channelsCmd(ctx context.Context, args []string) error {
 		return flag.ErrHelp
 	}
 	if args[0] != "login" {
-		fmt.Fprintf(a.stderr, "nanobot channels: unknown subcommand %q\n\n%s", args[0], channelsUsage)
+		fmt.Fprintf(a.stderr, "wally channels: unknown subcommand %q\n\n%s", args[0], channelsUsage)
 		return errUsage
 	}
 	return a.channelsLogin(ctx, args[1:])

@@ -117,7 +117,7 @@ func shutdownAPI(ctx context.Context, srv *api.Server, log *slog.Logger) {
 }
 
 func (a *app) printServeBanner(cfg *config.Config, addr string) {
-	fmt.Fprintf(a.stdout, "nanobot-go OpenAI-compatible API %s\n", version)
+	fmt.Fprintf(a.stdout, "Wally OpenAI-compatible API %s\n", version)
 	a.printAPIEndpoint(cfg, addr)
 	fmt.Fprintf(a.stdout, "Model: %s\n", cfg.Agents.Defaults.Model)
 	fmt.Fprintf(a.stdout, "Session: %s (or api:<session_id>)\n", api.DefaultSessionKey)

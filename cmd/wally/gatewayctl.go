@@ -14,12 +14,12 @@ import (
 )
 
 const gatewayUsage = `Usage:
-  nanobot gateway [--background] [--config path] [--workspace dir] [--host addr] [--port n] [--verbose]
-  nanobot gateway status [--config path] [--workspace dir]
-  nanobot gateway stop [--config path] [--workspace dir] [--timeout d]
-  nanobot gateway restart [--config path] [--workspace dir] [--host addr] [--port n] [--verbose] [--timeout d]
-  nanobot gateway logs [--config path] [--workspace dir] [--tail n]
-  nanobot gateway service install|uninstall|start|restart|stop|status [flags]
+  wally gateway [--background] [--config path] [--workspace dir] [--host addr] [--port n] [--verbose]
+  wally gateway status [--config path] [--workspace dir]
+  wally gateway stop [--config path] [--workspace dir] [--timeout d]
+  wally gateway restart [--config path] [--workspace dir] [--host addr] [--port n] [--verbose] [--timeout d]
+  wally gateway logs [--config path] [--workspace dir] [--tail n]
+  wally gateway service install|uninstall|start|restart|stop|status [flags]
 
 Without a subcommand the gateway runs in the foreground until Ctrl-C.
 --background starts it detached from the terminal instead (output goes to

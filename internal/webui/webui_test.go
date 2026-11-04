@@ -49,7 +49,7 @@ func TestBundle(t *testing.T) {
 		t.Fatalf("/ui/: status = %d", rec.Code)
 	}
 	page := rec.Body.String()
-	for _, want := range []string{"<title>nanobot-go</title>", `<div id="root">`} {
+	for _, want := range []string{"<title>Wally</title>", `<div id="root">`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page does not contain %q", want)
 		}

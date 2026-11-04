@@ -1,4 +1,4 @@
-// Command nanobot is the nanobot-go CLI: onboarding, an interactive or
+// Command wally is the Wally CLI: onboarding, an interactive or
 // one-shot agent, the long-running gateway (which also runs scheduled
 // jobs and the Telegram, WeChat and WebUI channels), the WebUI launcher,
 // the OpenAI-compatible API,
@@ -28,10 +28,10 @@ import (
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "0.1.0-dev"
 
-const usage = `nanobot-go: a small, always-on personal AI agent.
+const usage = `Wally: a small, always-on personal AI agent.
 
 Usage:
-  nanobot <command> [flags]
+  wally <command> [flags]
 
 Commands:
   onboard   write a default config file and workspace
@@ -57,7 +57,7 @@ Commands:
             --mcp also connects to the MCP servers
   version   print the version
 
-Run 'nanobot <command> -h' for the command's flags.
+Run 'wally <command> -h' for the command's flags.
 `
 
 func main() {
@@ -182,11 +182,11 @@ func (a *app) run(ctx context.Context, args []string) int {
 	case "webui":
 		err = a.webui(ctx, args[1:])
 	case "version", "-v", "--version":
-		fmt.Fprintf(a.stdout, "nanobot-go %s (%s %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		fmt.Fprintf(a.stdout, "Wally %s (%s %s/%s)\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 	case "help", "-h", "--help":
 		fmt.Fprint(a.stdout, usage)
 	default:
-		fmt.Fprintf(a.stderr, "nanobot: unknown command %q\n\n%s", args[0], usage)
+		fmt.Fprintf(a.stderr, "wally: unknown command %q\n\n%s", args[0], usage)
 		return 2
 	}
 	switch {
@@ -195,7 +195,7 @@ func (a *app) run(ctx context.Context, args []string) int {
 	case errors.Is(err, errUsage):
 		return 2
 	default:
-		fmt.Fprintf(a.stderr, "nanobot: %v\n", err)
+		fmt.Fprintf(a.stderr, "wally: %v\n", err)
 		return 1
 	}
 }
@@ -208,7 +208,7 @@ func (a *app) newFlagSet(name, synopsis string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(a.stderr)
 	fs.Usage = func() {
-		fmt.Fprintf(a.stderr, "Usage: nanobot %s\n\nFlags:\n", synopsis)
+		fmt.Fprintf(a.stderr, "Usage: wally %s\n\nFlags:\n", synopsis)
 		fs.PrintDefaults()
 	}
 	return fs

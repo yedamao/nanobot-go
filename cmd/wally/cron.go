@@ -16,9 +16,9 @@ import (
 )
 
 const cronUsage = `Usage:
-  nanobot cron list [--all] [--config path] [--workspace dir]
-  nanobot cron remove <id> [--config path] [--workspace dir]
-  nanobot cron run <id> [--force] [--config path] [--workspace dir] [--verbose]
+  wally cron list [--all] [--config path] [--workspace dir]
+  wally cron remove <id> [--config path] [--workspace dir]
+  wally cron run <id> [--force] [--config path] [--workspace dir] [--verbose]
 
 list and remove only touch <workspace>/cron/jobs.json and need no API key.
 run runs a job's turn now in this process, prints the reply (it is not
@@ -43,7 +43,7 @@ func (a *app) cronCmd(ctx context.Context, args []string) error {
 	case "run":
 		return a.cronRun(ctx, args[1:])
 	}
-	fmt.Fprintf(a.stderr, "nanobot cron: unknown subcommand %q\n\n%s", args[0], cronUsage)
+	fmt.Fprintf(a.stderr, "wally cron: unknown subcommand %q\n\n%s", args[0], cronUsage)
 	return errUsage
 }
 

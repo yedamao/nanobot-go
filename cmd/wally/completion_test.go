@@ -21,7 +21,7 @@ func TestCompletionUsage(t *testing.T) {
 func TestCompletionScripts(t *testing.T) {
 	tests := map[string]string{
 		"bash":       "complete -F _nanobot",
-		"zsh":        "#compdef nanobot nanobot-go",
+		"zsh":        "#compdef wally nanobot nanobot-go",
 		"fish":       "complete -c $cmd",
 		"powershell": "Register-ArgumentCompleter",
 		"pwsh":       "Register-ArgumentCompleter",
@@ -29,8 +29,15 @@ func TestCompletionScripts(t *testing.T) {
 	for shell, marker := range tests {
 		t.Run(shell, func(t *testing.T) {
 			e := newTestEnv(t)
-			if code := e.run(t, nil, "completion", shell); code != 0 || !strings.Contains(e.stdout.String(), marker) {
+			code := e.run(t, nil, "completion", shell)
+			out := e.stdout.String()
+			if code != 0 || !strings.Contains(out, marker) {
 				t.Fatalf("code %d, stdout %q, stderr %q", code, e.stdout.String(), e.stderr.String())
+			}
+			for _, name := range []string{"wally", "nanobot", "nanobot-go"} {
+				if !strings.Contains(out, name) {
+					t.Errorf("completion script does not register %q", name)
+				}
 			}
 		})
 	}
@@ -45,7 +52,7 @@ func TestCompletionRejectsUnknownShell(t *testing.T) {
 
 func TestUsageIncludesCompletion(t *testing.T) {
 	e := newTestEnv(t)
-	if code := e.run(t, nil, "help"); code != 0 || !strings.Contains(e.stdout.String(), "completion") {
+	if code := e.run(t, nil, "help"); code != 0 || !strings.Contains(e.stdout.String(), "Usage:\n  wally <command>") || !strings.Contains(e.stdout.String(), "completion") {
 		t.Fatalf("code %d, stdout %q", code, e.stdout.String())
 	}
 }
