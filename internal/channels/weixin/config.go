@@ -32,7 +32,7 @@ const (
 )
 
 // DefaultStateDir returns the state directory for a config file:
-// state/weixin next to it, so ~/.nanobot-go/state/weixin by default.
+// state/weixin next to it, so ~/.wally/state/weixin by default.
 func DefaultStateDir(configPath string) string {
 	return filepath.Join(filepath.Dir(configPath), "state", Name)
 }

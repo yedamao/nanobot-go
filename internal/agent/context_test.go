@@ -22,7 +22,7 @@ func TestSystemPrompt(t *testing.T) {
 
 	// Untouched AGENTS.md and USER.md templates are skipped; SOUL.md is kept.
 	p := b.SystemPrompt("cli")
-	for _, want := range []string{"nanobot-go", ws, "2026-10-18 09:30 (Sunday) UTC", "Channel: cli", "## SOUL.md", "Format Hint", "Tool Usage Notes"} {
+	for _, want := range []string{"Wally", ws, "2026-10-18 09:30 (Sunday) UTC", "Channel: cli", "## SOUL.md", "Format Hint", "Tool Usage Notes"} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing %q", want)
 		}

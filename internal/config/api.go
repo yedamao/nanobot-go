@@ -17,6 +17,9 @@ const (
 // EnvAPIKey overrides api.apiKey.
 const EnvAPIKey = envPrefix + "API_KEY"
 
+// LegacyEnvAPIKey is accepted for one release when EnvAPIKey is unset.
+const LegacyEnvAPIKey = legacyEnvPrefix + "API_KEY"
+
 // APIConfig configures the OpenAI-compatible API: `nanobot serve` always
 // runs it, `nanobot gateway` when Enabled.
 type APIConfig struct {

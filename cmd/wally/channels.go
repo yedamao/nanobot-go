@@ -42,7 +42,7 @@ func (a *app) channelsCmd(ctx context.Context, args []string) error {
 
 func (a *app) channelsLogin(ctx context.Context, args []string) error {
 	fs := a.newFlagSet("channels login", "channels login weixin [--force] [--config path]")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	force := fs.Bool("force", false, "log in again even when a login is saved")
 	// Accept the channel name before or after the flags.
 	var pos []string

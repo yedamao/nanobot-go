@@ -96,7 +96,7 @@ func (c *Config) Resolve(provider, model string) (Target, error) {
 		}
 	}
 	return Target{}, fmt.Errorf("no provider with an API key matches model %q: set providers.<name>.apiKey "+
-		"(or NANOBOT_GO_<NAME>_API_KEY) and, if needed, agents.defaults.provider", model)
+		"(or WALLY_<NAME>_API_KEY; legacy NANOBOT_GO_<NAME>_API_KEY is also accepted) and, if needed, agents.defaults.provider", model)
 }
 
 func (c *Config) hasKey(p Preset) bool {

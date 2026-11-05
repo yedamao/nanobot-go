@@ -104,7 +104,7 @@ type gatewayFlags struct {
 
 func (a *app) newGatewayFlags(name, synopsis string) *gatewayFlags {
 	s := &gatewayFlags{fs: a.newFlagSet(name, synopsis)}
-	s.fs.StringVar(&s.config, "config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	s.fs.StringVar(&s.config, "config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	s.fs.StringVar(&s.workspace, "workspace", "", "workspace directory (as passed to the gateway)")
 	return s
 }

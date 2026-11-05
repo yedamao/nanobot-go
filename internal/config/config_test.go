@@ -365,13 +365,15 @@ func TestSaveRoundTrip(t *testing.T) {
 
 func TestApplyEnv(t *testing.T) {
 	env := map[string]string{
-		"NANOBOT_GO_MODEL":             "gpt-4o",
-		"NANOBOT_GO_PROVIDER":          "openai",
-		"NANOBOT_GO_WORKSPACE":         "/tmp/ws",
-		"NANOBOT_GO_OPENAI_API_KEY":    "sk-oa",
-		"NANOBOT_GO_OPENAI_API_BASE":   "http://localhost:1234/v1",
-		"NANOBOT_GO_ANTHROPIC_API_KEY": "",
-		"NANOBOT_GO_API_KEY":           "bearer",
+		"WALLY_MODEL":                  "gpt-4o",
+		"WALLY_PROVIDER":               "openai",
+		"WALLY_WORKSPACE":              "/tmp/ws",
+		"WALLY_OPENAI_API_KEY":         "sk-oa",
+		"NANOBOT_GO_OPENAI_API_KEY":    "sk-legacy-must-lose",
+		"WALLY_OPENAI_API_BASE":        "http://localhost:1234/v1",
+		"WALLY_ANTHROPIC_API_KEY":      "",
+		"NANOBOT_GO_ANTHROPIC_API_KEY": "sk-legacy-anthropic",
+		"WALLY_API_KEY":                "bearer",
 		// Must not be read: it belongs to other tools.
 		"ANTHROPIC_API_KEY": "sk-should-not-be-used",
 	}
@@ -386,8 +388,8 @@ func TestApplyEnv(t *testing.T) {
 	if cfg.Providers.OpenAI.APIKey != "sk-oa" || cfg.Providers.OpenAI.APIBase != "http://localhost:1234/v1" {
 		t.Errorf("openai = %+v", cfg.Providers.OpenAI)
 	}
-	if cfg.Providers.Anthropic.APIKey != "from-file" {
-		t.Errorf("empty env var or ANTHROPIC_API_KEY overrode the file: %q", cfg.Providers.Anthropic.APIKey)
+	if cfg.Providers.Anthropic.APIKey != "sk-legacy-anthropic" {
+		t.Errorf("legacy fallback key = %q", cfg.Providers.Anthropic.APIKey)
 	}
 	if cfg.API.APIKey != "bearer" {
 		t.Errorf("api.apiKey = %q", cfg.API.APIKey)
@@ -395,23 +397,25 @@ func TestApplyEnv(t *testing.T) {
 }
 
 func TestResolvePath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Skip("no home dir")
-	}
+	home := t.TempDir()
+	t.Setenv("HOME", home)
 	tests := []struct {
-		name, flag, env, want string
+		name, flag, currentEnv, legacyEnv, want string
 	}{
-		{"default", "", "", filepath.Join(home, ".nanobot-go", "config.json")},
-		{"env", "", "/etc/nb.json", "/etc/nb.json"},
-		{"flag wins", "/a/b.json", "/etc/nb.json", "/a/b.json"},
-		{"tilde", "~/x/c.json", "", filepath.Join(home, "x", "c.json")},
+		{"default", "", "", "", filepath.Join(home, ".wally", "config.json")},
+		{"current env", "", "/etc/wally.json", "/etc/legacy.json", "/etc/wally.json"},
+		{"legacy env", "", "", "/etc/legacy.json", "/etc/legacy.json"},
+		{"flag wins", "/a/b.json", "/etc/wally.json", "/etc/legacy.json", "/a/b.json"},
+		{"tilde", "~/x/c.json", "", "", filepath.Join(home, "x", "c.json")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := ResolvePath(tt.flag, func(k string) string {
 				if k == EnvConfigPath {
-					return tt.env
+					return tt.currentEnv
+				}
+				if k == LegacyEnvConfigPath {
+					return tt.legacyEnv
 				}
 				return ""
 			})
@@ -425,6 +429,36 @@ func TestResolvePath(t *testing.T) {
 	}
 }
 
+func TestDefaultPathLegacyFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	legacy := filepath.Join(home, LegacyDirName, DefaultFileName)
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacy, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ResolvePath("", os.Getenv); err != nil || got != legacy {
+		t.Fatalf("legacy fallback = %q, %v; want %q", got, err, legacy)
+	}
+
+	currentDir := filepath.Join(home, DefaultDirName)
+	if err := os.MkdirAll(currentDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	current := filepath.Join(currentDir, DefaultFileName)
+	if got, err := DefaultPath(); err != nil || got != current {
+		t.Fatalf("new directory wins = %q, %v; want %q", got, err, current)
+	}
+	if err := os.WriteFile(current, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := ResolvePath("", os.Getenv); err != nil || got != current {
+		t.Fatalf("new config wins = %q, %v; want %q", got, err, current)
+	}
+}
+
 func TestWorkspacePathAndSessionsDir(t *testing.T) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -434,7 +468,7 @@ func TestWorkspacePathAndSessionsDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := filepath.Join(home, ".nanobot-go", "workspace"); got != want {
+	if want := filepath.Join(home, ".wally", "workspace"); got != want {
 		t.Errorf("WorkspacePath = %q, want %q", got, want)
 	}
 	if got, want := SessionsDir("/x/y/config.json"), "/x/y/sessions"; got != want {

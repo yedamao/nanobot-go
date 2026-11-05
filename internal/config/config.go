@@ -29,7 +29,8 @@ import (
 
 // Defaults.
 const (
-	DefaultDirName            = ".nanobot-go"
+	DefaultDirName            = ".wally"
+	LegacyDirName             = ".nanobot-go"
 	DefaultFileName           = "config.json"
 	DefaultWorkspace          = "~/" + DefaultDirName + "/workspace"
 	DefaultModel              = "claude-opus-4-5" // nanobot: anthropic/claude-opus-4-5
@@ -65,12 +66,18 @@ const WebSearchDeepSeek = "deepseek"
 const ProviderAuto = "auto"
 
 // EnvConfigPath overrides the config file location.
-const EnvConfigPath = "NANOBOT_GO_CONFIG"
+const EnvConfigPath = "WALLY_CONFIG"
+
+// LegacyEnvConfigPath is accepted for one release when WALLY_CONFIG is unset.
+const LegacyEnvConfigPath = "NANOBOT_GO_CONFIG"
 
 // envPrefix prefixes every environment override. Provider keys use
-// NANOBOT_GO_<PROVIDER>_API_KEY so they never clobber (or get clobbered by)
+// WALLY_<PROVIDER>_API_KEY so they never clobber (or get clobbered by)
 // the variables other tools read, such as ANTHROPIC_API_KEY.
-const envPrefix = "NANOBOT_GO_"
+const (
+	envPrefix       = "WALLY_"
+	legacyEnvPrefix = "NANOBOT_GO_"
+)
 
 // Config is the root of the config file.
 type Config struct {
@@ -358,21 +365,35 @@ func Default() *Config {
 	}
 }
 
-// DefaultPath returns ~/.nanobot-go/config.json.
+// DefaultPath returns ~/.wally/config.json. For one-release compatibility it
+// returns ~/.nanobot-go/config.json when that file exists and ~/.wally does not.
 func DefaultPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("config path: %w", err)
 	}
-	return filepath.Join(home, DefaultDirName, DefaultFileName), nil
+	currentDir := filepath.Join(home, DefaultDirName)
+	current := filepath.Join(currentDir, DefaultFileName)
+	if _, err := os.Stat(currentDir); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return current, nil
+	}
+	legacy := filepath.Join(home, LegacyDirName, DefaultFileName)
+	if _, err := os.Stat(legacy); err == nil {
+		return legacy, nil
+	}
+	return current, nil
 }
 
-// ResolvePath picks the config file: flagValue if set, else $NANOBOT_GO_CONFIG,
-// else DefaultPath. ~ is expanded and the result is absolute.
+// ResolvePath picks the config file: flagValue if set, else $WALLY_CONFIG,
+// then legacy $NANOBOT_GO_CONFIG, else DefaultPath. ~ is expanded and the
+// result is absolute.
 func ResolvePath(flagValue string, getenv func(string) string) (string, error) {
 	p := flagValue
 	if p == "" && getenv != nil {
 		p = getenv(EnvConfigPath)
+		if p == "" {
+			p = getenv(LegacyEnvConfigPath)
+		}
 	}
 	if p == "" {
 		return DefaultPath()
@@ -465,15 +486,19 @@ func (c *Config) Save(path string) error {
 
 // ApplyEnv overrides settings from environment variables:
 //
-//	NANOBOT_GO_MODEL, NANOBOT_GO_PROVIDER, NANOBOT_GO_WORKSPACE
-//	NANOBOT_GO_<PROVIDER>_API_KEY, NANOBOT_GO_<PROVIDER>_API_BASE
-//	NANOBOT_GO_API_KEY (api.apiKey)
+//	WALLY_MODEL, WALLY_PROVIDER, WALLY_WORKSPACE
+//	WALLY_<PROVIDER>_API_KEY, WALLY_<PROVIDER>_API_BASE
+//	WALLY_API_KEY (api.apiKey)
 //
 // where <PROVIDER> is an upper-case preset name such as ANTHROPIC. Empty
 // values are ignored. Call Validate afterwards.
 func (c *Config) ApplyEnv(getenv func(string) string) {
 	set := func(dst *string, name string) {
-		if v := getenv(envPrefix + name); v != "" {
+		v := getenv(envPrefix + name)
+		if v == "" {
+			v = getenv(legacyEnvPrefix + name)
+		}
+		if v != "" {
 			*dst = v
 		}
 	}
@@ -494,6 +519,12 @@ func (c *Config) ApplyEnv(getenv func(string) string) {
 // API key.
 func EnvKeyName(provider string) string {
 	return envPrefix + strings.ToUpper(provider) + "_API_KEY"
+}
+
+// LegacyEnvKeyName returns the provider API-key variable accepted for
+// one-release compatibility.
+func LegacyEnvKeyName(provider string) string {
+	return legacyEnvPrefix + strings.ToUpper(provider) + "_API_KEY"
 }
 
 // Validate reports every invalid setting.
@@ -678,7 +709,8 @@ func SafeRelDir(dir string) (string, error) {
 
 // WebSearchAPIKey returns the DeepSeek key web_search and a "deepseek"
 // web_fetch use: tools.web.search.apiKey,
-// else providers.deepseek.apiKey (with NANOBOT_GO_DEEPSEEK_API_KEY applied
+// else providers.deepseek.apiKey (with WALLY_DEEPSEEK_API_KEY, or legacy
+// NANOBOT_GO_DEEPSEEK_API_KEY, applied
 // when ApplyEnv ran), else the DEEPSEEK_API_KEY or WEB_SEARCH_API_KEY
 // environment variable. The result is never saved.
 func (c *Config) WebSearchAPIKey(getenv func(string) string) string {

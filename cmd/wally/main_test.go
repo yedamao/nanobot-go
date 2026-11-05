@@ -69,7 +69,7 @@ type testEnv struct {
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
 	dir := t.TempDir()
-	// Default paths such as ~/.nanobot-go/workspace must never touch the
+	// Default paths such as ~/.wally/workspace must never touch the
 	// real home directory.
 	t.Setenv("HOME", filepath.Join(dir, "fake-home"))
 	e := &testEnv{

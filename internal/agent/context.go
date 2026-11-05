@@ -49,9 +49,9 @@ var templates embed.FS
 
 const promptSeparator = "\n\n---\n\n"
 
-const identityTemplate = `# nanobot-go
+const identityTemplate = `# Wally
 
-You are nanobot-go, a personal AI assistant that can read and write files, run shell commands and fetch web pages through tools.
+You are Wally, a personal AI assistant that can read and write files, run shell commands and fetch web pages through tools.
 
 ## Runtime
 - Current time: %s

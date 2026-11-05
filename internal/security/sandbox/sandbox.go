@@ -4,7 +4,7 @@
 //
 // Both backends expose the workspace read-write, a fixed set of system
 // paths read-only and any configured extra binds, and hide the workspace's
-// parent directory (in the default layout ~/.nanobot-go, which holds the
+// parent directory (in the default layout ~/.wally, which holds the
 // config, keys and sessions). HOME points at the workspace. Neither backend
 // restricts network access.
 package sandbox

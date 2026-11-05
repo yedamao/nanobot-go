@@ -107,7 +107,7 @@ func TestExecSeatbelt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// <root> plays ~/.nanobot-go: secret.txt sits next to the workspace.
+	// <root> plays ~/.wally: secret.txt sits next to the workspace.
 	wsDir := filepath.Join(root, "workspace")
 	sibling := filepath.Join(root, "sessions")
 	for _, d := range []string{filepath.Join(wsDir, "sub"), sibling} {

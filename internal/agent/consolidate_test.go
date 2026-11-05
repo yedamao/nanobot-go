@@ -29,7 +29,7 @@ type summarizer struct {
 func (s *summarizer) Name() string { return "summarizer" }
 
 func (s *summarizer) Chat(ctx context.Context, req providers.ChatRequest) (*providers.ChatResponse, error) {
-	if strings.HasPrefix(req.Messages[0].Content, "# nanobot-go") {
+	if strings.HasPrefix(req.Messages[0].Content, "# Wally") {
 		return s.chat.Chat(ctx, req)
 	}
 	s.mu.Lock()

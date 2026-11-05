@@ -28,13 +28,13 @@ const (
 )
 
 // DefaultName is the default service name: the launchd label
-// ai.nanobot-go.gateway and the systemd unit nanobot-go-gateway.service.
+// ai.wally.gateway and the systemd unit wally-gateway.service.
 // nanobot's (Python) are ai.nanobot.gateway and nanobot-gateway.service.
-const DefaultName = "nanobot-go-gateway"
+const DefaultName = "wally-gateway"
 
 // labelPrefix starts every launchd label, keeping them apart from
 // nanobot's ai.nanobot.*.
-const labelPrefix = "ai.nanobot-go."
+const labelPrefix = "ai.wally."
 
 // pythonName is nanobot's default service name, refused so that the two
 // never share a systemd unit.
@@ -190,15 +190,14 @@ func checkName(name string) error {
 	return nil
 }
 
-// Label is the launchd label of name: ai.nanobot-go.<rest>, where rest
-// is the safe name without a leading "nanobot-go-" and with dashes as
-// dots (DefaultName gives ai.nanobot-go.gateway). A name that already
-// starts with ai.nanobot-go. is kept.
+// Label is the launchd label of name: ai.wally.<rest>, where rest is the safe
+// name without a leading "wally-" and with dashes as dots (DefaultName gives
+// ai.wally.gateway). A name that already starts with ai.wally. is kept.
 func Label(name string) string {
 	if strings.HasPrefix(name, labelPrefix) && len(name) > len(labelPrefix) {
 		return SafeName(name)
 	}
-	rest := strings.TrimPrefix(SafeName(name), "nanobot-go-")
+	rest := strings.TrimPrefix(SafeName(name), "wally-")
 	return labelPrefix + strings.ReplaceAll(rest, "-", ".")
 }
 
@@ -354,7 +353,7 @@ func (in *Installer) installLaunchd(opts Options, argv []string, dryRun bool) (R
 func (in *Installer) installSystemd(opts Options, argv []string, dryRun bool) (Result, error) {
 	unit := UnitName(opts.Name)
 	path := in.unitPath(unit)
-	content := renderUnit(fmt.Sprintf("nanobot-go gateway (%s)", opts.Name), argv, in.workDir(opts), in.getenv("PATH"))
+	content := renderUnit(fmt.Sprintf("Wally gateway (%s)", opts.Name), argv, in.workDir(opts), in.getenv("PATH"))
 	cmds := [][]string{{"systemctl", "--user", "daemon-reload"}}
 	if opts.Enable {
 		cmds = append(cmds, []string{"systemctl", "--user", "enable", unit})

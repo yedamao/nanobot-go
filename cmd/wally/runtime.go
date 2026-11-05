@@ -37,7 +37,7 @@ type commonFlags struct {
 
 func addCommonFlags(fs *flag.FlagSet) *commonFlags {
 	f := &commonFlags{}
-	fs.StringVar(&f.config, "config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	fs.StringVar(&f.config, "config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	fs.StringVar(&f.workspace, "workspace", "", "workspace directory (overrides the config)")
 	fs.BoolVar(&f.verbose, "verbose", false, "log debug output to stderr")
 	return f

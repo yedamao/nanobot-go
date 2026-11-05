@@ -26,7 +26,7 @@ func TestResolve(t *testing.T) {
 			wantProvider: "anthropic", wantModel: "claude-x"},
 		{name: "explicit strips own prefix", keys: map[string]string{"anthropic": "k"}, provider: "anthropic",
 			model: "anthropic/claude-x", wantProvider: "anthropic", wantModel: "claude-x"},
-		{name: "explicit without key", provider: "openai", model: "gpt-4o", wantErr: "NANOBOT_GO_OPENAI_API_KEY"},
+		{name: "explicit without key", provider: "openai", model: "gpt-4o", wantErr: "WALLY_OPENAI_API_KEY"},
 		{name: "unknown", provider: "nope", model: "m", wantErr: "unknown provider"},
 		{name: "auto by prefix", keys: map[string]string{"deepseek": "k", "openrouter": "k"}, provider: "auto",
 			model: "deepseek/deepseek-chat", wantProvider: "deepseek", wantModel: "deepseek-chat"},

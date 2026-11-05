@@ -50,7 +50,7 @@ func options(home string) Options {
 		ConfigPath: "/cfg/config.json",
 		Workspace:  "/ws dir",
 		Port:       18791,
-		LogsDir:    filepath.Join(home, ".nanobot-go", "logs"),
+		LogsDir:    filepath.Join(home, ".wally", "logs"),
 	}
 }
 
@@ -124,19 +124,19 @@ func TestInstallLaunchdDryRun(t *testing.T) {
 	if _, err := os.Stat(res.Path); !os.IsNotExist(err) {
 		t.Errorf("dry run wrote %s", res.Path)
 	}
-	if res.Manager != ManagerLaunchd || res.Name != "ai.nanobot-go.gateway" {
+	if res.Manager != ManagerLaunchd || res.Name != "ai.wally.gateway" {
 		t.Errorf("manager %q label %q", res.Manager, res.Name)
 	}
 	if res.Name == "ai.nanobot.gateway" {
 		t.Error("default label is nanobot's (Python)")
 	}
-	if want := filepath.Join(in.Home, "Library", "LaunchAgents", "ai.nanobot-go.gateway.plist"); res.Path != want {
+	if want := filepath.Join(in.Home, "Library", "LaunchAgents", "ai.wally.gateway.plist"); res.Path != want {
 		t.Errorf("path %s, want %s", res.Path, want)
 	}
 	v := plistValues(t, res.Content)
-	logs := filepath.Join(in.Home, ".nanobot-go", "logs")
+	logs := filepath.Join(in.Home, ".wally", "logs")
 	want := map[string]string{
-		"Label": "<string>ai.nanobot-go.gateway</string>",
+		"Label": "<string>ai.wally.gateway</string>",
 		"ProgramArguments": "<array>\n\t\t<string>/opt/nanobot/bin/nanobot</string>\n\t\t<string>gateway</string>\n" +
 			"\t\t<string>--config</string>\n\t\t<string>/cfg/config.json</string>\n" +
 			"\t\t<string>--workspace</string>\n\t\t<string>/ws dir</string>\n" +
@@ -146,8 +146,8 @@ func TestInstallLaunchdDryRun(t *testing.T) {
 		"RunAtLoad":            "<true/>",
 		"KeepAlive":            "<dict>\n\t\t<key>SuccessfulExit</key>\n\t\t<false/>\n\t</dict>",
 		"EnvironmentVariables": "<dict>\n\t\t<key>PATH</key>\n\t\t<string>/opt/homebrew/bin:/usr/bin:/bin</string>\n\t</dict>",
-		"StandardOutPath":      "<string>" + filepath.Join(logs, "nanobot-go-gateway.launchd.log") + "</string>",
-		"StandardErrorPath":    "<string>" + filepath.Join(logs, "nanobot-go-gateway.launchd.err.log") + "</string>",
+		"StandardOutPath":      "<string>" + filepath.Join(logs, "wally-gateway.launchd.log") + "</string>",
+		"StandardErrorPath":    "<string>" + filepath.Join(logs, "wally-gateway.launchd.err.log") + "</string>",
 	}
 	if !reflect.DeepEqual(v, want) {
 		t.Errorf("plist values:\n%#v\nwant\n%#v", v, want)
@@ -157,8 +157,8 @@ func TestInstallLaunchdDryRun(t *testing.T) {
 	}
 	wantCmds := [][]string{
 		{"launchctl", "bootstrap", "gui/501", res.Path},
-		{"launchctl", "enable", "gui/501/ai.nanobot-go.gateway"},
-		{"launchctl", "kickstart", "-k", "gui/501/ai.nanobot-go.gateway"},
+		{"launchctl", "enable", "gui/501/ai.wally.gateway"},
+		{"launchctl", "kickstart", "-k", "gui/501/ai.wally.gateway"},
 	}
 	if !reflect.DeepEqual(res.Commands, wantCmds) {
 		t.Errorf("commands %v, want %v", res.Commands, wantCmds)
@@ -181,7 +181,7 @@ func TestInstallLaunchdNoEnableNoStart(t *testing.T) {
 	}
 	opts.Enable = true
 	res, _ = in.Install(opts, true)
-	if want := [][]string{{"launchctl", "enable", "gui/501/ai.nanobot-go.gateway"}}; !reflect.DeepEqual(res.Commands, want) {
+	if want := [][]string{{"launchctl", "enable", "gui/501/ai.wally.gateway"}}; !reflect.DeepEqual(res.Commands, want) {
 		t.Errorf("enable-only commands %v", res.Commands)
 	}
 }
@@ -195,7 +195,7 @@ func TestInstallLaunchdWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Name != "ai.nanobot-go.work.bot" {
+	if res.Name != "ai.wally.work.bot" {
 		t.Errorf("label %s", res.Name)
 	}
 	data, err := os.ReadFile(res.Path)
@@ -207,7 +207,7 @@ func TestInstallLaunchdWrites(t *testing.T) {
 			t.Errorf("%s not created", d)
 		}
 	}
-	target := "gui/501/ai.nanobot-go.work.bot"
+	target := "gui/501/ai.wally.work.bot"
 	want := []string{
 		"launchctl bootout " + target,
 		"launchctl bootstrap gui/501 " + res.Path,
@@ -240,14 +240,14 @@ func TestInstallSystemdDryRun(t *testing.T) {
 	if len(f.cmds) != 0 {
 		t.Errorf("dry run ran %v", f.cmds)
 	}
-	if res.Manager != ManagerSystemd || res.Name != "nanobot-go-gateway.service" {
+	if res.Manager != ManagerSystemd || res.Name != "wally-gateway.service" {
 		t.Errorf("manager %q unit %q", res.Manager, res.Name)
 	}
-	if want := filepath.Join(in.Home, ".config", "systemd", "user", "nanobot-go-gateway.service"); res.Path != want {
+	if want := filepath.Join(in.Home, ".config", "systemd", "user", "wally-gateway.service"); res.Path != want {
 		t.Errorf("path %s", res.Path)
 	}
 	want := `[Unit]
-Description=nanobot-go gateway (nanobot-go-gateway)
+Description=Wally gateway (wally-gateway)
 After=network-online.target
 Wants=network-online.target
 
@@ -268,8 +268,8 @@ WantedBy=default.target
 	}
 	wantCmds := [][]string{
 		{"systemctl", "--user", "daemon-reload"},
-		{"systemctl", "--user", "enable", "nanobot-go-gateway.service"},
-		{"systemctl", "--user", "restart", "nanobot-go-gateway.service"},
+		{"systemctl", "--user", "enable", "wally-gateway.service"},
+		{"systemctl", "--user", "restart", "wally-gateway.service"},
 	}
 	if !reflect.DeepEqual(res.Commands, wantCmds) {
 		t.Errorf("commands %v", res.Commands)
@@ -288,7 +288,7 @@ func TestInstallSystemdWrites(t *testing.T) {
 	if data, _ := os.ReadFile(res.Path); string(data) != res.Content || !strings.Contains(res.Content, "WorkingDirectory="+in.Home+"\n") {
 		t.Errorf("unit not written with home as working directory:\n%s", data)
 	}
-	want := []string{"systemctl --user daemon-reload", "systemctl --user enable nanobot-go-gateway.service"}
+	want := []string{"systemctl --user daemon-reload", "systemctl --user enable wally-gateway.service"}
 	if !reflect.DeepEqual(f.cmds, want) {
 		t.Errorf("ran %v", f.cmds)
 	}
@@ -315,20 +315,20 @@ func TestUninstallDryRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := [][]string{
-		{"launchctl", "bootout", "gui/501/ai.nanobot-go.gateway"},
-		{"launchctl", "disable", "gui/501/ai.nanobot-go.gateway"},
+		{"launchctl", "bootout", "gui/501/ai.wally.gateway"},
+		{"launchctl", "disable", "gui/501/ai.wally.gateway"},
 	}
 	if !reflect.DeepEqual(res.Commands, want) || len(f.cmds) != 0 {
 		t.Errorf("commands %v, ran %v", res.Commands, f.cmds)
 	}
 
 	in, _ = newInstaller(t, "linux")
-	res, err = in.Uninstall("nanobot-go-gateway", ManagerAuto, true)
+	res, err = in.Uninstall("wally-gateway", ManagerAuto, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want = [][]string{
-		{"systemctl", "--user", "disable", "--now", "nanobot-go-gateway.service"},
+		{"systemctl", "--user", "disable", "--now", "wally-gateway.service"},
 		{"systemctl", "--user", "daemon-reload"},
 	}
 	if !reflect.DeepEqual(res.Commands, want) {
@@ -397,15 +397,15 @@ func TestInstallRejects(t *testing.T) {
 
 func TestNames(t *testing.T) {
 	for name, want := range map[string][2]string{
-		"":                       {"ai.nanobot-go.gateway", "nanobot-go-gateway.service"},
-		"nanobot-go-gateway":     {"ai.nanobot-go.gateway", "nanobot-go-gateway.service"},
-		"  Work Bot! ":           {"ai.nanobot-go.work.bot", "work-bot.service"},
-		"ai.nanobot-go.custom":   {"ai.nanobot-go.custom", "ai.nanobot-go.custom.service"},
-		"nanobot-go-test-18799":  {"ai.nanobot-go.test.18799", "nanobot-go-test-18799.service"},
-		"..--":                   {"ai.nanobot-go.gateway", "nanobot-go-gateway.service"},
-		"bot.service":            {"ai.nanobot-go.bot.service", "bot.service"},
-		"ai.nanobot.gateway":     {"ai.nanobot-go.ai.nanobot.gateway", "ai.nanobot.gateway.service"},
-		"nanobot-go-gateway-dev": {"ai.nanobot-go.gateway.dev", "nanobot-go-gateway-dev.service"},
+		"":                   {"ai.wally.gateway", "wally-gateway.service"},
+		"wally-gateway":      {"ai.wally.gateway", "wally-gateway.service"},
+		"  Work Bot! ":       {"ai.wally.work.bot", "work-bot.service"},
+		"ai.wally.custom":    {"ai.wally.custom", "ai.wally.custom.service"},
+		"wally-test-18799":   {"ai.wally.test.18799", "wally-test-18799.service"},
+		"..--":               {"ai.wally.gateway", "wally-gateway.service"},
+		"bot.service":        {"ai.wally.bot.service", "bot.service"},
+		"ai.nanobot.gateway": {"ai.wally.ai.nanobot.gateway", "ai.nanobot.gateway.service"},
+		"wally-gateway-dev":  {"ai.wally.gateway.dev", "wally-gateway-dev.service"},
 	} {
 		if got := Label(name); got != want[0] {
 			t.Errorf("Label(%q) = %s, want %s", name, got, want[0])
@@ -419,9 +419,9 @@ func TestNames(t *testing.T) {
 	}
 }
 
-const launchctlPrint = `gui/501/ai.nanobot-go.gateway = {
+const launchctlPrint = `gui/501/ai.wally.gateway = {
 	active count = 1
-	path = /Users/u/Library/LaunchAgents/ai.nanobot-go.gateway.plist
+	path = /Users/u/Library/LaunchAgents/ai.wally.gateway.plist
 	type = LaunchAgent
 	state = running
 
@@ -452,17 +452,17 @@ func TestStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	delete(f.fail, "launchctl print")
-	f.output["launchctl print gui/501/ai.nanobot-go.gateway"] = launchctlPrint
+	f.output["launchctl print gui/501/ai.wally.gateway"] = launchctlPrint
 	st, _ = in.Status("", "", "/logs")
-	want := Status{Manager: "launchd", Name: "ai.nanobot-go.gateway", Path: in.plistPath("ai.nanobot-go.gateway"),
+	want := Status{Manager: "launchd", Name: "ai.wally.gateway", Path: in.plistPath("ai.wally.gateway"),
 		Installed: true, Loaded: true, State: "running", PID: 4242,
-		Stdout: "/logs/nanobot-go-gateway.launchd.log", Stderr: "/logs/nanobot-go-gateway.launchd.err.log"}
+		Stdout: "/logs/wally-gateway.launchd.log", Stderr: "/logs/wally-gateway.launchd.err.log"}
 	if st != want {
 		t.Errorf("status %+v\nwant %+v", st, want)
 	}
 
 	in, f = newInstaller(t, "linux")
-	f.output["systemctl --user show nanobot-go-gateway.service --property=LoadState,ActiveState,MainPID"] = "LoadState=loaded\nActiveState=active\nMainPID=99\n"
+	f.output["systemctl --user show wally-gateway.service --property=LoadState,ActiveState,MainPID"] = "LoadState=loaded\nActiveState=active\nMainPID=99\n"
 	st, _ = in.Status("", "", "")
 	if !st.Loaded || st.State != "active" || st.PID != 99 || st.Installed {
 		t.Errorf("systemd status %+v", st)
@@ -479,7 +479,7 @@ func TestStartStop(t *testing.T) {
 	if _, err := in.Install(opts, false); err != nil {
 		t.Fatal(err)
 	}
-	target := "gui/501/ai.nanobot-go.gateway"
+	target := "gui/501/ai.wally.gateway"
 
 	// Not loaded: bootstrap, then kickstart (without -k).
 	f.cmds = nil
@@ -487,7 +487,7 @@ func TestStartStop(t *testing.T) {
 	if _, err := in.Start("", "", false); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"launchctl print " + target, "launchctl bootstrap gui/501 " + in.plistPath("ai.nanobot-go.gateway"), "launchctl kickstart " + target}
+	want := []string{"launchctl print " + target, "launchctl bootstrap gui/501 " + in.plistPath("ai.wally.gateway"), "launchctl kickstart " + target}
 	if !reflect.DeepEqual(f.cmds, want) {
 		t.Errorf("start ran %v", f.cmds)
 	}
@@ -516,11 +516,11 @@ func TestStartStop(t *testing.T) {
 
 	in, f = newInstaller(t, "linux")
 	res, _ := in.Start("", "", true)
-	if !reflect.DeepEqual(res.Commands, [][]string{{"systemctl", "--user", "start", "nanobot-go-gateway.service"}}) || len(f.cmds) != 0 {
+	if !reflect.DeepEqual(res.Commands, [][]string{{"systemctl", "--user", "start", "wally-gateway.service"}}) || len(f.cmds) != 0 {
 		t.Errorf("systemd start dry run %v ran %v", res.Commands, f.cmds)
 	}
 	res, _ = in.Stop("", "", false)
-	if !reflect.DeepEqual(f.cmds, []string{"systemctl --user stop nanobot-go-gateway.service"}) {
+	if !reflect.DeepEqual(f.cmds, []string{"systemctl --user stop wally-gateway.service"}) {
 		t.Errorf("systemd stop ran %v", f.cmds)
 	}
 }
@@ -532,7 +532,7 @@ func TestServiceRestart(t *testing.T) {
 	if _, err := in.Install(opts, false); err != nil {
 		t.Fatal(err)
 	}
-	target := "gui/501/ai.nanobot-go.gateway"
+	target := "gui/501/ai.wally.gateway"
 
 	f.cmds = nil
 	f.fail["launchctl print"] = true
@@ -562,8 +562,8 @@ func TestServiceRestart(t *testing.T) {
 	}
 	f.cmds = nil
 	res, err = in.Restart("", "", false)
-	want := [][]string{{"systemctl", "--user", "restart", "nanobot-go-gateway.service"}}
-	if err != nil || !reflect.DeepEqual(res.Commands, want) || !reflect.DeepEqual(f.cmds, []string{"systemctl --user restart nanobot-go-gateway.service"}) {
+	want := [][]string{{"systemctl", "--user", "restart", "wally-gateway.service"}}
+	if err != nil || !reflect.DeepEqual(res.Commands, want) || !reflect.DeepEqual(f.cmds, []string{"systemctl --user restart wally-gateway.service"}) {
 		t.Errorf("systemd restart %v, %v, ran %v", res.Commands, err, f.cmds)
 	}
 }

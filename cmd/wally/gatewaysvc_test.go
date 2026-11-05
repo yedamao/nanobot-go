@@ -58,13 +58,13 @@ func TestGatewayServiceDryRun(t *testing.T) {
 	for _, want := range []string{
 		"Gateway service dry run",
 		"Manager:     launchd",
-		"Service:     ai.nanobot-go.gateway",
-		"launchctl bootstrap gui/501 " + filepath.Join(s.home, "Library/LaunchAgents/ai.nanobot-go.gateway.plist"),
-		"launchctl kickstart -k gui/501/ai.nanobot-go.gateway",
+		"Service:     ai.wally.gateway",
+		"launchctl bootstrap gui/501 " + filepath.Join(s.home, "Library/LaunchAgents/ai.wally.gateway.plist"),
+		"launchctl kickstart -k gui/501/ai.wally.gateway",
 		"<string>" + s.configPath + "</string>",
 		"<string>--port</string>\n\t\t<string>" + strconv.Itoa(port) + "</string>",
 		"<string>--verbose</string>",
-		filepath.Join(filepath.Dir(s.configPath), "logs", "nanobot-go-gateway.launchd.log"),
+		filepath.Join(filepath.Dir(s.configPath), "logs", "wally-gateway.launchd.log"),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stdout missing %q:\n%s", want, out)
@@ -85,7 +85,7 @@ func TestGatewayServiceDryRun(t *testing.T) {
 		t.Fatalf("systemd exit %d: %s", code, s.stderr)
 	}
 	out = s.stdout.String()
-	for _, want := range []string{"Restart=always", "--port 18799", "systemctl --user enable nanobot-go-gateway.service"} {
+	for _, want := range []string{"Restart=always", "--port 18799", "systemctl --user enable wally-gateway.service"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("systemd stdout missing %q:\n%s", want, out)
 		}
@@ -93,10 +93,10 @@ func TestGatewayServiceDryRun(t *testing.T) {
 	if strings.Contains(out, "systemctl --user restart") {
 		t.Error("--no-start restarts the unit")
 	}
-	if code := s.run("gateway", "uninstall-service", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl bootout gui/501/ai.nanobot-go.gateway") {
+	if code := s.run("gateway", "uninstall-service", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl bootout gui/501/ai.wally.gateway") {
 		t.Errorf("uninstall dry run %d:\n%s", code, s.stdout)
 	}
-	if code := s.run("gateway", "service", "restart", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl kickstart -k gui/501/ai.nanobot-go.gateway") {
+	if code := s.run("gateway", "service", "restart", "--dry-run"); code != 0 || !strings.Contains(s.stdout.String(), "launchctl kickstart -k gui/501/ai.wally.gateway") {
 		t.Errorf("restart dry run %d:\n%s", code, s.stdout)
 	}
 	if len(s.cmds) != 0 {
@@ -124,12 +124,12 @@ func TestGatewayServiceInstall(t *testing.T) {
 	if code := s.run("gateway", "service", "install", "--no-start"); code != 0 {
 		t.Fatalf("exit %d: %s", code, s.stderr)
 	}
-	plist := filepath.Join(s.home, "Library", "LaunchAgents", "ai.nanobot-go.gateway.plist")
+	plist := filepath.Join(s.home, "Library", "LaunchAgents", "ai.wally.gateway.plist")
 	data, err := os.ReadFile(plist)
 	if err != nil || !strings.Contains(string(data), "<key>RunAtLoad</key>\n\t<true/>") {
 		t.Fatalf("plist %v:\n%s", err, data)
 	}
-	if want := []string{"launchctl enable gui/501/ai.nanobot-go.gateway"}; strings.Join(s.cmds, "|") != strings.Join(want, "|") {
+	if want := []string{"launchctl enable gui/501/ai.wally.gateway"}; strings.Join(s.cmds, "|") != strings.Join(want, "|") {
 		t.Errorf("ran %v", s.cmds)
 	}
 	if code := s.run("gateway", "service", "status"); code != 0 {

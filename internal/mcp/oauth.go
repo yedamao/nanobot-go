@@ -36,7 +36,7 @@ const maxOAuthMetadata = 1 << 20
 
 // Client registration metadata, like nanobot's (RFC 7591).
 const (
-	oauthClientName = "nanobot-go"
+	oauthClientName = "wally"
 	oauthClientURI  = "https://github.com/yedamao/nanobot-go"
 	oauthLogoURI    = "https://raw.githubusercontent.com/yedamao/nanobot-go/main/webui/public/icon-192.png"
 )

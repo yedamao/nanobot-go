@@ -77,8 +77,8 @@ type webSettings struct {
 // overrides.
 func newWebSettings(path string, cfg *config.Config, getenv func(string) string) *webSettings {
 	s := &webSettings{path: path, running: settingsOf(cfg), getenv: getenv}
-	for _, e := range []struct{ name, env string }{{"model", "NANOBOT_GO_MODEL"}, {"provider", "NANOBOT_GO_PROVIDER"}} {
-		if getenv(e.env) != "" {
+	for _, e := range []struct{ name, current, legacy string }{{"model", "WALLY_MODEL", "NANOBOT_GO_MODEL"}, {"provider", "WALLY_PROVIDER", "NANOBOT_GO_PROVIDER"}} {
+		if getenv(e.current) != "" || getenv(e.legacy) != "" {
 			s.envSet = append(s.envSet, e.name)
 		}
 	}
@@ -456,7 +456,7 @@ func webSearchKeySource(cfg *config.Config, getenv func(string) string) string {
 	switch {
 	case strings.TrimSpace(cfg.Tools.Web.Search.APIKey) != "":
 		return "tools.web.search.apiKey"
-	case strings.TrimSpace(cfg.Providers.DeepSeek.APIKey) != "", getenv(config.EnvKeyName(config.WebSearchDeepSeek)) != "":
+	case strings.TrimSpace(cfg.Providers.DeepSeek.APIKey) != "", getenv(config.EnvKeyName(config.WebSearchDeepSeek)) != "", getenv(config.LegacyEnvKeyName(config.WebSearchDeepSeek)) != "":
 		return "providers.deepseek.apiKey"
 	case getenv("DEEPSEEK_API_KEY") != "", getenv("WEB_SEARCH_API_KEY") != "":
 		return "environment"

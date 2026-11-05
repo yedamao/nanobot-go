@@ -48,7 +48,7 @@ type Instance struct {
 
 // Resolve returns the instance for configPath and workspace, with its
 // state under the config file's directory (run/ and logs/). The default
-// config (~/.nanobot-go/config.json) without a workspace override uses
+// default config (~/.wally/config.json, or the legacy fallback) without a workspace override uses
 // gateway.json; any other config or a workspace override gets a short
 // hash suffix (gateway.<hash>.json) so instances never collide.
 func Resolve(configPath, workspace string) (Instance, error) {

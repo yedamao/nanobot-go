@@ -100,7 +100,7 @@ func (a *app) cronService(configFlag, workspaceFlag string) (*cron.Service, erro
 func (a *app) cronList(args []string) error {
 	fs := a.newFlagSet("cron list", "cron list [--all] [--config path] [--workspace dir]")
 	all := fs.Bool("all", false, "include disabled jobs")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	workspace := fs.String("workspace", "", "workspace directory (overrides the config)")
 	if err := parse(fs, args); err != nil {
 		return err
@@ -145,7 +145,7 @@ func (a *app) cronList(args []string) error {
 
 func (a *app) cronRemove(args []string) error {
 	fs := a.newFlagSet("cron remove", "cron remove <id> [--config path] [--workspace dir]")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	workspace := fs.String("workspace", "", "workspace directory (overrides the config)")
 	id, err := parseWithID(fs, args)
 	if err != nil {

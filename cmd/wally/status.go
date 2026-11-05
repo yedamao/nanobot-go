@@ -24,7 +24,7 @@ import (
 // their state.
 func (a *app) status(ctx context.Context, args []string) error {
 	fs := a.newFlagSet("status", "status [--config path] [--mcp]")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	probeMCP := fs.Bool("mcp", false, fmt.Sprintf("connect to the MCP servers (at most %s each) and report their state", statusMCPTimeout))
 	if err := parse(fs, args); err != nil {
 		return err
@@ -117,10 +117,10 @@ func (a *app) status(ctx context.Context, args []string) error {
 	row("Gateway:", "health http://%s/healthz, shutdown timeout %s", cfg.Gateway.Addr(), cfg.Gateway.ShutdownWait())
 	row("Channels:", "%s", channelSummary(cfg.Channels, a.getenv, path))
 	row("API:", "http://%s/v1, in the gateway %s, timeout %s, key %s", cfg.API.Addr(), onOff(cfg.API.Enabled),
-		cfg.API.TurnTimeout(), keySource(apiKeyInFile, a.getenv(config.EnvAPIKey) != ""))
+		cfg.API.TurnTimeout(), keySource(apiKeyInFile, a.getenv(config.EnvAPIKey) != "" || a.getenv(config.LegacyEnvAPIKey) != ""))
 	row("API keys:", "")
 	for _, p := range config.Presets() {
-		row("  "+p.Name, "%s", keySource(keyInFile[p.Name], a.getenv(config.EnvKeyName(p.Name)) != ""))
+		row("  "+p.Name, "%s", keySource(keyInFile[p.Name], a.getenv(config.EnvKeyName(p.Name)) != "" || a.getenv(config.LegacyEnvKeyName(p.Name)) != ""))
 	}
 	return w.Flush()
 }

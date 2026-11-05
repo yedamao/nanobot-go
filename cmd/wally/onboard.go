@@ -15,7 +15,7 @@ import (
 // workspace with its bootstrap files.
 func (a *app) onboard(args []string) error {
 	fs := a.newFlagSet("onboard", "onboard [--config path] [--force]")
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	force := fs.Bool("force", false, "overwrite an existing config file with defaults")
 	if err := parse(fs, args); err != nil {
 		return err

@@ -53,7 +53,7 @@ func (a *app) pairingCmd(args []string) error {
 // opens the pairing store of that config.
 func (a *app) pairingFlags(name, synopsis string, args []string, n int) (*pairing.Store, []string, error) {
 	fs := a.newFlagSet(name, synopsis)
-	configFlag := fs.String("config", "", "config file (default $NANOBOT_GO_CONFIG or ~/.nanobot-go/config.json)")
+	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	// Accept the positionals before or after the flags.
 	var pos []string
 	for len(args) > 0 && !strings.HasPrefix(args[0], "-") {

@@ -38,8 +38,8 @@ foreground on a fixed port, then loads, enables and starts it. The
 service manager restarts the gateway when it fails (launchd: KeepAlive
 on a non-zero exit; systemd: Restart=always after 10s), and starts it at
 login (launchd RunAtLoad) or boot (systemd, with lingering enabled).
-The default name nanobot-go-gateway is the label ai.nanobot-go.gateway and
-the unit nanobot-go-gateway.service, apart from nanobot's (Python).
+The default name wally-gateway is the label ai.wally.gateway and
+the unit wally-gateway.service, apart from nanobot's (Python).
 
 start and status read the config, workspace and port from the installed
 plist or unit. install --start and start refuse while another gateway runs for the
@@ -97,7 +97,7 @@ type serviceFlags struct {
 
 func addServiceFlags(s *gatewayFlags) *serviceFlags {
 	f := &serviceFlags{}
-	s.fs.StringVar(&f.name, "name", gatewayservice.DefaultName, "service name (launchd label ai.nanobot-go.<name>, systemd unit <name>.service)")
+	s.fs.StringVar(&f.name, "name", gatewayservice.DefaultName, "service name (launchd label ai.wally.<name>, systemd unit <name>.service)")
 	s.fs.StringVar(&f.manager, "manager", gatewayservice.ManagerAuto, "service manager: auto, launchd or systemd")
 	return f
 }

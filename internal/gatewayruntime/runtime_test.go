@@ -82,15 +82,15 @@ func exists(path string) bool {
 func TestResolve(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	def := filepath.Join(home, ".nanobot-go", "config.json")
+	def := filepath.Join(home, ".wally", "config.json")
 	inst, err := Resolve(def, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 	p := inst.Paths
-	if p.StatePath != filepath.Join(home, ".nanobot-go", "run", "gateway.json") ||
-		p.LogPath != filepath.Join(home, ".nanobot-go", "logs", "gateway.log") ||
-		p.ClientsPath != filepath.Join(home, ".nanobot-go", "run", "gateway.clients.json") {
+	if p.StatePath != filepath.Join(home, ".wally", "run", "gateway.json") ||
+		p.LogPath != filepath.Join(home, ".wally", "logs", "gateway.log") ||
+		p.ClientsPath != filepath.Join(home, ".wally", "run", "gateway.clients.json") {
 		t.Errorf("default paths %+v", p)
 	}
 

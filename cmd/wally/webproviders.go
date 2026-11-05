@@ -119,8 +119,14 @@ func (s *webProviders) view(p config.Preset, cfg *config.Config) websocket.Provi
 	if e := s.getenv(config.EnvKeyName(p.Name)); e != "" {
 		effective.APIKey = e
 		v.EnvOverrides = append(v.EnvOverrides, "apiKey")
+	} else if e := s.getenv(config.LegacyEnvKeyName(p.Name)); e != "" {
+		effective.APIKey = e
+		v.EnvOverrides = append(v.EnvOverrides, "apiKey")
 	}
-	if e := s.getenv("NANOBOT_GO_" + up + "_API_BASE"); e != "" {
+	if e := s.getenv("WALLY_" + up + "_API_BASE"); e != "" {
+		effective.APIBase = e
+		v.EnvOverrides = append(v.EnvOverrides, "apiBase")
+	} else if e := s.getenv("NANOBOT_GO_" + up + "_API_BASE"); e != "" {
 		effective.APIBase = e
 		v.EnvOverrides = append(v.EnvOverrides, "apiBase")
 	}

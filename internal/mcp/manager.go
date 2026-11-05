@@ -211,7 +211,7 @@ func NewManager(servers map[string]config.MCPServerConfig, reg *tools.Registry, 
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	// Advertise no client capabilities: nanobot-go serves no roots,
 	// sampling or elicitation.
-	m.client = sdk.NewClient(&sdk.Implementation{Name: "nanobot-go", Version: m.version},
+	m.client = sdk.NewClient(&sdk.Implementation{Name: "wally", Version: m.version},
 		&sdk.ClientOptions{Logger: logger, Capabilities: &sdk.ClientCapabilities{}})
 	for _, name := range slices.Sorted(maps.Keys(servers)) {
 		m.servers = append(m.servers, newServer(name, servers[name]))

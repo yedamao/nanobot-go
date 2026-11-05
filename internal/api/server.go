@@ -114,7 +114,7 @@ func New(cfg Config) (*Server, error) {
 		return nil, fmt.Errorf("api: timeout must be positive, got %v", cfg.Timeout)
 	case !security.IsLoopbackHost(cfg.Host) && cfg.APIKey == "":
 		return nil, fmt.Errorf("api: host %q is reachable beyond this device but api.apiKey is not set; "+
-			"set api.apiKey (or NANOBOT_GO_API_KEY) to prevent unauthenticated access", cfg.Host)
+			"set api.apiKey (or WALLY_API_KEY; legacy NANOBOT_GO_API_KEY is also accepted) to prevent unauthenticated access", cfg.Host)
 	}
 	log := cfg.Logger
 	if log == nil {
