@@ -23,7 +23,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 const (

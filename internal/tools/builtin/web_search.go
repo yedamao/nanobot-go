@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // The DeepSeek Search and Fetch APIs are client-side tools: plain JSON

@@ -13,8 +13,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // fakeMCP serves an in-memory "demo" server with an echo tool and fails

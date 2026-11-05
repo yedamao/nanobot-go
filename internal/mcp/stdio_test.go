@@ -15,8 +15,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // envTestServer makes the test binary act as an MCP stdio server.

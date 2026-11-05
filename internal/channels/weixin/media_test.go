@@ -17,9 +17,9 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // writeFile writes data to rel in the workspace and returns its path.

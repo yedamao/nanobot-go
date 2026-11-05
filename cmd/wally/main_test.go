@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/mcp"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
 )
 
 // fakeProvider answers "echo: <last user message>" unless chat is set.

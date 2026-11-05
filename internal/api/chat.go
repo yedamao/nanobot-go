@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // chatRequest is the part of an OpenAI chat completion request the API

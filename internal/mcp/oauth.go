@@ -17,8 +17,8 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // OAuthCallbackPath is where the authorization server sends the browser
@@ -37,7 +37,7 @@ const maxOAuthMetadata = 1 << 20
 // Client registration metadata, like nanobot's (RFC 7591).
 const (
 	oauthClientName = "wally"
-	oauthClientURI  = "https://github.com/yedamao/nanobot-go"
+	oauthClientURI  = "https://github.com/yedamao/wally"
 	oauthLogoURI    = "https://raw.githubusercontent.com/yedamao/nanobot-go/main/webui/public/icon-192.png"
 )
 

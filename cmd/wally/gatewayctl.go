@@ -9,8 +9,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/gatewayruntime"
 )
 
 const gatewayUsage = `Usage:

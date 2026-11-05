@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/security"
 )
 
 var pngFixture = []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDRfixture")

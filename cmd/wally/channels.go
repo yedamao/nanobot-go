@@ -8,8 +8,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/channels/weixin"
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/channels/weixin"
+	"github.com/yedamao/wally/internal/config"
 )
 
 const channelsUsage = `Usage:

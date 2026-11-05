@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 func TestBoundRunner(t *testing.T) {

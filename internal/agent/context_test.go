@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/heartbeat"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/heartbeat"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func TestSystemPrompt(t *testing.T) {

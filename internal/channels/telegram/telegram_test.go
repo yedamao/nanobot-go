@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
 )
 
 func TestParseConfig(t *testing.T) {

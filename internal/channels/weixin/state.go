@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // stateLockFile serializes updates of account.json between the gateway

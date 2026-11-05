@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // DreamChannel is the channel name Dream turns run under.

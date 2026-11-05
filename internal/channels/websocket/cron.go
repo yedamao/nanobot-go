@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yedamao/nanobot-go/internal/cron"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/cron"
+	"github.com/yedamao/wally/internal/session"
 )
 
 const (

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 var choice = [][]string{{"Yes", "No"}, {}, {"Cancel"}}

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // roundTrip answers a request in tests, which never reach the network.

@@ -11,7 +11,7 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // Workspace-relative location of the job store, like nanobot's.

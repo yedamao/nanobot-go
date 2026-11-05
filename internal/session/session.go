@@ -11,7 +11,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // Session is one conversation. It is not safe for concurrent use; the

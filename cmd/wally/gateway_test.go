@@ -17,11 +17,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/transcribe"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/transcribe"
 )
 
 // eventLog records gateway events in order.

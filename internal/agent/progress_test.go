@@ -7,8 +7,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func TestToolHint(t *testing.T) {

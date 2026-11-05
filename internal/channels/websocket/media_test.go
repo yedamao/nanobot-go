@@ -8,11 +8,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/session"
 )
 
 var pngBytes = []byte("\x89PNG\r\n\x1a\nfake")

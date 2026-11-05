@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // albumItems decodes the media array of a sendMediaGroup call.

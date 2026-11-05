@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
-	"github.com/yedamao/nanobot-go/internal/gatewayservice"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/gatewayruntime"
+	"github.com/yedamao/wally/internal/gatewayservice"
 )
 
 const (

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // ToolConfig configures the cron tool.

@@ -19,7 +19,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // The credential store ports nanobot/agent/tools/mcp_oauth.py's

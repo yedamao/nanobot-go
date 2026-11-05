@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // step produces one scripted provider reply.

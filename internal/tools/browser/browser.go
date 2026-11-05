@@ -12,9 +12,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 var actions = []string{"navigate", "snapshot", "click", "type", "select", "scroll", "key", "back", "read_text"}

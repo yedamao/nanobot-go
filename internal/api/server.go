@@ -27,9 +27,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/security"
 )
 
 const (

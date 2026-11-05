@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/pairing"
+	"github.com/yedamao/wally/internal/pairing"
 )
 
 func TestPairingUIApproveDenyRevoke(t *testing.T) {

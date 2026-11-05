@@ -10,8 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/skills"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/skills"
 )
 
 func writeTestSkill(t *testing.T, root, name, content string) {

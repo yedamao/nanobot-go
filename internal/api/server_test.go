@@ -16,11 +16,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 const testModel = "test-model"

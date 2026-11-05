@@ -10,12 +10,12 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/yedamao/nanobot-go/internal/channels/telegram"
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/channels/weixin"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/security/sandbox"
+	"github.com/yedamao/wally/internal/channels/telegram"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/channels/weixin"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/security/sandbox"
 )
 
 // maxModelLen caps a model name set from the WebUI.

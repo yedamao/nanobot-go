@@ -9,11 +9,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // Built-in chat commands handled by the loop without calling the model.

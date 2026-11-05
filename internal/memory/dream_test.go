@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // fakeDreamAgent records each prompt and, unless edit is nil, lets the

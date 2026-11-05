@@ -15,10 +15,10 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
 )
 
 // harness is a started channel mounted on an httptest server (which

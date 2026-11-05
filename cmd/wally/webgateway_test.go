@@ -5,9 +5,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/gatewayruntime"
-	"github.com/yedamao/nanobot-go/internal/gatewayservice"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/gatewayruntime"
+	"github.com/yedamao/wally/internal/gatewayservice"
 )
 
 // fakeWebGateway returns a control of process 42 whose recorded status

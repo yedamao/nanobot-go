@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 const (

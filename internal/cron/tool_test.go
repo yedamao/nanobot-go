@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 func newToolHarness(t *testing.T, cfg ToolConfig) (*Service, *tools.Registry, *fakeClock) {

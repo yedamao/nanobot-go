@@ -6,9 +6,9 @@ import (
 	"maps"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // hintMaxLen caps the argument part of a tool hint, in characters.

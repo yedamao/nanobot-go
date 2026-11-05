@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // Limits on the images ExpandMedia inlines into a request. An image over a

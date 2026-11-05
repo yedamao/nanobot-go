@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/channels"
+	"github.com/yedamao/wally/internal/channels"
 )
 
 const (

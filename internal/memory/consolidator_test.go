@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
 )
 
 // fakeProvider returns resp (or err) and records requests.

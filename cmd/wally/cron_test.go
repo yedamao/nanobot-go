@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/cron"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/cron"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // cronProvider schedules a one-time job when asked to "remind me", and

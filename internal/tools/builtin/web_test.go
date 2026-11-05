@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // loopbackPolicy whitelists 127.0.0.1/32 (where httptest listens), so tests

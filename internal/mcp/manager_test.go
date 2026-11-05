@@ -17,8 +17,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // fakeServers serves in-memory MCP servers to a Manager.

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func TestResolve(t *testing.T) {

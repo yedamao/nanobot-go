@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 const (

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func TestDreamRunIsAnEphemeralTurn(t *testing.T) {

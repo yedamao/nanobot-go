@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/gatewayservice"
+	"github.com/yedamao/wally/internal/gatewayservice"
 )
 
 // serviceEnv is a test env whose service installer writes under a fake

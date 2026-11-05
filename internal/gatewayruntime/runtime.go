@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // Launch modes recorded in the state file.

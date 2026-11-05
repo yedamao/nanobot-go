@@ -10,9 +10,9 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/cron"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/cron"
 )
 
 const cronUsage = `Usage:

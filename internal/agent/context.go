@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // BootstrapFiles returns the workspace files added to the system prompt, in

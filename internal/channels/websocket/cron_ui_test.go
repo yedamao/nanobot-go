@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/cron"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/cron"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
 )
 
 func TestCronUIListRunRemove(t *testing.T) {

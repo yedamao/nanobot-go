@@ -26,9 +26,9 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // DefaultConnectTimeout bounds connecting to one server and listing its

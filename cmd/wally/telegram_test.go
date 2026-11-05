@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/config"
 )
 
 const fakeBotToken = "123456:fake-bot-token-SECRET"

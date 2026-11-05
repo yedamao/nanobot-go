@@ -7,10 +7,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/tools/message"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/session"
+	"github.com/yedamao/wally/internal/tools/message"
 )
 
 func TestTurnSendsInboundImagesAndPersistsPaths(t *testing.T) {

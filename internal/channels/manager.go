@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // senderQueueSize is how many outbound messages may wait for one channel

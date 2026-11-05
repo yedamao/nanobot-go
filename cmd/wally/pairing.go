@@ -10,8 +10,8 @@ import (
 	"text/tabwriter"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/pairing"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/pairing"
 )
 
 const pairingUsage = `Usage:

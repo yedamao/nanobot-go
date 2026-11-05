@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // recorder collects events from several fakes in order.

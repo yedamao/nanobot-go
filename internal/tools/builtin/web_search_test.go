@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // deepseekServer answers every request with handler and records the

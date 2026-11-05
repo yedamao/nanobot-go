@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/heartbeat"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/heartbeat"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // heartbeatProvider answers heartbeat turns with reply, the notification

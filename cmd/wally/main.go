@@ -18,11 +18,11 @@ import (
 	"runtime"
 	"syscall"
 
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/gatewayservice"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/gatewayservice"
+	"github.com/yedamao/wally/internal/mcp"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // version is set at build time with -ldflags "-X main.version=...".

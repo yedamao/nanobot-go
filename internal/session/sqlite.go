@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 
 	// Pure-Go SQLite driver, registered as "sqlite"; no cgo needed.
 	_ "modernc.org/sqlite"

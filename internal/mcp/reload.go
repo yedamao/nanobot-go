@@ -9,7 +9,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // ReloadResult reports a Reload, as nanobot's MCPProvider.reload does.

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
-	"github.com/yedamao/nanobot-go/internal/tools/builtin"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
+	"github.com/yedamao/wally/internal/tools/builtin"
 )
 
 // SkillsDir holds workspace skills (skills/<name>/SKILL.md), which Dream

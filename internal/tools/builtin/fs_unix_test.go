@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // A FIFO in the workspace has no writer, so a blocking open would hang the

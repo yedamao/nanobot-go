@@ -23,8 +23,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // Workspace-relative locations of the memory files. The shell guard denies

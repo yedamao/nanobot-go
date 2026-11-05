@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/pairing"
+	"github.com/yedamao/wally/internal/pairing"
 )
 
 const (

@@ -17,8 +17,8 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // Inbound media (nanobot: _download_media_item, after openclaw-weixin's

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // TriggerMetaKey marks the inbound message of a cron turn (nanobot:

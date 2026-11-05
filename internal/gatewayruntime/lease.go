@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // clients is the clients file.

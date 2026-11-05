@@ -10,7 +10,7 @@ import (
 
 // openRouterHeaders are OpenRouter's app attribution headers.
 var openRouterHeaders = map[string]string{
-	"HTTP-Referer":       "https://github.com/yedamao/nanobot-go",
+	"HTTP-Referer":       "https://github.com/yedamao/wally",
 	"X-OpenRouter-Title": "nanobot-go",
 }
 

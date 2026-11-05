@@ -15,10 +15,10 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/mcp"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // runningMCP returns an MCP store for path whose running servers are the

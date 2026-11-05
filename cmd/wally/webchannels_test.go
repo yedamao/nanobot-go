@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/channels/weixin"
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/channels/weixin"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // Fake Telegram tokens: the right shape, never real.

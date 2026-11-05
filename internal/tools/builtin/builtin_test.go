@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // The runner executes consecutive read-only calls concurrently, so a tool

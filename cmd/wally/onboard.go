@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // onboard writes a default config file (unless one exists) and creates the

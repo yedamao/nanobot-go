@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 const (

@@ -18,7 +18,7 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // Channel is one chat platform connection.

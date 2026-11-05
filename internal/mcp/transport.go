@@ -15,8 +15,8 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // TransportFactory builds the transport for one connection attempt. It is

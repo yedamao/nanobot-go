@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/security"
 )
 
 const (

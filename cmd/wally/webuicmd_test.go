@@ -19,8 +19,8 @@ import (
 	"testing"
 	"time"
 
-	wschan "github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
+	wschan "github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // fakeGateway serves /healthz and, with ui, /ui/ on a loopback port.

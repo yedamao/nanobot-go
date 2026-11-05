@@ -9,9 +9,9 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/session"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/session"
 )
 
 // summarizer routes consolidation requests (any request whose system

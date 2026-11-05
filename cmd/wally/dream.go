@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/yedamao/nanobot-go/internal/agent"
-	"github.com/yedamao/nanobot-go/internal/memory"
+	"github.com/yedamao/wally/internal/agent"
+	"github.com/yedamao/wally/internal/memory"
 )
 
 // dream runs one Dream pass: it folds unprocessed history.jsonl entries

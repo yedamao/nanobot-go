@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/yedamao/nanobot-go/internal/skills"
+	"github.com/yedamao/wally/internal/skills"
 )
 
 const (

@@ -41,15 +41,15 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/cron"
-	"github.com/yedamao/nanobot-go/internal/pairing"
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/skills"
-	"github.com/yedamao/nanobot-go/internal/webui"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/cron"
+	"github.com/yedamao/wally/internal/pairing"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/session"
+	"github.com/yedamao/wally/internal/skills"
+	"github.com/yedamao/wally/internal/webui"
 )
 
 const (

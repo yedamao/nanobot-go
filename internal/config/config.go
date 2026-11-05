@@ -21,10 +21,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/cron"
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/security/sandbox"
+	"github.com/yedamao/wally/internal/cron"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/security/sandbox"
 )
 
 // Defaults.

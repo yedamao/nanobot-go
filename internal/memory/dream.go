@@ -12,8 +12,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/yedamao/nanobot-go/internal/fsutil"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/fsutil"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // Defaults for DreamConfig fields left at zero.

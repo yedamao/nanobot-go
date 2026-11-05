@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/mcp"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // statusMCPTimeout bounds each server's connection in `status --mcp`.

@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // ErrNotFound is returned when no session is stored under a key.

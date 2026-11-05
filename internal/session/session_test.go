@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func user(s string) providers.Message { return providers.Message{Role: providers.RoleUser, Content: s} }

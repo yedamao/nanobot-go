@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func openSQLite(t *testing.T, path, importDir string) *SQLiteStore {

@@ -9,13 +9,13 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/yedamao/nanobot-go/internal/channels/telegram"
-	"github.com/yedamao/nanobot-go/internal/channels/weixin"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
-	"github.com/yedamao/nanobot-go/internal/security/sandbox"
-	"github.com/yedamao/nanobot-go/internal/session"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/channels/telegram"
+	"github.com/yedamao/wally/internal/channels/weixin"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/mcp"
+	"github.com/yedamao/wally/internal/security/sandbox"
+	"github.com/yedamao/wally/internal/session"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // status prints where things are, which providers have keys and which MCP

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 func newWS(t *testing.T) *security.Workspace {

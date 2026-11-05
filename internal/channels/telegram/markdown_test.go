@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
+	"github.com/yedamao/wally/internal/bus"
 )
 
 // The cases follow nanobot's _markdown_to_telegram_html tests.

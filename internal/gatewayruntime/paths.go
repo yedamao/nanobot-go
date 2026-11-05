@@ -13,7 +13,7 @@ import (
 	"encoding/hex"
 	"path/filepath"
 
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // Paths is the filesystem state of one gateway instance.

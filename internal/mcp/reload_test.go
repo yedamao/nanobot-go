@@ -8,7 +8,7 @@ import (
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/config"
 )
 
 func (h *harness) reload(t *testing.T, next map[string]config.MCPServerConfig) ReloadResult {

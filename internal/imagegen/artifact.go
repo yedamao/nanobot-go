@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/fsutil"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/fsutil"
 )
 
 // MediaDir is the workspace directory generated images are saved under,

@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/http"
 
-	"github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/mcp"
+	"github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/mcp"
 )
 
 // mcpReloadTimeout bounds applying the saved MCP servers to the running

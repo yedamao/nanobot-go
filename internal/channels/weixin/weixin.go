@@ -36,10 +36,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/pairing"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/pairing"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // Runtime constants, from nanobot's runtime.py (and the reference

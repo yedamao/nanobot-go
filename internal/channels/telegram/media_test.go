@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 // jpegFixture is a tiny stand-in for a photo: a JPEG signature is all

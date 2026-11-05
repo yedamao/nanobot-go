@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/yedamao/nanobot-go/internal/api"
-	"github.com/yedamao/nanobot-go/internal/config"
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/api"
+	"github.com/yedamao/wally/internal/config"
+	"github.com/yedamao/wally/internal/security"
 )
 
 // serveCronNote follows every job the cron tool adds from `nanobot

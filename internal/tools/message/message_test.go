@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/bus"
-	"github.com/yedamao/nanobot-go/internal/heartbeat"
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/bus"
+	"github.com/yedamao/wally/internal/heartbeat"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 var chatTurn = tools.Turn{Channel: "telegram", ChatID: "42", SessionKey: "telegram:42",

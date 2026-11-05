@@ -13,7 +13,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/yedamao/nanobot-go/internal/security"
+	"github.com/yedamao/wally/internal/security"
 )
 
 const (

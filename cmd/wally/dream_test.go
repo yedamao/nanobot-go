@@ -10,8 +10,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/memory"
-	"github.com/yedamao/nanobot-go/internal/providers"
+	"github.com/yedamao/wally/internal/memory"
+	"github.com/yedamao/wally/internal/providers"
 )
 
 func appendHistory(t *testing.T, workspace string, contents ...string) {

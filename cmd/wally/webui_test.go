@@ -12,8 +12,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	wschan "github.com/yedamao/nanobot-go/internal/channels/websocket"
-	"github.com/yedamao/nanobot-go/internal/config"
+	wschan "github.com/yedamao/wally/internal/channels/websocket"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // enableWebUI replaces the fake channel with the websocket channel.

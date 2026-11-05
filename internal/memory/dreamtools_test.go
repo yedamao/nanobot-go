@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // dreamWorkspace returns a resolved workspace with the memory files in

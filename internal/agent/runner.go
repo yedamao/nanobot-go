@@ -12,8 +12,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // DefaultMaxIterations matches nanobot's agents.defaults.maxToolIterations.

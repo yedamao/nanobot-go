@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/channels"
-	"github.com/yedamao/nanobot-go/internal/config"
+	"github.com/yedamao/wally/internal/channels"
+	"github.com/yedamao/wally/internal/config"
 )
 
 // serveRun is `nanobot serve` running in the background.

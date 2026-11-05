@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yedamao/nanobot-go/internal/security"
-	"github.com/yedamao/nanobot-go/internal/security/sandbox"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/security"
+	"github.com/yedamao/wally/internal/security/sandbox"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 const (

@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/yedamao/nanobot-go/internal/providers"
-	"github.com/yedamao/nanobot-go/internal/tools"
+	"github.com/yedamao/wally/internal/providers"
+	"github.com/yedamao/wally/internal/tools"
 )
 
 // Hooks observes a run. OnToolStart and OnToolEnd may be called

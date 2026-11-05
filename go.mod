@@ -1,4 +1,4 @@
-module github.com/yedamao/nanobot-go
+module github.com/yedamao/wally
 
 go 1.26.1
 
