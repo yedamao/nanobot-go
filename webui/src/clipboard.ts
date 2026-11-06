@@ -1,7 +1,45 @@
-const imageExtensions: Record<string, string> = {
-  "svg+xml": "svg",
-  "x-icon": "ico",
-  "vnd.microsoft.icon": "ico",
+const mimeExtensions: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/gif": "gif",
+  "image/webp": "webp",
+  "image/svg+xml": "svg",
+  "image/bmp": "bmp",
+  "image/tiff": "tiff",
+  "image/x-icon": "ico",
+  "image/vnd.microsoft.icon": "ico",
+  "image/avif": "avif",
+  "application/pdf": "pdf",
+  "application/zip": "zip",
+  "application/x-zip-compressed": "zip",
+  "application/gzip": "gz",
+  "application/x-gzip": "gz",
+  "application/x-tar": "tar",
+  "application/json": "json",
+  "application/ld+json": "jsonld",
+  "application/xml": "xml",
+  "application/javascript": "js",
+  "application/x-javascript": "js",
+  "application/wasm": "wasm",
+  "text/plain": "txt",
+  "text/csv": "csv",
+  "text/html": "html",
+  "text/css": "css",
+  "text/xml": "xml",
+  "text/markdown": "md",
+  "text/javascript": "js",
+  "text/typescript": "ts",
+  "text/jsx": "jsx",
+  "text/tsx": "tsx",
+  "text/x-c": "c",
+  "text/x-c++": "cpp",
+  "text/x-csharp": "cs",
+  "text/x-go": "go",
+  "text/x-java-source": "java",
+  "text/x-python": "py",
+  "text/x-ruby": "rb",
+  "text/x-rust": "rs",
+  "text/x-shellscript": "sh",
 };
 
 function timestamp(date: Date): string {
@@ -9,18 +47,24 @@ function timestamp(date: Date): string {
   return `${date.getFullYear()}${part(date.getMonth() + 1)}${part(date.getDate())}-${part(date.getHours())}${part(date.getMinutes())}${part(date.getSeconds())}`;
 }
 
-export function nameClipboardImage(file: File, now = new Date()): File {
+export function nameClipboardFile(file: File, now = new Date()): File {
   if (file.name) return file;
-  const subtype = file.type.slice("image/".length).toLowerCase();
-  const extension = imageExtensions[subtype] ?? (subtype.replace(/[^a-z0-9]/g, "") || "png");
+  const extension = mimeExtensions[file.type.toLowerCase()] ?? "bin";
   return new File([file], `paste-${timestamp(now)}.${extension}`, { type: file.type, lastModified: file.lastModified });
 }
 
-export function clipboardImages(data: DataTransfer, now = new Date()): File[] {
-  const itemImages = Array.from(data.items)
-    .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+export function clipboardFiles(data: DataTransfer, now = new Date()): File[] {
+  const itemFiles = Array.from(data.items)
+    .filter((item) => item.kind === "file")
     .map((item) => item.getAsFile())
     .filter((file): file is File => file !== null);
-  const images = itemImages.length > 0 ? itemImages : Array.from(data.files).filter((file) => file.type.startsWith("image/"));
-  return images.map((file) => nameClipboardImage(file, now));
+  const files = itemFiles.length > 0 ? itemFiles : Array.from(data.files);
+  return files.map((file) => nameClipboardFile(file, now));
+}
+
+// Compatibility aliases for callers that still specifically handle images.
+export const nameClipboardImage = nameClipboardFile;
+
+export function clipboardImages(data: DataTransfer, now = new Date()): File[] {
+  return clipboardFiles(data, now).filter((file) => file.type.startsWith("image/"));
 }

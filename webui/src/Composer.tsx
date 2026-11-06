@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { uploadFile, type Upload } from "./api";
 import { fileExt } from "./Attachments";
-import { clipboardImages } from "./clipboard";
+import { clipboardFiles } from "./clipboard";
 import { Icon } from "./Icon";
 import { useT } from "./i18n";
 import { attachmentText, type MediaRef } from "./media";
@@ -86,10 +86,10 @@ export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply, 
   };
 
   const onPaste = (ev: ClipboardEvent<HTMLTextAreaElement>) => {
-    const images = clipboardImages(ev.clipboardData);
-    if (images.length === 0) return; // preserve the browser's normal text paste
+    const files = clipboardFiles(ev.clipboardData);
+    if (files.length === 0) return; // preserve the browser's normal text paste
     ev.preventDefault();
-    attachFiles(images);
+    attachFiles(files);
   };
 
   return (
