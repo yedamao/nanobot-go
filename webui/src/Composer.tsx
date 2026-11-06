@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ChangeEvent, type ClipboardEvent, type FormEvent, type KeyboardEvent } from "react";
 import { uploadFile, type Upload } from "./api";
 import { fileExt } from "./Attachments";
+import { clipboardImages } from "./clipboard";
 import { Icon } from "./Icon";
 import { useT } from "./i18n";
 import { attachmentText, type MediaRef } from "./media";
@@ -67,9 +68,7 @@ export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply, 
     }
   };
 
-  const onPick = (ev: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(ev.target.files ?? []);
-    ev.target.value = ""; // picking the same file again fires change
+  const attachFiles = (files: File[]) => {
     setUploadError("");
     for (const file of files) {
       setUploading((n) => n + 1);
@@ -78,6 +77,19 @@ export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply, 
         .catch((err: Error) => setUploadError(file.name + ": " + err.message))
         .finally(() => setUploading((n) => n - 1));
     }
+  };
+
+  const onPick = (ev: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(ev.target.files ?? []);
+    ev.target.value = ""; // picking the same file again fires change
+    attachFiles(files);
+  };
+
+  const onPaste = (ev: ClipboardEvent<HTMLTextAreaElement>) => {
+    const images = clipboardImages(ev.clipboardData);
+    if (images.length === 0) return; // preserve the browser's normal text paste
+    ev.preventDefault();
+    attachFiles(images);
   };
 
   return (
@@ -134,6 +146,7 @@ export function Composer({ canSend, busy, onSend, onStop, reply, onCancelReply, 
           value={text}
           onChange={(ev) => setText(ev.target.value)}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
         <div className="composer-bar">
           <button
