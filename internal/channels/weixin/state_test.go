@@ -120,6 +120,9 @@ func TestParseConfig(t *testing.T) {
 	if got := DefaultStateDir("/home/u/.nanobot-go/config.json"); got != "/home/u/.nanobot-go/state/weixin" {
 		t.Errorf("DefaultStateDir = %q", got)
 	}
+	if got := DefaultStateDir("/home/u/.nanobot-go/config.json", "weixin.work"); got != "/home/u/.nanobot-go/state/weixin.work" {
+		t.Errorf("DefaultStateDir(named) = %q", got)
+	}
 
 	cfg, err = ParseConfig(json.RawMessage(`{"enabled": true, "token": "a", "baseUrl": "https://h/", "routeTag": 1001,
 		"stateDir": "~/wx", "pollTimeout": 20, "allowFrom": ["u@im.wechat"]}`), env(map[string]string{EnvToken: "from-env"}))
@@ -139,6 +142,19 @@ func TestParseConfig(t *testing.T) {
 		_, err := ParseConfig(json.RawMessage(raw), nil)
 		if err == nil || strings.Contains(err.Error(), "SECRET") {
 			t.Errorf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestIsName(t *testing.T) {
+	for _, name := range []string{"weixin", "weixin.work"} {
+		if !IsName(name) {
+			t.Errorf("IsName(%q) = false", name)
+		}
+	}
+	for _, name := range []string{"", "weixin.", "weixin.a.b", "telegram", "xweixin.work"} {
+		if IsName(name) {
+			t.Errorf("IsName(%q) = true", name)
 		}
 	}
 }

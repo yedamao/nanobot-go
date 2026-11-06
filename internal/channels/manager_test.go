@@ -526,3 +526,26 @@ func TestPermanent(t *testing.T) {
 		t.Error("wrapped permanent error not detected")
 	}
 }
+
+func TestRegistryBuildNamedWeixin(t *testing.T) {
+	r := NewRegistry()
+	for _, base := range []string{"weixin", "telegram"} {
+		if err := r.Register(base, func(_ json.RawMessage, deps Deps) (Channel, error) {
+			return newFake(deps.Name, nil), nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deps := Deps{Bus: bus.NewMessageBus(1)}
+	for _, name := range []string{"weixin", "weixin.work"} {
+		chans, err := r.Build(map[string]json.RawMessage{name: json.RawMessage(`{"enabled":true}`)}, deps)
+		if err != nil || len(chans) != 1 || chans[0].Name() != name {
+			t.Fatalf("Build(%q) = %v, %v", name, chans, err)
+		}
+	}
+	for _, name := range []string{"weixin.", "telegram.work", "other"} {
+		if _, err := r.Build(map[string]json.RawMessage{name: json.RawMessage(`{"enabled":true}`)}, deps); err == nil || !strings.Contains(err.Error(), "unknown channel") {
+			t.Errorf("Build(%q) err = %v, want unknown channel", name, err)
+		}
+	}
+}

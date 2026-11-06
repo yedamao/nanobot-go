@@ -26,6 +26,7 @@ import {
   forceLoginCommand,
   loginDetails,
   loginStatus,
+  isWeixinChannel,
   testNote,
   tokenStatus,
   weixinLogin,
@@ -382,7 +383,7 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
             </label>
           </>
         )}
-        {c.name === "weixin" && (
+        {isWeixinChannel(c.name) && (
           <>
             <label htmlFor={id + "-base"}>
               {t("channels.baseUrl")}
@@ -423,12 +424,12 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
           />
         </label>
       </fieldset>
-      {c.name === "weixin" && c.login && (
-        <WeixinLoginStatus login={c.login} running={c.running} onCleared={(v) => onSaved(withLogin(c, v))} />
+      {isWeixinChannel(c.name) && c.login && (
+        <WeixinLoginStatus name={c.name} login={c.login} running={c.running} onCleared={(v) => onSaved(withLogin(c, v))} />
       )}
-      {c.name === "weixin" && !c.login && (
+      {isWeixinChannel(c.name) && !c.login && (
         <p className="page-empty">
-          <Fill text={t("channels.weixinNoLogin")} vars={{ command: <code>nanobot channels login weixin</code> }} />
+          <Fill text={t("channels.weixinNoLogin")} vars={{ command: <code>nanobot channels login {c.name}</code> }} />
         </p>
       )}
       {c.hasProxy && <p className="page-empty">{t("channels.proxy")}</p>}
@@ -467,10 +468,12 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
 // Refresh re-reads the login and Clear login removes the saved one
 // (after a confirm), both without resetting the card's form.
 function WeixinLoginStatus({
+  name,
   login: initial,
   running,
   onCleared,
 }: {
+  name: string;
   login: WeixinLogin;
   running: boolean;
   onCleared: (v: ChannelConfig) => void;
@@ -487,7 +490,7 @@ function WeixinLoginStatus({
     setRefreshing(true);
     setNote("");
     try {
-      const l = weixinLogin(await listChannelConfigs());
+      const l = weixinLogin(await listChannelConfigs(), name);
       if (l) setLogin(l);
       setNote(t("channels.login.refreshed"));
     } catch (err) {
@@ -502,7 +505,7 @@ function WeixinLoginStatus({
     setClearing(true);
     setNote("");
     try {
-      const v = await clearChannelLogin("weixin");
+      const v = await clearChannelLogin(name);
       if (v.login) setLogin(v.login);
       onCleared(v);
       setNote(

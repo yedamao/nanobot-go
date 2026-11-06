@@ -21,6 +21,11 @@ export interface ChannelDraft {
 const maxTokenLen = 4096;
 const telegramToken = /^[0-9]+:[A-Za-z0-9_-]+$/;
 
+export function isWeixinChannel(name: string): boolean {
+  const prefix = "weixin.";
+  return name === "weixin" || (name.startsWith(prefix) && name.length > prefix.length && !name.slice(prefix.length).includes("."));
+}
+
 /** channelDraft is the untouched form for c. */
 export function channelDraft(c: ChannelConfig): ChannelDraft {
   return {
@@ -72,7 +77,7 @@ export function diffChannel(saved: ChannelConfig, d: ChannelDraft): ChannelConfi
     if (d.groupPolicy !== (saved.groupPolicy ?? "")) patch.groupPolicy = d.groupPolicy;
     if (d.replyToMessage !== (saved.replyToMessage ?? false)) patch.replyToMessage = d.replyToMessage;
     if (d.inlineKeyboards !== (saved.inlineKeyboards ?? false)) patch.inlineKeyboards = d.inlineKeyboards;
-  } else if (saved.name === "weixin") {
+  } else if (isWeixinChannel(saved.name)) {
     if (d.baseUrl.trim() !== (saved.baseUrl ?? "")) patch.baseUrl = d.baseUrl.trim();
     if (d.routeTag.trim() !== (saved.routeTag ?? "")) patch.routeTag = d.routeTag.trim();
   }
@@ -119,7 +124,7 @@ export function checkChannel(saved: ChannelConfig, d: ChannelDraft): Invalid | n
     if (bad === "credentials") return { key: "channels.validation.apiBaseCredentials" };
     if (d.enabled && !hasTokenAfter(saved, d)) return { key: "channels.validation.telegramNeedsToken" };
   }
-  if (saved.name === "weixin") {
+  if (isWeixinChannel(saved.name)) {
     const bad = urlProblem(d.baseUrl);
     if (bad === "scheme") return { key: "channels.validation.baseUrlUrl" };
     if (bad === "credentials") return { key: "channels.validation.baseUrlCredentials" };
@@ -139,7 +144,7 @@ function hasTokenAfter(saved: ChannelConfig, d: ChannelDraft): boolean {
 export function tokenStatus(c: ChannelConfig, t: Translator = enT): string {
   const env = c.env_overrides.includes("token");
   if (c.hasToken) return withEnv(c.tokenHint ? t("common.setHint", { hint: c.tokenHint }) : t("common.set"), env, t);
-  if (c.name === "weixin" && c.hasLoginState) return withEnv(t("channels.tokenFromLogin"), env, t);
+  if (isWeixinChannel(c.name) && c.hasLoginState) return withEnv(t("channels.tokenFromLogin"), env, t);
   return withEnv(t("common.notSet"), env, t);
 }
 
@@ -209,6 +214,6 @@ export function withLogin(c: ChannelConfig, v: ChannelConfig): ChannelConfig {
   return { ...c, login: v.login, hasLoginState: v.hasLoginState, restart_required: v.restart_required, running: v.running };
 }
 
-export function weixinLogin(list: ChannelConfig[]): WeixinLogin | undefined {
-  return list.find((c) => c.name === "weixin")?.login;
+export function weixinLogin(list: ChannelConfig[], name = "weixin"): WeixinLogin | undefined {
+  return list.find((c) => c.name === name)?.login;
 }

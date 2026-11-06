@@ -930,6 +930,12 @@ nanobot channels login weixin    # prints a QR code link; scan it with WeChat
 nanobot gateway
 ```
 
+Multiple personal WeChat accounts can use named channel keys such as
+`channels.weixin.work`. Log each one in with its full key, for example
+`nanobot channels login weixin.work`; its login is saved separately in
+`state/weixin.work/account.json`. The bare `weixin` key continues to use
+`state/weixin/account.json`.
+
 The login prints the link of a QR code. nanobot-go does not draw QR codes
 in the terminal; turn the link into one (for example
 `qrencode -t ansiutf8 '<link>'`) and scan it with WeChat, then confirm on

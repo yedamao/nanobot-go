@@ -33,8 +33,18 @@ const (
 
 // DefaultStateDir returns the state directory for a config file:
 // state/weixin next to it, so ~/.wally/state/weixin by default.
-func DefaultStateDir(configPath string) string {
-	return filepath.Join(filepath.Dir(configPath), "state", Name)
+func DefaultStateDir(configPath string, channelName ...string) string {
+	name := Name
+	if len(channelName) > 0 && IsName(channelName[0]) {
+		name = channelName[0]
+	}
+	return filepath.Join(filepath.Dir(configPath), "state", name)
+}
+
+// IsName reports whether name identifies a personal WeChat instance.
+func IsName(name string) bool {
+	prefix := Name + "."
+	return name == Name || (strings.HasPrefix(name, prefix) && len(name) > len(prefix) && !strings.Contains(name[len(prefix):], "."))
 }
 
 // Config is the channels.weixin section.

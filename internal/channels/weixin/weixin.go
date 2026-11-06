@@ -31,6 +31,7 @@ import (
 	"log/slog"
 	mrand "math/rand/v2"
 	"net/http"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,7 +82,7 @@ const (
 )
 
 // errLoginExpired is returned by Send once iLink has rejected the token.
-var errLoginExpired = errors.New("weixin: the login expired; run 'nanobot channels login weixin --force'")
+var errLoginExpired = errors.New("weixin: the login expired")
 
 // Options are the channel's dependencies besides its config section.
 type Options struct {
@@ -114,12 +115,17 @@ func Factory(opts Options) channels.Factory {
 		if err != nil {
 			return nil, err
 		}
-		return New(cfg, deps, opts)
+		instanceOpts := opts
+		if deps.Name != "" && deps.Name != Name && instanceOpts.DefaultStateDir != "" {
+			instanceOpts.DefaultStateDir = filepath.Join(filepath.Dir(instanceOpts.DefaultStateDir), deps.Name)
+		}
+		return New(cfg, deps, instanceOpts)
 	}
 }
 
 // Channel is a WeChat bot connection.
 type Channel struct {
+	name    string
 	cfg     Config
 	api     *client
 	state   stateFile
@@ -240,7 +246,15 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
 	}
+	name := deps.Name
+	if name == "" {
+		name = Name
+	}
+	if !IsName(name) {
+		return nil, fmt.Errorf("weixin: invalid instance name %q", name)
+	}
 	c := &Channel{
+		name:           name,
 		cfg:            cfg,
 		api:            newClient(opts.HTTPClient, string(cfg.RouteTag), opts.Version),
 		state:          stateFile{cfg.StatePath(opts.DefaultStateDir)},
@@ -276,7 +290,7 @@ func New(cfg Config, deps channels.Deps, opts Options) (*Channel, error) {
 }
 
 // Name implements channels.Channel.
-func (c *Channel) Name() string { return Name }
+func (c *Channel) Name() string { return c.name }
 
 // Start picks the bot token (see chooseAccount) and starts long polling.
 // Without a token it fails: unlike nanobot, the gateway never shows a QR
@@ -296,7 +310,7 @@ func (c *Channel) Start(ctx context.Context) error {
 	}
 	acct, ok := chooseAccount(c.cfg, st)
 	if !ok {
-		return fmt.Errorf("weixin: not logged in; run 'nanobot channels login weixin' (or set channels.weixin.token or %s)", EnvToken)
+		return fmt.Errorf("weixin: not logged in; run 'nanobot channels login %s' (or set channels.%s.token or %s)", c.name, c.name, EnvToken)
 	}
 	c.useAccount(acct)
 	c.started = true
@@ -454,7 +468,7 @@ func (c *Channel) awaitLogin(ctx context.Context) bool {
 	stale := c.acct.token
 	c.authRequired = true
 	c.mu.Unlock()
-	c.log.Error("weixin: the login expired; run 'nanobot channels login weixin --force' (polling resumes once it succeeds)")
+	c.log.Error(fmt.Sprintf("weixin: the login expired; run 'nanobot channels login %s --force' (polling resumes once it succeeds)", c.name))
 	for {
 		if c.sleep(ctx, c.backoffDelay) != nil {
 			return false
@@ -527,7 +541,7 @@ func (c *Channel) handle(ctx context.Context, m wireMessage) {
 		"media", len(media))
 	c.startTyping(from, m.ContextToken)
 	in := bus.InboundMessage{
-		Channel:   Name,
+		Channel:   c.name,
 		SenderID:  from,
 		ChatID:    from,
 		Content:   content,
@@ -566,7 +580,7 @@ func (c *Channel) isAllowed(id string) bool {
 	if c.pairing == nil {
 		return false
 	}
-	ok, err := c.pairing.IsApproved(Name, id)
+	ok, err := c.pairing.IsApproved(c.name, id)
 	if err != nil {
 		c.log.Warn("weixin: pairing store unavailable", "error", err)
 		return false
@@ -579,14 +593,14 @@ func (c *Channel) isAllowed(id string) bool {
 // message's context_token, which is not cached.
 func (c *Channel) deny(ctx context.Context, from, ctxToken string) {
 	if strings.HasSuffix(from, "@chatroom") || c.pairing == nil {
-		c.log.Warn("weixin: access denied; add the sender to channels.weixin.allowFrom to grant access", "sender", from)
+		c.log.Warn("weixin: access denied; add the sender to channels."+c.name+".allowFrom to grant access", "sender", from)
 		return
 	}
 	if ctxToken == "" {
 		c.log.Warn("weixin: access denied; cannot send a pairing code without a context_token", "sender", from)
 		return
 	}
-	code, err := c.pairing.Code(Name, from)
+	code, err := c.pairing.Code(c.name, from)
 	if err != nil {
 		c.log.Warn("weixin: pairing store unavailable; dropping the message", "sender", from, "error", err)
 		return
@@ -649,7 +663,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) error {
 	token, _, auth := c.session()
 	switch {
 	case auth:
-		return channels.Permanent(errLoginExpired)
+		return channels.Permanent(fmt.Errorf("%w; run 'nanobot channels login %s --force'", errLoginExpired, c.name))
 	case token == "":
 		return errors.New("weixin: not started")
 	}
@@ -713,7 +727,7 @@ func (c *Channel) deliver(ctx context.Context, d *delivery) error {
 			c.authRequired = true
 			c.mu.Unlock()
 			c.forget(d)
-			return channels.Permanent(fmt.Errorf("%w: %w", errLoginExpired, err))
+			return channels.Permanent(fmt.Errorf("%w; run 'nanobot channels login %s --force': %w", errLoginExpired, c.name, err))
 		case !retryableRequest(err):
 			c.forget(d)
 			return channels.Permanent(err)

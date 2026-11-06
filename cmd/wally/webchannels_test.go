@@ -124,6 +124,25 @@ func TestWebChannelsListRedacts(t *testing.T) {
 	}
 }
 
+func TestNamedWeixinWebChannelHelpers(t *testing.T) {
+	sections := map[string]json.RawMessage{
+		"weixin.work": json.RawMessage(`{"enabled":true}`),
+		"weixin.dev":  json.RawMessage(`{"enabled":false}`),
+		"other":       json.RawMessage(`{"enabled":true}`),
+	}
+	if got, want := configurableChannelNames(sections), []string{"telegram", "weixin", "weixin.dev", "weixin.work"}; !slices.Equal(got, want) {
+		t.Fatalf("configurableChannelNames = %v, want %v", got, want)
+	}
+	base := filepath.Join(t.TempDir(), "state", "weixin")
+	s := &webChannels{weixinStateDir: base}
+	if got, want := s.weixinStatePath("weixin.work", sections["weixin.work"], true), filepath.Join(filepath.Dir(base), "weixin.work", weixin.StateFileName); got != want {
+		t.Fatalf("named state path = %q, want %q", got, want)
+	}
+	if got := weixinLoginCommand("weixin.work", "/tmp/config.json"); !strings.Contains(got, "channels login weixin.work") {
+		t.Fatalf("named login command = %q", got)
+	}
+}
+
 func TestWebChannelsCreateWeixin(t *testing.T) {
 	path := writeSettingsConfig(t)
 	s := runningChannels(t, path, nil)
@@ -319,10 +338,10 @@ func TestWeixinLoginCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := weixinLoginCommand(def); got != "nanobot channels login weixin" {
+	if got := weixinLoginCommand(weixin.Name, def); got != "nanobot channels login weixin" {
 		t.Errorf("default = %q", got)
 	}
-	if got := weixinLoginCommand("/tmp/my dir/config.json"); got != "nanobot channels login weixin --config '/tmp/my dir/config.json'" {
+	if got := weixinLoginCommand(weixin.Name, "/tmp/my dir/config.json"); got != "nanobot channels login weixin --config '/tmp/my dir/config.json'" {
 		t.Errorf("custom = %q", got)
 	}
 }

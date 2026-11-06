@@ -17,6 +17,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/yedamao/wally/internal/bus"
 )
@@ -72,6 +73,8 @@ func IsPermanent(err error) bool {
 
 // Deps is what a factory gets besides its config section.
 type Deps struct {
+	// Name is the config section and routing key being built.
+	Name   string
 	Bus    *bus.MessageBus
 	Logger *slog.Logger
 }
@@ -134,10 +137,13 @@ func (r *Registry) Build(sections map[string]json.RawMessage, deps Deps) ([]Chan
 			continue
 		}
 		f, ok := r.factories[name]
+		if !ok && isWeixinInstance(name) {
+			f, ok = r.factories["weixin"]
+		}
 		if !ok {
 			return nil, fmt.Errorf("channels.%s: unknown channel (known: %v)", name, r.Names())
 		}
-		ch, err := f(raw, Deps{Bus: deps.Bus, Logger: deps.Logger.With("channel", name)})
+		ch, err := f(raw, Deps{Name: name, Bus: deps.Bus, Logger: deps.Logger.With("channel", name)})
 		if err != nil {
 			return nil, fmt.Errorf("channels.%s: %w", name, err)
 		}
@@ -147,6 +153,11 @@ func (r *Registry) Build(sections map[string]json.RawMessage, deps Deps) ([]Chan
 		out = append(out, ch)
 	}
 	return out, nil
+}
+
+func isWeixinInstance(name string) bool {
+	const prefix = "weixin."
+	return name == "weixin" || (strings.HasPrefix(name, prefix) && len(name) > len(prefix) && !strings.Contains(name[len(prefix):], "."))
 }
 
 // DecodeConfig parses a channel's config section into v, rejecting

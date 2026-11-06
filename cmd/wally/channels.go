@@ -13,13 +13,13 @@ import (
 )
 
 const channelsUsage = `Usage:
-  wally channels login weixin [--force] [--config path]
+  wally channels login weixin[.<name>] [--force] [--config path]
 
-login weixin  log in to personal WeChat (Tencent's iLink bot API): prints
+login weixin[.<name>]  log in to a personal WeChat instance (Tencent's iLink bot API): prints
               the link of a QR code to scan with WeChat and waits for the
               confirmation, then saves the bot token to
-              state/weixin/account.json next to the config file (mode
-              0600; channels.weixin.stateDir moves it). --force logs in
+              state/<instance>/account.json next to the config file (mode
+              0600; channels.<instance>.stateDir moves it). --force logs in
               again even when a login is saved. The gateway's WeChat
               channel uses the saved login.
 `
@@ -41,7 +41,7 @@ func (a *app) channelsCmd(ctx context.Context, args []string) error {
 }
 
 func (a *app) channelsLogin(ctx context.Context, args []string) error {
-	fs := a.newFlagSet("channels login", "channels login weixin [--force] [--config path]")
+	fs := a.newFlagSet("channels login", "channels login weixin[.<name>] [--force] [--config path]")
 	configFlag := fs.String("config", "", "config file (default $WALLY_CONFIG or ~/.wally/config.json; legacy $NANOBOT_GO_CONFIG supported)")
 	force := fs.Bool("force", false, "log in again even when a login is saved")
 	// Accept the channel name before or after the flags.
@@ -61,8 +61,9 @@ func (a *app) channelsLogin(ctx context.Context, args []string) error {
 		fs.Usage()
 		return errUsage
 	}
-	if pos[0] != weixin.Name {
-		return fmt.Errorf("channels login: %q has no login (only %s does)", pos[0], weixin.Name)
+	instance := pos[0]
+	if !weixin.IsName(instance) {
+		return fmt.Errorf("channels login: %q has no login (only weixin or weixin.<name> does)", instance)
 	}
 	path, err := config.ResolvePath(*configFlag, a.getenv)
 	if err != nil {
@@ -72,15 +73,15 @@ func (a *app) channelsLogin(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	raw := cfg.Channels[weixin.Name]
+	raw := cfg.Channels[instance]
 	if len(raw) == 0 {
 		raw = json.RawMessage(`{}`)
 	}
 	wcfg, err := weixin.ParseConfig(raw, a.getenv)
 	if err != nil {
-		return fmt.Errorf("channels.%s: %w", weixin.Name, err)
+		return fmt.Errorf("channels.%s: %w", instance, err)
 	}
-	statePath := wcfg.StatePath(weixin.DefaultStateDir(path))
+	statePath := wcfg.StatePath(weixin.DefaultStateDir(path, instance))
 
 	// Ctrl-C cancels the login (signals reach the CLI as a.interrupts).
 	ctx, cancel := context.WithCancel(ctx)
@@ -113,7 +114,7 @@ func (a *app) channelsLogin(ctx context.Context, args []string) error {
 	}
 	fmt.Fprintf(a.stdout, ". Saved to %s.\n", statePath)
 	if !rawEnabled(raw) {
-		fmt.Fprintf(a.stdout, "Set channels.%s.enabled to true in %s, then start 'nanobot gateway'.\n", weixin.Name, path)
+		fmt.Fprintf(a.stdout, "Set channels.%s.enabled to true in %s, then start 'nanobot gateway'.\n", instance, path)
 	} else {
 		fmt.Fprintln(a.stdout, "Start (or restart) 'nanobot gateway' to use it; a gateway whose login expired picks it up by itself.")
 	}

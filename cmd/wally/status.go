@@ -148,8 +148,8 @@ func channelSummary(sections map[string]json.RawMessage, getenv func(string) str
 		if name == telegram.Name && state != "invalid" {
 			state += ", token " + keySource(head.Token != "", getenv(telegram.EnvToken) != "")
 		}
-		if name == weixin.Name && state != "invalid" {
-			state += ", " + weixinLogin(sections[name], getenv, configPath)
+		if weixin.IsName(name) && state != "invalid" {
+			state += ", " + weixinLogin(name, sections[name], getenv, configPath)
 		}
 		parts = append(parts, name+" ("+state+")")
 	}
@@ -159,7 +159,7 @@ func channelSummary(sections map[string]json.RawMessage, getenv func(string) str
 // weixinLogin says where the WeChat channel's token comes from: a token
 // in the config or the environment, or the login saved by `nanobot
 // channels login weixin`.
-func weixinLogin(raw json.RawMessage, getenv func(string) string, configPath string) string {
+func weixinLogin(name string, raw json.RawMessage, getenv func(string) string, configPath string) string {
 	var head struct {
 		Token string `json:"token"`
 	}
@@ -171,13 +171,13 @@ func weixinLogin(raw json.RawMessage, getenv func(string) string, configPath str
 	if err != nil {
 		return "invalid config"
 	}
-	switch ok, err := weixin.HasSavedLogin(cfg.StatePath(weixin.DefaultStateDir(configPath))); {
+	switch ok, err := weixin.HasSavedLogin(cfg.StatePath(weixin.DefaultStateDir(configPath, name))); {
 	case err != nil:
 		return "saved login unreadable"
 	case ok:
 		return "logged in"
 	}
-	return "not logged in (run 'nanobot channels login weixin')"
+	return fmt.Sprintf("not logged in (run 'nanobot channels login %s')", name)
 }
 
 func keySource(inFile, inEnv bool) string {

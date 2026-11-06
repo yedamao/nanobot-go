@@ -16,6 +16,17 @@ import (
 	"github.com/yedamao/wally/internal/channels"
 )
 
+func TestChannelNameUsesInstanceName(t *testing.T) {
+	cfg := Config{BaseURL: DefaultBaseURL, PollTimeout: DefaultPollTimeout, StateDir: t.TempDir()}
+	ch, err := New(cfg, channels.Deps{Name: "weixin.work", Bus: bus.NewMessageBus(1)}, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ch.Name(); got != "weixin.work" {
+		t.Fatalf("Name() = %q", got)
+	}
+}
+
 func TestInboundReachesBusWithSessionKey(t *testing.T) {
 	h := newHarness(t, nil)
 	h.start(t)

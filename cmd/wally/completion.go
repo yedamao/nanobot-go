@@ -76,7 +76,7 @@ _nanobot()
         pairing) choices="list ls approve deny revoke -h --help" ;;
         "pairing "*) choices="--config -h --help" ;;
         channels) choices="login -h --help" ;;
-        "channels login") choices="weixin --force --config -h --help" ;;
+        "channels login") choices="weixin weixin.<name> --force --config -h --help" ;;
         "channels login weixin") choices="--force --config -h --help" ;;
         gateway) choices="status stop restart logs service install-service uninstall-service --background --config --workspace --host --port --verbose -h --help" ;;
         "gateway status") choices="--config --workspace -h --help" ;;
@@ -126,7 +126,7 @@ _nanobot() {
     pairing) choices=(list ls approve deny revoke -h --help) ;;
     pairing\ *) choices=(--config -h --help) ;;
     channels) choices=(login -h --help) ;;
-    'channels login'|'channels login weixin') choices=(weixin --force --config -h --help) ;;
+    'channels login'|'channels login weixin') choices=(weixin 'weixin.<name>' --force --config -h --help) ;;
     gateway) choices=(status stop restart logs service install-service uninstall-service --background --config --workspace --host --port --verbose -h --help) ;;
     'gateway status') choices=(--config --workspace -h --help) ;;
     'gateway stop') choices=(--config --workspace --timeout -h --help) ;;

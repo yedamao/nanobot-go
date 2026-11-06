@@ -45,6 +45,10 @@ const ssrfWhitelistSetting = "tools.ssrf_whitelist"
 // section added from the page would lack its token.
 var editableChannels = []string{telegram.Name, websocket.Name, weixin.Name}
 
+func isEditableChannel(name string) bool {
+	return name == telegram.Name || name == websocket.Name || weixin.IsName(name)
+}
+
 // webSettings is the WebUI's settings store (GET and PATCH /ui/settings).
 // Every change loads the config file afresh, sets only the whitelisted
 // fields on it in place and saves it, so keys, tokens and every other
@@ -202,7 +206,10 @@ func settingsOf(cfg *config.Config) websocket.Settings {
 	for _, fb := range d.FallbackModels {
 		st.FallbackModels = append(st.FallbackModels, websocket.FallbackModel{Provider: fb.Provider, Model: fb.Model})
 	}
-	for _, name := range editableChannels {
+	for _, name := range slices.Sorted(maps.Keys(cfg.Channels)) {
+		if !isEditableChannel(name) {
+			continue
+		}
 		raw, ok := cfg.Channels[name]
 		if !ok {
 			continue
@@ -342,7 +349,7 @@ func applySettings(cfg *config.Config, p websocket.SettingsPatch) error {
 		if on == nil {
 			continue
 		}
-		if !slices.Contains(editableChannels, name) {
+		if !isEditableChannel(name) {
 			return fmt.Errorf("channels.%s is not an editable channel (editable: %s)", name, strings.Join(editableChannels, ", "))
 		}
 		raw, ok := cfg.Channels[name]
