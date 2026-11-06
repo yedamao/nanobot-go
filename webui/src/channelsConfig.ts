@@ -26,6 +26,46 @@ export function isWeixinChannel(name: string): boolean {
   return name === "weixin" || (name.startsWith(prefix) && name.length > prefix.length && !name.slice(prefix.length).includes("."));
 }
 
+export function weixinInstanceSlug(name: string): string {
+  return name === "weixin" ? "" : isWeixinChannel(name) ? name.slice("weixin.".length) : "";
+}
+
+export function weixinInstanceTitle(name: string, t: Translator = enT): string {
+  return name === "weixin" ? t("channels.defaultInstance") : weixinInstanceSlug(name) || name;
+}
+
+export function weixinInstanceKey(slug: string): string {
+  return `weixin.${slug}`;
+}
+
+export type WeixinInstanceInput =
+  | { key: string; slug: string; error?: never }
+  | { error: Invalid; key?: never; slug?: never };
+
+/** parseWeixinInstanceInput accepts either a slug or a full instance key. */
+export function parseWeixinInstanceInput(raw: string): WeixinInstanceInput {
+  let slug = raw.trim().toLowerCase();
+  if (slug === "weixin") return { error: { key: "channels.validation.weixinInstanceReserved" } };
+  if (slug.startsWith("weixin.")) slug = slug.slice("weixin.".length);
+  if (!slug) return { error: { key: "channels.validation.weixinInstanceEmpty" } };
+  if (!/^[a-z][a-z0-9_-]{0,31}$/.test(slug)) {
+    return { error: { key: "channels.validation.weixinInstanceInvalid" } };
+  }
+  return { slug, key: weixinInstanceKey(slug) };
+}
+
+export function partitionChannelConfigs(list: ChannelConfig[]): {
+  telegram?: ChannelConfig;
+  weixinInstances: ChannelConfig[];
+  other: ChannelConfig[];
+} {
+  const telegram = list.find((c) => c.name === "telegram");
+  const weixinInstances = list
+    .filter((c) => isWeixinChannel(c.name))
+    .sort((a, b) => (a.name === "weixin" ? -1 : b.name === "weixin" ? 1 : a.name.localeCompare(b.name)));
+  return { telegram, weixinInstances, other: list.filter((c) => c.name !== "telegram" && !isWeixinChannel(c.name)) };
+}
+
 /** channelDraft is the untouched form for c. */
 export function channelDraft(c: ChannelConfig): ChannelDraft {
   return {
@@ -144,7 +184,10 @@ function hasTokenAfter(saved: ChannelConfig, d: ChannelDraft): boolean {
 export function tokenStatus(c: ChannelConfig, t: Translator = enT): string {
   const env = c.env_overrides.includes("token");
   if (c.hasToken) return withEnv(c.tokenHint ? t("common.setHint", { hint: c.tokenHint }) : t("common.set"), env, t);
-  if (isWeixinChannel(c.name) && c.hasLoginState) return withEnv(t("channels.tokenFromLogin"), env, t);
+  if (isWeixinChannel(c.name) && c.hasLoginState) {
+    const command = c.login?.cliCommand || `wally channels login ${c.name}`;
+    return withEnv(t("channels.tokenFromLogin", { command }), env, t);
+  }
   return withEnv(t("common.notSet"), env, t);
 }
 

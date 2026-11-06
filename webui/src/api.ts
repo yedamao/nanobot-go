@@ -719,7 +719,7 @@ export interface ChannelConfig {
   /** WeChat. */
   baseUrl?: string;
   routeTag?: string;
-  /** A token saved by `nanobot channels login weixin`. */
+  /** A token saved by `wally channels login weixin`. */
   hasLoginState?: boolean;
   /** WeChat: the saved login, without its secrets. */
   login?: WeixinLogin;
@@ -731,7 +731,7 @@ export interface ChannelConfig {
   testSupported: boolean;
 }
 
-/** The login saved by `nanobot channels login weixin`: never its token. */
+/** The login saved by `wally channels login weixin`: never its token. */
 export interface WeixinLogin {
   loggedIn: boolean;
   botId?: string;
@@ -784,7 +784,7 @@ export async function saveChannelConfig(name: string, patch: ChannelConfigPatch)
 }
 
 // DELETE /ui/channels/config/{name}/login removes the login saved by
-// `nanobot channels login weixin` (account.json only, never config.json)
+// `wally channels login weixin` (account.json only, never config.json)
 // and returns the channel afterwards. A running channel keeps the login
 // until the gateway restarts (restart_required).
 export async function clearChannelLogin(name: string): Promise<ChannelConfig> {

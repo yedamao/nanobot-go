@@ -1189,6 +1189,21 @@ fieldset.form-card { margin: 0; padding: 0; min-width: 0; }
 .weixin-login-details div { display: grid; grid-template-columns: 140px 1fr; gap: 8px; }
 .weixin-login-details dt { color: var(--fg-2); }
 .weixin-login-details dd { margin: 0; overflow-wrap: anywhere; }
+.weixin-section { margin: 0 0 16px; }
+.weixin-section-heading { margin: 0 0 10px; }
+.page .weixin-section-heading h3 { margin-bottom: 3px; }
+.weixin-section-heading p { margin: 0; color: var(--fg-2); font-size: var(--fs-sm); }
+.weixin-instance-card { margin: 0; }
+.weixin-instance-body { padding: 14px 18px 16px; }
+.weixin-instance-body > .page-empty:first-child { margin-top: 0; }
+.weixin-add-instance {
+  width: 100%; min-height: 54px;
+  border: 1px dashed var(--line-strong); border-radius: var(--r-lg);
+  color: var(--fg-2); background: transparent;
+}
+.weixin-add-instance:hover:not(:disabled) {
+  color: var(--accent-hi); border-color: var(--accent); background: var(--accent-soft);
+}
 
 /* ───────────────────────── Login ───────────────────────── */
 .login-page {

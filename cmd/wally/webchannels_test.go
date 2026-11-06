@@ -224,7 +224,7 @@ func TestWebChannelsWeixinLogin(t *testing.T) {
 	// Not logged in; the command names the non-default config file.
 	l := login()
 	if l.LoggedIn || l.Error != "" || l.StatePath != statePath || l.LoginHint == "" ||
-		l.CLICommand != "nanobot channels login weixin --config "+shellJoin([]string{path}) {
+		l.CLICommand != "wally channels login weixin --config "+shellJoin([]string{path}) {
 		t.Errorf("login = %+v", l)
 	}
 
@@ -338,10 +338,10 @@ func TestWeixinLoginCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := weixinLoginCommand(weixin.Name, def); got != "nanobot channels login weixin" {
+	if got := weixinLoginCommand(weixin.Name, def); got != "wally channels login weixin" {
 		t.Errorf("default = %q", got)
 	}
-	if got := weixinLoginCommand(weixin.Name, "/tmp/my dir/config.json"); got != "nanobot channels login weixin --config '/tmp/my dir/config.json'" {
+	if got := weixinLoginCommand(weixin.Name, "/tmp/my dir/config.json"); got != "wally channels login weixin --config '/tmp/my dir/config.json'" {
 		t.Errorf("custom = %q", got)
 	}
 }
@@ -515,7 +515,7 @@ func TestWebChannelsTestTelegram(t *testing.T) {
 		t.Errorf("no token = %+v, %v", res, err)
 	}
 	if res, err = s.TestChannelConfig(ctx, "weixin", websocket.ChannelConfigTest{}); err != nil || res.OK || res.Status != websocket.ChannelTestUnsupported ||
-		!strings.Contains(res.Message, "nanobot channels login weixin") {
+		!strings.Contains(res.Message, "wally channels login weixin") {
 		t.Errorf("weixin = %+v, %v", res, err)
 	}
 	if _, err = s.TestChannelConfig(ctx, "websocket", websocket.ChannelConfigTest{}); !errors.Is(err, websocket.ErrChannelNotConfigurable) {

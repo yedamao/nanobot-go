@@ -13,11 +13,16 @@ import {
   forceLoginCommand,
   loginDetails,
   loginStatus,
+  parseWeixinInstanceInput,
   parseAllowFrom,
+  partitionChannelConfigs,
   testNote,
   tokenStatus,
   weixinLogin,
   withLogin,
+  weixinInstanceKey,
+  weixinInstanceSlug,
+  weixinInstanceTitle,
 } from "./channelsConfig.ts";
 
 const telegram: ChannelConfig = {
@@ -91,6 +96,28 @@ test("parseAllowFrom", () => {
   assert.deepEqual(parseAllowFrom("a,b , a\nc"), ["a", "b", "c"]);
 });
 
+test("WeChat instance names and channel partitions", () => {
+  assert.equal(weixinInstanceSlug("weixin"), "");
+  assert.equal(weixinInstanceSlug("weixin.work"), "work");
+  assert.equal(weixinInstanceTitle("weixin"), "Default");
+  assert.equal(weixinInstanceTitle("weixin.work"), "work");
+  assert.equal(weixinInstanceKey("work"), "weixin.work");
+  assert.deepEqual(parseWeixinInstanceInput(" work "), { slug: "work", key: "weixin.work" });
+  assert.deepEqual(parseWeixinInstanceInput("WEIXIN.Personal_2"), { slug: "personal_2", key: "weixin.personal_2" });
+  assert.equal(parseWeixinInstanceInput("").error?.key, "channels.validation.weixinInstanceEmpty");
+  assert.equal(parseWeixinInstanceInput("weixin").error?.key, "channels.validation.weixinInstanceReserved");
+  for (const bad of ["two.words", "2work", "work!", "a".repeat(33)]) {
+    assert.equal(parseWeixinInstanceInput(bad).error?.key, "channels.validation.weixinInstanceInvalid", bad);
+  }
+
+  const work = { ...weixin, name: "weixin.work" };
+  const other = { ...weixin, name: "custom" };
+  const grouped = partitionChannelConfigs([work, other, telegram, weixin]);
+  assert.equal(grouped.telegram, telegram);
+  assert.deepEqual(grouped.weixinInstances.map((c) => c.name), ["weixin", "weixin.work"]);
+  assert.deepEqual(grouped.other, [other]);
+});
+
 test("checkToken", () => {
   assert.deepEqual(checkToken("telegram", ""), null);
   assert.deepEqual(checkToken("telegram", "123456:AA_b-c"), null);
@@ -116,7 +143,8 @@ test("checkChannel", () => {
 test("tokenStatus and channelState", () => {
   assert.equal(tokenStatus(telegram), "Set: 123456:••••abcd");
   assert.equal(tokenStatus({ ...telegram, hasToken: false, tokenHint: "", env_overrides: ["token"] }), "Not set (overridden by the environment)");
-  assert.equal(tokenStatus(weixin), "From 'nanobot channels login weixin'");
+  assert.equal(tokenStatus(weixin), "From 'wally channels login weixin'");
+  assert.equal(tokenStatus({ ...weixin, name: "weixin.work", login: { loggedIn: true, statePath: "x", cliCommand: "wally channels login weixin.work", loginHint: "" } }), "From 'wally channels login weixin.work'");
   assert.equal(tokenStatus({ ...weixin, hasLoginState: false }), "Not set");
   assert.equal(channelState(telegram), "running");
   assert.equal(channelState({ ...telegram, running: false }), "enabled, not running");
@@ -141,7 +169,7 @@ test("canTest and testNote", () => {
 const loggedOut: WeixinLogin = {
   loggedIn: false,
   statePath: "/tmp/nb/state/weixin/account.json",
-  cliCommand: "nanobot channels login weixin --config /tmp/nb/config.json",
+  cliCommand: "wally channels login weixin --config /tmp/nb/config.json",
   loginHint: "Not logged in.",
 };
 
@@ -162,7 +190,7 @@ test("loginStatus and loginDetails describe the saved WeChat login", () => {
 });
 
 test("forceLoginCommand and weixinLogin", () => {
-  assert.equal(forceLoginCommand(loggedOut.cliCommand), "nanobot channels login weixin --config /tmp/nb/config.json --force");
+  assert.equal(forceLoginCommand(loggedOut.cliCommand), "wally channels login weixin --config /tmp/nb/config.json --force");
   assert.equal(weixinLogin([telegram]), undefined);
   assert.equal(weixinLogin([telegram, { ...telegram, name: "weixin", login: loggedOut }]), loggedOut);
 });

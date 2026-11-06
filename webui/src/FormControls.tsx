@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
-export function Switch({ id, checked, onChange, label }: { id?: string; checked: boolean; onChange: (value: boolean) => void; label: string }) {
+export function Switch({ id, checked, onChange, label, disabled }: { id?: string; checked: boolean; onChange: (value: boolean) => void; label: string; disabled?: boolean }) {
   return <label className="switch" title={label}>
-    <input id={id} type="checkbox" checked={checked} aria-label={label} onChange={(event) => onChange(event.target.checked)} />
+    <input id={id} type="checkbox" checked={checked} disabled={disabled} aria-label={label} onChange={(event) => onChange(event.target.checked)} />
     <span />
   </label>;
 }

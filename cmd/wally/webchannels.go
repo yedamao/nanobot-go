@@ -72,7 +72,7 @@ type webChannels struct {
 	// live names the channels running now; nil reports none.
 	live   func() []string
 	getenv func(string) string
-	// weixinStateDir is where `nanobot channels login weixin` saves the
+	// weixinStateDir is where `wally channels login weixin` saves the
 	// login when the section sets no stateDir.
 	weixinStateDir string
 	// client probes Telegram tokens; nil uses one honoring the proxy.
@@ -166,7 +166,7 @@ func (s *webChannels) TestChannelConfig(ctx context.Context, name string, t webs
 	switch {
 	case weixin.IsName(name):
 		return websocket.ChannelTestResult{Status: websocket.ChannelTestUnsupported,
-			Message: fmt.Sprintf("WeChat cannot be tested from here; run 'nanobot channels login %s' to log in and check the account.", name)}, nil
+			Message: fmt.Sprintf("WeChat cannot be tested from here; run 'wally channels login %s' to log in and check the account.", name)}, nil
 	case name == telegram.Name:
 	default:
 		return websocket.ChannelTestResult{}, websocket.ErrChannelNotConfigurable
@@ -542,7 +542,7 @@ func (s *webChannels) weixinLogin(name, statePath string) *websocket.WeixinLogin
 // weixinLoginCommand is the shell command that logs in to WeChat for the
 // config file at path; --config is left out for the default file.
 func weixinLoginCommand(name, path string) string {
-	args := []string{"nanobot", "channels", "login", name}
+	args := []string{"wally", "channels", "login", name}
 	if def, err := config.DefaultPath(); err != nil || filepath.Clean(path) != filepath.Clean(def) {
 		args = append(args, "--config", path)
 	}

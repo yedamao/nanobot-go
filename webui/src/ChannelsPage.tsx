@@ -27,8 +27,11 @@ import {
   loginDetails,
   loginStatus,
   isWeixinChannel,
+  parseWeixinInstanceInput,
+  partitionChannelConfigs,
   testNote,
   tokenStatus,
+  weixinInstanceTitle,
   weixinLogin,
   withLogin,
   type ChannelDraft,
@@ -36,6 +39,7 @@ import {
 import { RestartGateway } from "./RestartGateway";
 import { Fill, useFormatDate, useT, type MessageKey } from "./i18n";
 import { Icon } from "./Icon";
+import { Switch } from "./FormControls";
 
 // ChannelsPage shows the channels' state, configures Telegram and WeChat
 // through GET and PATCH /ui/channels/config (saved tokens are never sent
@@ -51,6 +55,8 @@ export function ChannelsPage() {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [addingWeixin, setAddingWeixin] = useState(false);
+  const [addWeixinError, setAddWeixinError] = useState("");
 
   const load = useCallback(async () => {
     setError("");
@@ -71,8 +77,13 @@ export function ChannelsPage() {
     await configsLoad;
   }, []);
 
-  const savedConfig = (c: ChannelConfig) => setConfigs((list) => list && list.map((q) => (q.name === c.name ? c : q)));
+  const savedConfig = (c: ChannelConfig) =>
+    setConfigs((list) => {
+      if (!list) return [c];
+      return list.some((q) => q.name === c.name) ? list.map((q) => (q.name === c.name ? c : q)) : [...list, c];
+    });
   const pending = (configs ?? []).filter((c) => c.restart_required).map((c) => c.name);
+  const grouped = partitionChannelConfigs(configs ?? []);
 
   useEffect(() => {
     void load();
@@ -99,6 +110,29 @@ export function ChannelsPage() {
       for (const sender of ids) approvedRows.push({ channel, sender });
     }
   }
+
+  const addWeixinInstance = async () => {
+    const raw = window.prompt(t("channels.addInstancePrompt"));
+    if (raw === null) return;
+    setAddWeixinError("");
+    const parsed = parseWeixinInstanceInput(raw);
+    if (parsed.error) {
+      setAddWeixinError(t(parsed.error.key, parsed.error.vars));
+      return;
+    }
+    if ((configs ?? []).some((c) => c.name === parsed.key)) {
+      setAddWeixinError(t("channels.validation.weixinInstanceDuplicate", { key: parsed.key }));
+      return;
+    }
+    setAddingWeixin(true);
+    try {
+      savedConfig(await saveChannelConfig(parsed.key, { enabled: true }));
+    } catch (err) {
+      setAddWeixinError(t("channels.addInstanceFailed", { message: (err as Error).message }));
+    } finally {
+      setAddingWeixin(false);
+    }
+  };
 
   return (
     <section className="page" aria-labelledby="channels-heading">
@@ -134,7 +168,28 @@ export function ChannelsPage() {
       {!configError && !configs && <p className="page-empty">{t("common.loading")}</p>}
       {pending.length > 0 && <p className="page-note">{t("channels.pending", { names: pending.join(", ") })}</p>}
       {pending.length > 0 && <RestartGateway />}
-      {configs?.map((c) => <ChannelConfigForm key={c.name} config={c} onSaved={savedConfig} />)}
+      {grouped.telegram && <ChannelConfigForm config={grouped.telegram} onSaved={savedConfig} />}
+      {configs && grouped.weixinInstances.length > 0 && (
+        <section className="weixin-section" aria-labelledby="weixin-section-heading">
+          <div className="weixin-section-heading">
+            <h3 id="weixin-section-heading">{t("channels.wechatSection")}</h3>
+            <p>{t("channels.wechatSectionHelp")}</p>
+          </div>
+          <div className="section-stack">
+            {grouped.weixinInstances.map((c) => <ChannelConfigForm key={c.name} config={c} onSaved={savedConfig} />)}
+            <button
+              type="button"
+              className="weixin-add-instance"
+              disabled={addingWeixin}
+              onClick={() => void addWeixinInstance()}
+            >
+              {t(addingWeixin ? "channels.addingInstance" : "channels.addInstance")}
+            </button>
+          </div>
+          {addWeixinError && <p className="page-error" role="alert">{addWeixinError}</p>}
+        </section>
+      )}
+      {configs && grouped.other.map((c) => <ChannelConfigForm key={c.name} config={c} onSaved={savedConfig} />)}
       {configs && (
         <p className="page-empty">
           <Fill text={t("channels.savedTo")} vars={{ path: <code>channels.&lt;name&gt;</code> }} />{" "}
@@ -289,26 +344,56 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
     }
   };
 
-  const id = "channel-" + c.name;
+  const id = "channel-" + c.name.replace(/[^a-zA-Z0-9_-]/g, "-");
+  const isWeixin = isWeixinChannel(c.name);
   const dirty = Object.keys(diffChannel(c, draft)).length > 0;
   const tokenLabel = t(c.name === "telegram" ? "channels.newBotToken" : "channels.newToken");
   return (
-    <form className="cron-form" autoComplete="off" onSubmit={(e) => void submit(e)} aria-labelledby={id + "-heading"}>
-      <h3 id={id + "-heading"}>
-        {channelTitles[c.name] ?? c.name} <small>({channelState(c, t)})</small>{" "}
-        {c.restart_required && <span className="badge">{t("common.restartRequired")}</span>}
-      </h3>
-      <p className="page-empty">{t("channels.tokenLabel", { status: tokenStatus(c, t) })}</p>
-      <fieldset className="cron-fields" disabled={saving}>
-        <label htmlFor={id + "-enabled"}>
-          <input
-            id={id + "-enabled"}
-            type="checkbox"
-            checked={draft.enabled}
-            onChange={(e) => set("enabled", e.target.checked)}
-          />{" "}
-          {t("common.enabled")}
-        </label>
+    <form
+      className={isWeixin ? "form-card settings-card weixin-instance-card" : "cron-form"}
+      autoComplete="off"
+      onSubmit={(e) => void submit(e)}
+      aria-labelledby={id + "-heading"}
+    >
+      {isWeixin ? (
+        <div className="settings-card-head">
+          <div className="settings-card-title">
+            <h3 id={id + "-heading"}>
+              {weixinInstanceTitle(c.name, t)}{" "}
+              {c.restart_required && <span className="badge">{t("common.restartRequired")}</span>}
+            </h3>
+            <p>{t("channels.instanceKey", { key: c.name, state: channelState(c, t) })}</p>
+          </div>
+          <div className="head-meta">
+            <Switch
+              id={id + "-enabled"}
+              label={t("channels.instanceEnabled", { title: weixinInstanceTitle(c.name, t) })}
+              checked={draft.enabled}
+              disabled={saving}
+              onChange={(value) => set("enabled", value)}
+            />
+          </div>
+        </div>
+      ) : (
+        <h3 id={id + "-heading"}>
+          {channelTitles[c.name] ?? c.name} <small>({channelState(c, t)})</small>{" "}
+          {c.restart_required && <span className="badge">{t("common.restartRequired")}</span>}
+        </h3>
+      )}
+      <div className={isWeixin ? "weixin-instance-body" : undefined}>
+        <p className="page-empty">{t("channels.tokenLabel", { status: tokenStatus(c, t) })}</p>
+        <fieldset className="cron-fields" disabled={saving}>
+        {!isWeixin && (
+          <label htmlFor={id + "-enabled"}>
+            <input
+              id={id + "-enabled"}
+              type="checkbox"
+              checked={draft.enabled}
+              onChange={(e) => set("enabled", e.target.checked)}
+            />{" "}
+            {t("common.enabled")}
+          </label>
+        )}
         <label htmlFor={id + "-token"}>
           {tokenLabel}
           <input
@@ -383,7 +468,7 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
             </label>
           </>
         )}
-        {isWeixinChannel(c.name) && (
+        {isWeixin && (
           <>
             <label htmlFor={id + "-base"}>
               {t("channels.baseUrl")}
@@ -423,13 +508,13 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
             onChange={(e) => set("pollTimeout", e.target.value)}
           />
         </label>
-      </fieldset>
-      {isWeixinChannel(c.name) && c.login && (
-        <WeixinLoginStatus name={c.name} login={c.login} running={c.running} onCleared={(v) => onSaved(withLogin(c, v))} />
+        </fieldset>
+      {isWeixin && c.login && (
+        <WeixinLoginStatus id={id} name={c.name} login={c.login} running={c.running} onCleared={(v) => onSaved(withLogin(c, v))} />
       )}
-      {isWeixinChannel(c.name) && !c.login && (
+      {isWeixin && !c.login && (
         <p className="page-empty">
-          <Fill text={t("channels.weixinNoLogin")} vars={{ command: <code>nanobot channels login {c.name}</code> }} />
+          <Fill text={t("channels.weixinNoLogin")} vars={{ command: <code>wally channels login {c.name}</code> }} />
         </p>
       )}
       {c.hasProxy && <p className="page-empty">{t("channels.proxy")}</p>}
@@ -459,6 +544,7 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
           {note.text}
         </p>
       )}
+      </div>
     </form>
   );
 }
@@ -468,11 +554,13 @@ function ChannelConfigForm({ config: c, onSaved }: { config: ChannelConfig; onSa
 // Refresh re-reads the login and Clear login removes the saved one
 // (after a confirm), both without resetting the card's form.
 function WeixinLoginStatus({
+  id,
   name,
   login: initial,
   running,
   onCleared,
 }: {
+  id: string;
   name: string;
   login: WeixinLogin;
   running: boolean;
@@ -552,9 +640,9 @@ function WeixinLoginStatus({
         </dl>
       )}
       <p className="page-empty">{login.loginHint}</p>
-      <label htmlFor="weixin-login-cmd">
+      <label htmlFor={id + "-login-cmd"}>
         {t("channels.login.fromTerminal")}
-        <input id="weixin-login-cmd" type="text" readOnly spellCheck={false} value={login.cliCommand} onFocus={(e) => e.target.select()} />
+        <input id={id + "-login-cmd"} type="text" readOnly spellCheck={false} value={login.cliCommand} onFocus={(e) => e.target.select()} />
       </label>
       <div className="cron-form-actions">
         <button type="button" onClick={() => copy(login.cliCommand)}>
