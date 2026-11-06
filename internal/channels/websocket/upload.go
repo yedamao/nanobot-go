@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -40,8 +41,8 @@ type UploadResult struct {
 	Kind string `json:"kind"`
 }
 
-// safeFilename returns name's base with every character but ASCII letters,
-// digits, '.', '-' and '_' replaced by '_', leading dots dropped (no
+// safeFilename returns name's base with every character but Unicode letters
+// and digits, '.', '-' and '_' replaced by '_', leading dots dropped (no
 // hidden files) and cut to maxUploadNameRunes, keeping the extension; an
 // empty result is "file".
 func safeFilename(name string) string {
@@ -51,7 +52,7 @@ func safeFilename(name string) string {
 	var b strings.Builder
 	for _, r := range name {
 		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_':
+		case unicode.IsLetter(r), unicode.IsDigit(r), r == '.', r == '-', r == '_':
 			b.WriteRune(r)
 		default:
 			b.WriteByte('_')

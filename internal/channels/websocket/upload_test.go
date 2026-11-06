@@ -115,7 +115,9 @@ func TestSafeFilename(t *testing.T) {
 		".env":                            "env",
 		"...":                             "file",
 		"":                                "file",
-		"résumé 2026.pdf":                 "r_sum__2026.pdf",
+		"报表-月1.csv":                       "报表-月1.csv",
+		"report报表.csv":                    "report报表.csv",
+		"résumé 2026.pdf":                 "résumé_2026.pdf",
 		"a\x00b.png":                      "a_b.png",
 		strings.Repeat("x", 200) + ".png": strings.Repeat("x", 76) + ".png",
 	} {
