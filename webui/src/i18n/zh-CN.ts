@@ -148,6 +148,11 @@ export const zhCN: Messages = {
     copy: "复制",
     copied: "已复制",
     download: "下载 {name}",
+    imagePreview: "图片预览",
+    previewImage: "预览 {name}",
+    closePreview: "关闭图片预览",
+    previousImage: "上一张图片",
+    nextImage: "下一张图片",
   },
   status: {
     blurb: "运行状态和入站聊天平台。工具控制项现位于“工具 → 内置”。",

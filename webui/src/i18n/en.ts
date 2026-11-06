@@ -146,6 +146,11 @@ export const en = {
     copy: "Copy",
     copied: "Copied",
     download: "Download {name}",
+    imagePreview: "Image preview",
+    previewImage: "Preview {name}",
+    closePreview: "Close image preview",
+    previousImage: "Previous image",
+    nextImage: "Next image",
   },
   status: {
     blurb: "Runtime health and inbound channels. Tool controls are under Tools → Built-in.",

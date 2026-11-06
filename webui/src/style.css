@@ -686,7 +686,14 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .hljs-strong { font-weight: 600; }
 
 /* Workspace images and files (/ui/media/) */
-.media-link { display: inline-block; max-width: 100%; }
+.media-link {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
 .media-img {
   display: block;
   max-width: 100%;
@@ -698,6 +705,52 @@ select option { background: var(--bg-2); color: var(--fg-0); }
 .attachments { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
 .bubble .attachments { justify-content: flex-end; }
 .attachments .media-img { max-width: 220px; max-height: 160px; }
+
+.lightbox {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 64px;
+  background: rgb(1 13 14 / 92%);
+}
+.lightbox-image {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 128px);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 55%);
+  object-fit: contain;
+}
+.lightbox-btn {
+  position: absolute;
+  z-index: 1;
+  display: grid;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  place-items: center;
+  border: 1px solid var(--line-1);
+  border-radius: 50%;
+  color: var(--fg-0);
+  background: var(--bg-2);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+}
+.lightbox-btn:hover { color: var(--accent); background: var(--bg-3); }
+.lightbox-btn svg { width: 22px; height: 22px; }
+.lightbox-close { top: 16px; right: 16px; }
+.lightbox-prev { left: 16px; top: 50%; transform: translateY(-50%); }
+.lightbox-next { right: 16px; top: 50%; transform: translateY(-50%); }
+.lightbox-next svg { transform: rotate(180deg); }
+
+@media (max-width: 600px) {
+  .lightbox { padding: 64px 12px; }
+  .lightbox-image { max-height: calc(100vh - 128px); }
+  .lightbox-prev { left: 8px; }
+  .lightbox-next { right: 8px; }
+}
 .file-chip {
   display: inline-flex; align-items: center; gap: 8px;
   max-width: 100%;
